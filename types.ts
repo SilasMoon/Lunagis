@@ -1,4 +1,4 @@
-// Fix: Define VrtData here to break a circular dependency.
+// Fix: Define VrtData interface here to break the circular dependency with vrtParser.ts.
 export interface VrtData {
   geoTransform: number[];
   srs: string;
@@ -30,7 +30,7 @@ export interface ViewState {
 
 export type TimeRange = { start: number; end: number };
 export type TimeDomain = [Date, Date];
-export type Tool = 'layers' | 'measurement' | 'config';
+export type Tool = 'layers' | 'measurement' | 'config' | 'artifacts';
 
 export type ColorStop = { value: number; color: string; };
 
@@ -47,7 +47,7 @@ export interface DaylightFractionHoverData {
 }
 
 
-// --- New Layer Architecture Types ---
+// --- Layer Architecture Types ---
 
 export interface LayerBase {
   id: string;
@@ -60,11 +60,14 @@ export interface BaseMapLayer extends LayerBase {
   type: 'basemap';
   image: HTMLImageElement;
   vrt: VrtData;
+  pngFileName: string;
+  vrtFileName: string;
 }
 
 export interface DataLayer extends LayerBase {
   type: 'data';
   dataset: DataSet;
+  fileName: string; // Original file name for session saving
   range: { min: number; max: number };
   colormap: ColorMapName;
   colormapInverted?: boolean;
@@ -90,3 +93,98 @@ export interface AnalysisLayer extends LayerBase {
 }
 
 export type Layer = BaseMapLayer | DataLayer | AnalysisLayer;
+
+// --- Artifact Types ---
+export interface ArtifactBase {
+  id: string;
+  name: string;
+  type: 'circle' | 'rectangle' | 'path';
+  visible: boolean;
+  color: string;
+  thickness: number;
+}
+
+export interface CircleArtifact extends ArtifactBase {
+  type: 'circle';
+  center: [number, number]; // Projected coordinates [x, y]
+  radius: number; // in meters
+}
+
+export interface RectangleArtifact extends ArtifactBase {
+  type: 'rectangle';
+  center: [number, number]; // Projected coordinates [x, y]
+  width: number; // in meters
+  height: number; // in meters
+  rotation: number; // in degrees
+}
+
+export interface PathArtifact extends ArtifactBase {
+  type: 'path';
+  waypoints: [number, number][]; // Array of projected coordinates
+}
+
+export type Artifact = CircleArtifact | RectangleArtifact | PathArtifact;
+
+// Serializable artifacts are the same as the main ones since coords are arrays
+export type SerializableArtifact = Artifact;
+
+
+// --- Serializable Types for Session Import/Export ---
+
+interface SerializableLayerBase {
+  id: string;
+  name: string;
+  visible: boolean;
+  opacity: number;
+}
+
+export interface SerializableBaseMapLayer extends SerializableLayerBase {
+  type: 'basemap';
+  vrt: VrtData;
+  pngFileName: string;
+  vrtFileName: string;
+}
+
+export interface SerializableDataLayer extends SerializableLayerBase {
+  type: 'data';
+  fileName: string;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
+}
+
+export interface SerializableAnalysisLayer extends SerializableLayerBase {
+  type: 'analysis';
+  analysisType: AnalysisType;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
+  sourceLayerId: string;
+  params: {
+    clipValue?: number;
+  };
+}
+
+export type SerializableLayer = SerializableBaseMapLayer | SerializableDataLayer | SerializableAnalysisLayer;
+
+export interface AppStateConfig {
+  version: number;
+  layers: SerializableLayer[];
+  activeLayerId: string | null;
+  timeRange: TimeRange | null;
+  timeZoomDomain: [string, string] | null;
+  viewState: ViewState | null;
+  showGraticule: boolean;
+  graticuleDensity: number;
+  showGrid: boolean;
+  gridSpacing: number;
+  gridColor: string;
+  selectedCells: {x: number, y: number}[];
+  selectionColor: string;
+  activeTool: Tool;
+  artifacts: SerializableArtifact[];
+}

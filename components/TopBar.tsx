@@ -47,6 +47,12 @@ const ConfigIcon = () => (
     </svg>
 );
 
+const ArtifactsIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" />
+    </svg>
+);
+
 export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect }) => (
   <aside className="bg-gray-800/50 border-r border-gray-700 p-2 w-20 flex-shrink-0 flex flex-col items-center gap-4">
     <div className="my-2">
@@ -55,6 +61,7 @@ export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect }) =>
         </svg>
     </div>
     <ToolButton label="Layers" icon={<LayersIcon />} isActive={activeTool === 'layers'} onClick={() => onToolSelect('layers')} />
+    <ToolButton label="Artifacts" icon={<ArtifactsIcon />} isActive={activeTool === 'artifacts'} onClick={() => onToolSelect('artifacts')} />
     <ToolButton label="Measure" icon={<MeasurementIcon />} isActive={activeTool === 'measurement'} onClick={() => onToolSelect('measurement')} />
     <ToolButton label="Config" icon={<ConfigIcon />} isActive={activeTool === 'config'} onClick={() => onToolSelect('config')} />
   </aside>

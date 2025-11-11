@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData } from '../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
@@ -384,6 +384,175 @@ const LayersPanel: React.FC<any> = (props) => {
     );
 };
 
+const ArtifactItem: React.FC<{
+  artifact: Artifact;
+  isActive: boolean;
+  onSelect: () => void;
+  onUpdate: (id: string, updates: Partial<Artifact>) => void;
+  onRemove: (id: string) => void;
+}> = ({ artifact, isActive, onSelect, onUpdate, onRemove }) => {
+
+    const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
+        onUpdate(artifact.id, { [prop]: value });
+    };
+
+    const handleWaypointChange = (path: PathArtifact, wpIndex: number, coord: 'x' | 'y', value: string) => {
+        const newWaypoints = [...path.waypoints];
+        const numericValue = parseFloat(value);
+        if (!isNaN(numericValue)) {
+            newWaypoints[wpIndex] = [
+                coord === 'x' ? numericValue : newWaypoints[wpIndex][0],
+                coord === 'y' ? numericValue : newWaypoints[wpIndex][1],
+            ];
+            onUpdate(path.id, { waypoints: newWaypoints });
+        }
+    };
+    
+    const handleRemoveWaypoint = (path: PathArtifact, wpIndex: number) => {
+        const newWaypoints = path.waypoints.filter((_, i) => i !== wpIndex);
+        onUpdate(path.id, { waypoints: newWaypoints });
+    };
+
+    return (
+        <div className={`bg-gray-800/60 rounded-lg border ${isActive ? 'border-cyan-500/50' : 'border-gray-700/80'}`}>
+            <div className="flex items-center p-2 gap-2">
+                <button onClick={() => handleCommonUpdate('visible', !artifact.visible)} title={artifact.visible ? 'Hide' : 'Show'} className="text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" style={{ opacity: artifact.visible ? 1 : 0.3 }} /></svg>
+                </button>
+                <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-sm">
+                    <p className="font-medium text-gray-200" title={artifact.name}>{artifact.name}</p>
+                    <p className="text-xs text-gray-400">{artifact.type.charAt(0).toUpperCase() + artifact.type.slice(1)}</p>
+                </div>
+                <button onClick={onSelect} className="text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform ${isActive ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                </button>
+                <button onClick={() => onRemove(artifact.id)} title="Remove" className="text-gray-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
+            </div>
+            {isActive && (
+                <div className="p-3 border-t border-gray-700 space-y-4 text-sm animate-fade-in">
+                    <Section title="General" defaultOpen={true}>
+                        <div className="flex items-center justify-between">
+                            <label className="font-medium text-gray-300">Name</label>
+                            <input type="text" value={artifact.name} onChange={e => handleCommonUpdate('name', e.target.value)} className="w-40 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <label className="font-medium text-gray-300">Color</label>
+                            <input type="color" value={artifact.color} onChange={e => handleCommonUpdate('color', e.target.value)} className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" />
+                        </div>
+                        <div>
+                            <label className="block font-medium text-gray-300 mb-1">Thickness: {artifact.thickness}px</label>
+                            <input type="range" min="1" max="10" step="1" value={artifact.thickness} onChange={e => handleCommonUpdate('thickness', Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                        </div>
+                    </Section>
+                    
+                    {artifact.type === 'circle' && (
+                        <Section title="Circle Properties" defaultOpen={true}>
+                            <div className="flex items-center justify-between">
+                                <label className="font-medium text-gray-300">Radius (m)</label>
+                                <input type="number" min="0" value={artifact.radius} onChange={e => onUpdate(artifact.id, { radius: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                            </div>
+                        </Section>
+                    )}
+
+                    {artifact.type === 'rectangle' && (
+                        <Section title="Rectangle Properties" defaultOpen={true}>
+                            <div className="flex items-center justify-between">
+                                <label className="font-medium text-gray-300">Width (m)</label>
+                                <input type="number" min="0" value={artifact.width} onChange={e => onUpdate(artifact.id, { width: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <label className="font-medium text-gray-300">Height (m)</label>
+                                <input type="number" min="0" value={artifact.height} onChange={e => onUpdate(artifact.id, { height: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                            </div>
+                            <div>
+                                <label className="block font-medium text-gray-300 mb-1">Rotation: {artifact.rotation}°</label>
+                                <input type="range" min="0" max="360" step="1" value={artifact.rotation} onChange={e => onUpdate(artifact.id, { rotation: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                            </div>
+                        </Section>
+                    )}
+
+                    {artifact.type === 'path' && (
+                        <Section title="Path Waypoints" defaultOpen={true}>
+                            {artifact.waypoints.map((wp, i) => (
+                                <div key={i} className="flex items-center gap-2 bg-gray-900/40 p-1.5 rounded-md">
+                                    <span className="font-mono text-gray-400">{i + 1}.</span>
+                                    <input type="number" value={wp[0]} onChange={e => handleWaypointChange(artifact, i, 'x', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600" placeholder="X" />
+                                    <input type="number" value={wp[1]} onChange={e => handleWaypointChange(artifact, i, 'y', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600" placeholder="Y" />
+                                    <button onClick={() => handleRemoveWaypoint(artifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                    </button>
+                                </div>
+                            ))}
+                            {/* <button className="w-full text-sm ...">Add Waypoint by Click</button> */}
+                        </Section>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+const ArtifactsPanel: React.FC<{
+  artifacts: Artifact[];
+  activeArtifactId: string | null;
+  onActiveArtifactChange: (id: string | null) => void;
+  onUpdateArtifact: (id: string, updates: Partial<Artifact>) => void;
+  onRemoveArtifact: (id: string) => void;
+  artifactCreationMode: Artifact['type'] | null;
+  onSetArtifactCreationMode: (type: Artifact['type'] | null) => void;
+  onFinishArtifactCreation: () => void;
+  isDataLoaded: boolean;
+}> = ({ artifacts, activeArtifactId, onActiveArtifactChange, onUpdateArtifact, onRemoveArtifact, artifactCreationMode, onSetArtifactCreationMode, onFinishArtifactCreation, isDataLoaded }) => {
+  if (!isDataLoaded) {
+    return (
+      <div>
+        <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
+        <p className="text-sm text-gray-400 mt-2">Load a basemap or data layer to add artifacts.</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
+      {artifactCreationMode === 'path' ? (
+        <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-3">
+            <p><strong>Drawing Path:</strong> Click on the map to add waypoints. Press 'Esc' or click finish when done.</p>
+            <button onClick={onFinishArtifactCreation} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Drawing</button>
+        </div>
+      ) : (
+        <>
+            <p className="text-sm text-gray-400">Add and manage annotations on the map. Click a button below, then click on the map to place an artifact.</p>
+            <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => onSetArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Circle</button>
+                <button onClick={() => onSetArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Rect</button>
+                <button onClick={() => onSetArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Path</button>
+            </div>
+        </>
+      )}
+
+      <div className="space-y-2">
+        {artifacts.length > 0 ? (
+          [...artifacts].reverse().map(artifact => (
+            <ArtifactItem 
+                key={artifact.id} 
+                artifact={artifact}
+                isActive={artifact.id === activeArtifactId}
+                onSelect={() => onActiveArtifactChange(artifact.id === activeArtifactId ? null : artifact.id)}
+                onUpdate={onUpdateArtifact}
+                onRemove={onRemoveArtifact}
+            />
+          ))
+        ) : (
+          <p className="text-sm text-gray-500 text-center p-4">No artifacts created.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
 const MeasurementPanel: React.FC<{
   isDataLoaded: boolean;
   selectedCells: {x: number, y: number}[];
@@ -453,6 +622,8 @@ const ConfigurationPanel: React.FC<{
     playbackSpeed: number;
     onTogglePlay: () => void;
     onPlaybackSpeedChange: (speed: number) => void;
+    onImportConfig: (file: File) => void;
+    onExportConfig: () => void;
 }> = ({ 
     isDataLoaded, timeRange, 
     showGraticule, onShowGraticuleChange, 
@@ -463,11 +634,32 @@ const ConfigurationPanel: React.FC<{
     gridColor, onGridColorChange,
     isPlaying, isPaused, playbackSpeed,
     onTogglePlay, onPlaybackSpeedChange,
+    onImportConfig, onExportConfig,
 }) => {
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportClick = () => importInputRef.current?.click();
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files?.[0]) {
+          onImportConfig(e.target.files[0]);
+          e.target.value = ''; // Reset input to allow selecting the same file again
+      }
+  };
+
   return (
     <div className="space-y-4">
         <h2 className="text-lg font-semibold text-cyan-300">Configuration</h2>
-        {!isDataLoaded ? <p className="text-sm text-gray-400 mt-2">Load a data layer to access configuration.</p> : (
+        
+        <Section title="Session Management" defaultOpen={true}>
+          <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
+          <div className="flex items-center gap-2">
+              <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Import Config</button>
+              <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Export Config</button>
+          </div>
+        </Section>
+        
+        {!isDataLoaded ? <p className="text-sm text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
             <>
               <Section title="Time Animation">
                   <div className="flex items-center gap-4">
@@ -541,7 +733,6 @@ const ConfigurationPanel: React.FC<{
   );
 }
 
-// Fix: Update SidePanel props to explicitly include props for MeasurementPanel and ConfigurationPanel, resolving type errors.
 export const SidePanel: React.FC<{
   activeTool: Tool;
   layers: Layer[];
@@ -580,10 +771,21 @@ export const SidePanel: React.FC<{
   playbackSpeed: number;
   onTogglePlay: () => void;
   onPlaybackSpeedChange: (speed: number) => void;
+  onImportConfig: (file: File) => void;
+  onExportConfig: () => void;
+  artifacts: Artifact[];
+  activeArtifactId: string | null;
+  onActiveArtifactChange: (id: string | null) => void;
+  onUpdateArtifact: (id: string, updates: Partial<Artifact>) => void;
+  onRemoveArtifact: (id: string) => void;
+  artifactCreationMode: Artifact['type'] | null;
+  onSetArtifactCreationMode: (type: Artifact['type'] | null) => void;
+  onFinishArtifactCreation: () => void;
 }> = ({ activeTool, ...props }) => {
   const renderPanel = () => {
     switch (activeTool) {
       case 'layers': return <LayersPanel {...props} />;
+      case 'artifacts': return <ArtifactsPanel {...props} />;
       case 'measurement': return <MeasurementPanel {...props} />;
       case 'config': return <ConfigurationPanel {...props} />;
       default: return null;

@@ -6,7 +6,7 @@ import { TimeSlider } from './components/TimeSlider';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { parseNpy } from './services/npyParser';
 import { parseVrt } from './services/vrtParser';
-import type { DataSet, DataSlice, ColorMapName, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData } from './types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact } from './types';
 import { indexToDate } from './utils/time';
 
 declare const proj4: any;
@@ -14,6 +14,15 @@ declare const proj4: any;
 // Geographic bounding box for the data
 const LAT_RANGE: [number, number] = [-85.505, -85.26];
 const LON_RANGE: [number, number] = [28.97, 32.53];
+
+const dataUrlToImage = (dataUrl: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = dataUrl;
+    });
+};
 
 const calculateDaylightFraction = (dataset: DataSet, timeRange: TimeRange, dimensions: {height: number, width: number}) => {
     const { height, width } = dimensions;
@@ -39,11 +48,89 @@ const calculateDaylightFraction = (dataset: DataSet, timeRange: TimeRange, dimen
     return { slice: resultSlice, range: { min: 0, max: 100 } };
 };
 
+const calculateNightfallDataset = async (sourceLayer: DataLayer): Promise<{dataset: DataSet, range: {min: number, max: number}, maxDuration: number}> => {
+    const { dataset, dimensions } = sourceLayer;
+    const { time, height, width } = dimensions;
+
+    const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(0)));
+    const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+    let maxDuration = 0;
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            for (let t = 0; t < time; t++) {
+                if (dataset[t][y][x] === 0) {
+                    resultDataset[t][y][x] = -1;
+                } else {
+                    let nightStart = -1;
+                    for (let k = t + 1; k < time; k++) {
+                        if (dataset[k][y][x] === 0) { nightStart = k; break; }
+                    }
+                    if (nightStart !== -1) {
+                        let nightEnd = time;
+                        for (let k = nightStart; k < time; k++) {
+                            if (dataset[k][y][x] === 1) { nightEnd = k; break; }
+                        }
+                        const duration = nightEnd - nightStart;
+                        resultDataset[t][y][x] = duration;
+                        if (duration > maxDuration) maxDuration = duration;
+                    } else {
+                        resultDataset[t][y][x] = 0;
+                    }
+                }
+            }
+        }
+        if (y % 10 === 0) await yieldToMain();
+    }
+    return { dataset: resultDataset, range: { min: -1, max: maxDuration }, maxDuration };
+};
+
+const ImportFilesModal: React.FC<{
+    requiredFiles: string[];
+    onCancel: () => void;
+    onConfirm: (files: FileList) => void;
+}> = ({ requiredFiles, onCancel, onConfirm }) => {
+    const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+
+    return (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+            <div className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg text-gray-200 border border-gray-700">
+                <h2 className="text-xl font-bold text-cyan-300 mb-4">Restore Session</h2>
+                <p className="text-sm text-gray-400 mb-2">To continue, please provide the following data file(s) from your original session:</p>
+                <ul className="list-disc list-inside bg-gray-900/50 p-3 rounded-md mb-4 text-sm font-mono">
+                    {requiredFiles.map(name => <li key={name}>{name}</li>)}
+                </ul>
+                <p className="text-sm text-gray-400 mb-4">Select all required files below.</p>
+                <div>
+                    <input
+                        type="file"
+                        multiple
+                        accept=".npy,.png,.vrt"
+                        onChange={(e) => setSelectedFiles(e.target.files)}
+                        className="w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500"
+                    />
+                </div>
+                <div className="flex justify-end gap-4 mt-6">
+                    <button onClick={onCancel} className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-md text-sm font-semibold">Cancel</button>
+                    <button
+                        onClick={() => selectedFiles && onConfirm(selectedFiles)}
+                        disabled={!selectedFiles || selectedFiles.length === 0}
+                        className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded-md text-sm font-semibold"
+                    >
+                        Load Session
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 const App: React.FC = () => {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
 
-  const [isLoading, setIsLoading] = useState<string | null>(null); // Now stores loading message
+  const [isLoading, setIsLoading] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
   const [debouncedTimeRange, setDebouncedTimeRange] = useState<TimeRange | null>(timeRange);
   const [hoveredCoords, setHoveredCoords] = useState<GeoCoordinates>(null);
@@ -61,22 +148,31 @@ const App: React.FC = () => {
   const flickerIntervalRef = useRef<number | null>(null);
   const originalVisibilityRef = useRef<boolean | null>(null);
 
-  // New state for Grid Overlay
   const [showGrid, setShowGrid] = useState<boolean>(false);
-  const [gridSpacing, setGridSpacing] = useState<number>(200); // in meters
-  const [gridColor, setGridColor] = useState<string>('#ffffff80'); // White with 50% alpha
+  const [gridSpacing, setGridSpacing] = useState<number>(200);
+  const [gridColor, setGridColor] = useState<string>('#ffffff80');
   
-  // New state for cell selection
   const [selectedCells, setSelectedCells] = useState<{x: number, y: number}[]>([]);
-  const [selectionColor, setSelectionColor] = useState<string>('#ffff00'); // Default: yellow
+  const [selectionColor, setSelectionColor] = useState<string>('#ffff00');
 
-  // State for time animation
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(10); // FPS
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(10);
   const animationFrameId = useRef<number | null>(null);
   const lastFrameTime = useRef<number>(0);
   const playbackRange = useRef<{start: number, end: number} | null>(null);
+
+  const [importRequest, setImportRequest] = useState<{ config: AppStateConfig, requiredFiles: string[] } | null>(null);
+
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
+  const [artifactCreationMode, setArtifactCreationMode] = useState<Artifact['type'] | null>(null);
+  const [draggedArtifactInfo, setDraggedArtifactInfo] = useState<{
+    id: string;
+    initialMousePos: [number, number];
+    initialCenter?: [number, number];
+    initialWaypoints?: [number, number][];
+  } | null>(null);
 
   const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
   const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
@@ -121,7 +217,7 @@ const App: React.FC = () => {
         } catch (error) { return null; }
       };
     }
-    return null; // For now, require a basemap for coordinate transformation
+    return null;
   }, [proj, primaryDataLayer]);
   
   useEffect(() => {
@@ -180,7 +276,6 @@ const App: React.FC = () => {
             }
           }
           
-          // Account for the last period
           if (currentPeriodType === 'day') {
              dayPeriods++;
              if (currentPeriodLength > longestDay) longestDay = currentPeriodLength;
@@ -203,11 +298,10 @@ const App: React.FC = () => {
             shortestNightPeriod: shortestNight === Infinity ? 0 : shortestNight,
             nightPeriods
           });
-          return; // Exit early
+          return;
         }
       }
     }
-    // If any condition fails, reset the data
     setDaylightFractionHoverData(null);
   }, [selectedPixel, activeLayerId, layers, debouncedTimeRange]);
 
@@ -236,7 +330,7 @@ const App: React.FC = () => {
       
       const newLayer: DataLayer = {
         id: `data-${Date.now()}`, name: file.name, type: 'data', visible: true, opacity: 1.0,
-        dataset, range: { min, max }, colormap: 'Viridis',
+        fileName: file.name, dataset, range: { min, max }, colormap: 'Viridis',
         colormapInverted: false,
         customColormap: [{ value: min, color: '#000000' }, { value: max, color: '#ffffff' }],
         dimensions: { time, height, width },
@@ -245,13 +339,12 @@ const App: React.FC = () => {
       setLayers(prev => [...prev, newLayer]);
       setActiveLayerId(newLayer.id);
 
-      // Initialize time controls if this is the first data layer
       if (!primaryDataLayer) {
         const initialTimeRange = { start: 0, end: time - 1 };
         setTimeRange(initialTimeRange);
         setDebouncedTimeRange(initialTimeRange);
         setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
-        setViewState(null); // Reset view to re-center on new data
+        setViewState(null);
       }
     } catch (error) {
       alert(`Error loading file: ${error instanceof Error ? error.message : String(error)}`);
@@ -267,22 +360,17 @@ const App: React.FC = () => {
         const vrtData = parseVrt(vrtContent);
         if (!vrtData) throw new Error("Failed to parse VRT file.");
 
-        const image = new Image();
-        const imagePromise = new Promise((resolve, reject) => {
-            image.onload = resolve;
-            image.onerror = reject;
-            image.src = URL.createObjectURL(pngFile);
-        });
-        await imagePromise;
+        const image = await dataUrlToImage(URL.createObjectURL(pngFile));
 
         const newLayer: BaseMapLayer = {
             id: `basemap-${Date.now()}`, name: pngFile.name, type: 'basemap',
             visible: true, opacity: 1.0, image, vrt: vrtData,
+            pngFileName: pngFile.name, vrtFileName: vrtFile.name,
         };
 
-        setLayers(prev => [newLayer, ...prev.filter(l => l.type !== 'basemap')]); // Replace existing basemap
+        setLayers(prev => [newLayer, ...prev.filter(l => l.type !== 'basemap')]);
         setActiveLayerId(newLayer.id);
-        setViewState(null); // Reset view to re-center
+        setViewState(null);
     } catch (error) {
         alert(`Error processing base map: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -292,7 +380,6 @@ const App: React.FC = () => {
 
   const handleUpdateLayer = useCallback((id: string, updates: Partial<Layer>) => {
     setLayers(prevLayers =>
-      // Fix: Cast the updated layer object to `Layer` to satisfy TypeScript's discriminated union type checking.
       prevLayers.map(l => (l.id === id ? ({ ...l, ...updates } as Layer) : l))
     );
   }, []);
@@ -309,70 +396,19 @@ const App: React.FC = () => {
     setIsLoading(`Forecasting nightfall for "${sourceLayer.name}"...`);
     await new Promise(r => setTimeout(r, 50));
     
-    const { dataset, dimensions } = sourceLayer;
-    const { time, height, width } = dimensions;
-
-    const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(0)));
-    const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
-
-    let maxDuration = 0;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            for (let t = 0; t < time; t++) {
-                if (dataset[t][y][x] === 0) { // Current is Night
-                    resultDataset[t][y][x] = -1;
-                } else { // Current is Day
-                    // Find start of the next night period
-                    let nightStart = -1;
-                    for (let k = t + 1; k < time; k++) {
-                        if (dataset[k][y][x] === 0) {
-                            nightStart = k;
-                            break;
-                        }
-                    }
-
-                    if (nightStart !== -1) {
-                        // Find end of that night period
-                        let nightEnd = time;
-                        for (let k = nightStart; k < time; k++) {
-                            if (dataset[k][y][x] === 1) {
-                                nightEnd = k;
-                                break;
-                            }
-                        }
-                        const duration = nightEnd - nightStart;
-                        resultDataset[t][y][x] = duration;
-                        if (duration > maxDuration) maxDuration = duration;
-                    } else {
-                        resultDataset[t][y][x] = 0; // No following night found
-                    }
-                }
-            }
-        }
-        if (y % 10 === 0) await yieldToMain();
-    }
+    const { dataset, range, maxDuration } = await calculateNightfallDataset(sourceLayer);
     
-    const finalRange = { min: -1, max: maxDuration };
     const defaultClip = Math.min(1000, Math.ceil(maxDuration / 24) * 24 || 24);
 
     const newLayer: AnalysisLayer = {
         id: `analysis-${Date.now()}`,
         name: `Nightfall Forecast for ${sourceLayer.name}`,
-        type: 'analysis',
-        analysisType: 'nightfall',
-        visible: true,
-        opacity: 1.0,
-        colormap: 'Plasma',
-        colormapInverted: true,
-        dataset: resultDataset,
-        range: finalRange,
-        dimensions,
-        sourceLayerId,
+        type: 'analysis', analysisType: 'nightfall',
+        visible: true, opacity: 1.0, colormap: 'Plasma', colormapInverted: true,
+        dataset, range,
+        dimensions: sourceLayer.dimensions, sourceLayerId,
         customColormap: [{ value: 0, color: '#000000' }, { value: maxDuration, color: '#ffffff' }],
-        params: {
-            clipValue: defaultClip,
-        },
+        params: { clipValue: defaultClip },
     };
 
     setLayers(prev => [...prev, newLayer]);
@@ -391,15 +427,10 @@ const App: React.FC = () => {
     const newLayer: AnalysisLayer = {
         id: `analysis-${Date.now()}`,
         name: `Daylight Fraction for ${sourceLayer.name}`,
-        type: 'analysis',
-        analysisType: 'daylight_fraction',
-        visible: true,
-        opacity: 1.0,
-        colormap: 'Turbo',
-        dataset: resultDataset,
-        range: range,
-        dimensions: sourceLayer.dimensions,
-        sourceLayerId,
+        type: 'analysis', analysisType: 'daylight_fraction',
+        visible: true, opacity: 1.0, colormap: 'Turbo',
+        dataset: resultDataset, range,
+        dimensions: sourceLayer.dimensions, sourceLayerId,
         params: {},
     };
 
@@ -407,32 +438,20 @@ const App: React.FC = () => {
     setActiveLayerId(newLayer.id);
   }, [layers, timeRange]);
 
-  // Debounce the time range for expensive calculations
   useEffect(() => {
-    // During playback, we don't want to debounce
     if (isPlaying) {
         setDebouncedTimeRange(timeRange);
         return;
     }
-
-    const handler = setTimeout(() => {
-        setDebouncedTimeRange(timeRange);
-    }, 250);
-
-    return () => {
-        clearTimeout(handler);
-    };
+    const handler = setTimeout(() => { setDebouncedTimeRange(timeRange); }, 250);
+    return () => { clearTimeout(handler); };
   }, [timeRange, isPlaying]);
 
-  // Effect to dynamically update daylight fraction layers when the debounced time range changes
   useEffect(() => {
     if (!debouncedTimeRange) return;
-
     setLayers(currentLayers => {
         const fractionLayersToUpdate = currentLayers.filter(l => l.type === 'analysis' && l.analysisType === 'daylight_fraction');
-        if (fractionLayersToUpdate.length === 0) {
-            return currentLayers;
-        }
+        if (fractionLayersToUpdate.length === 0) return currentLayers;
 
         let hasChanged = false;
         const newLayers = currentLayers.map(l => {
@@ -447,62 +466,37 @@ const App: React.FC = () => {
             }
             return l;
         });
-
         return hasChanged ? newLayers : currentLayers;
     });
   }, [debouncedTimeRange]);
 
-  // Animation loop
   useEffect(() => {
     if (!isPlaying) {
-        if (animationFrameId.current) {
-            cancelAnimationFrame(animationFrameId.current);
-            animationFrameId.current = null;
-        }
+        if (animationFrameId.current) { cancelAnimationFrame(animationFrameId.current); animationFrameId.current = null; }
         return;
     }
-
     const animate = (timestamp: number) => {
-        if (lastFrameTime.current === 0) {
-            lastFrameTime.current = timestamp;
-        }
-
+        if (lastFrameTime.current === 0) lastFrameTime.current = timestamp;
         const elapsed = timestamp - lastFrameTime.current;
         const frameDuration = 1000 / playbackSpeed;
-
         if (elapsed >= frameDuration) {
             lastFrameTime.current = timestamp;
             setTimeRange(currentRange => {
-                if (!currentRange || !playbackRange.current) {
-                    return currentRange;
-                }
+                if (!currentRange || !playbackRange.current) return currentRange;
                 let newTime = currentRange.start + 1;
-                if (newTime > playbackRange.current.end) {
-                    newTime = playbackRange.current.start;
-                }
-                // Animate a single point in time
+                if (newTime > playbackRange.current.end) newTime = playbackRange.current.start;
                 return { start: newTime, end: newTime };
             });
         }
         animationFrameId.current = requestAnimationFrame(animate);
     };
-
     animationFrameId.current = requestAnimationFrame(animate);
-
-    return () => {
-        if (animationFrameId.current) {
-            cancelAnimationFrame(animationFrameId.current);
-            animationFrameId.current = null;
-            lastFrameTime.current = 0;
-        }
-    };
+    return () => { if (animationFrameId.current) { cancelAnimationFrame(animationFrameId.current); animationFrameId.current = null; lastFrameTime.current = 0; } };
   }, [isPlaying, playbackSpeed]);
 
   const handleTogglePlay = useCallback(() => {
     const aboutToPlay = !isPlaying;
-    
-    if (aboutToPlay) { // Starting or resuming
-        // If it's a fresh start (not resuming from a pause)
+    if (aboutToPlay) {
         if (!isPaused) { 
             if (!timeRange || timeRange.start >= timeRange.end) return;
             playbackRange.current = { ...timeRange };
@@ -510,60 +504,143 @@ const App: React.FC = () => {
         }
         setIsPaused(false);
         setIsPlaying(true);
-    } else { // Stopping
+    } else {
         setIsPaused(true);
         setIsPlaying(false);
     }
   }, [isPlaying, isPaused, timeRange]);
 
   const handleManualTimeRangeChange = (newRange: TimeRange) => {
-    if (isPlaying) {
-      setIsPlaying(false);
-    }
-    setIsPaused(false); // Manual interaction always resets the paused state
-    playbackRange.current = null; // And the playback context
+    if (isPlaying) setIsPlaying(false);
+    setIsPaused(false);
+    playbackRange.current = null;
     setTimeRange(newRange);
   };
 
   const handleCellHover = useCallback((coords: GeoCoordinates) => {
     setHoveredCoords(coords);
-    if (!coords || !coordinateTransformer) {
-        setSelectedPixel(null);
-        return;
-    }
+    if (!coords || !coordinateTransformer) { setSelectedPixel(null); return; }
     const pixel = coordinateTransformer(coords.lat, coords.lon);
     if (pixel) {
-        // Find topmost visible data/analysis layer for hover
         const topDataLayer = [...layers].reverse().find(l => l.visible && (l.type === 'data' || l.type === 'analysis'));
-        if (topDataLayer) {
-            setSelectedPixel({ ...pixel, layerId: topDataLayer.id });
-        } else {
-            setSelectedPixel(null);
-        }
+        if (topDataLayer) setSelectedPixel({ ...pixel, layerId: topDataLayer.id }); else setSelectedPixel(null);
     } else {
         setSelectedPixel(null);
     }
   }, [coordinateTransformer, layers]);
 
-  const handleMapClick = useCallback((coords: GeoCoordinates) => {
-    if (activeTool !== 'measurement' || !coords || !coordinateTransformer) return;
+  const handleUpdateArtifact = useCallback((id: string, updates: Partial<Artifact>) => {
+    setArtifacts(prev => prev.map(a => (a.id === id ? { ...a, ...updates } as Artifact : a)));
+  }, []);
+
+  const handleFinishArtifactCreation = useCallback(() => {
+    setArtifactCreationMode(null);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            handleFinishArtifactCreation();
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleFinishArtifactCreation]);
+
+  const handleMapClick = useCallback((coords: GeoCoordinates, projCoords: [number, number]) => {
+    if (artifactCreationMode) {
+        if (artifactCreationMode === 'path') {
+            const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
+            if (activeArtifact && activeArtifact.type === 'path') {
+                handleUpdateArtifact(activeArtifactId!, { waypoints: [...activeArtifact.waypoints, projCoords] });
+            } else {
+                const newPath: PathArtifact = {
+                    id: `path-${Date.now()}`, type: 'path', visible: true, color: '#ff33ff', thickness: 2,
+                    name: `Path ${artifacts.filter(a => a.type === 'path').length + 1}`,
+                    waypoints: [projCoords],
+                };
+                setArtifacts(prev => [...prev, newPath]);
+                setActiveArtifactId(newPath.id);
+            }
+            return;
+        }
+
+        const newArtifactBase = {
+            id: `${artifactCreationMode}-${Date.now()}`,
+            visible: true, color: '#ff33ff', thickness: 2,
+        };
+        if (artifactCreationMode === 'circle') {
+            const newCircle: CircleArtifact = {
+                ...newArtifactBase, type: 'circle',
+                name: `Circle ${artifacts.filter(a => a.type === 'circle').length + 1}`,
+                center: projCoords, radius: 1000,
+            };
+            setArtifacts(prev => [...prev, newCircle]); setActiveArtifactId(newCircle.id);
+        } else if (artifactCreationMode === 'rectangle') {
+            const newRect: RectangleArtifact = {
+                ...newArtifactBase, type: 'rectangle',
+                name: `Rectangle ${artifacts.filter(a => a.type === 'rectangle').length + 1}`,
+                center: projCoords, width: 1000, height: 1000, rotation: 0,
+            };
+            setArtifacts(prev => [...prev, newRect]); setActiveArtifactId(newRect.id);
+        }
+        setArtifactCreationMode(null);
+        setActiveTool('artifacts');
+        return;
+    }
     
+    if (activeTool !== 'measurement' || !coords || !coordinateTransformer) return;
     const pixel = coordinateTransformer(coords.lat, coords.lon);
     if (pixel) {
       setSelectedCells(prev => {
         const existingIndex = prev.findIndex(c => c.x === pixel.x && c.y === pixel.y);
-        if (existingIndex > -1) {
-          return prev.filter((_, i) => i !== existingIndex); // Deselect
-        } else {
-          return [...prev, pixel]; // Select
-        }
+        if (existingIndex > -1) return prev.filter((_, i) => i !== existingIndex);
+        else return [...prev, pixel];
       });
     }
-  }, [activeTool, coordinateTransformer]);
+  }, [activeTool, coordinateTransformer, artifactCreationMode, artifacts, activeArtifactId, handleUpdateArtifact]);
 
-  const handleClearSelection = useCallback(() => {
-    setSelectedCells([]);
+  const handleArtifactDragStart = useCallback((id: string, projCoords: [number, number]) => {
+    const artifact = artifacts.find(a => a.id === id);
+    if (!artifact) return;
+
+    if (artifact.type === 'circle' || artifact.type === 'rectangle') {
+        setDraggedArtifactInfo({ id, initialMousePos: projCoords, initialCenter: artifact.center });
+    } else if (artifact.type === 'path') {
+        setDraggedArtifactInfo({ id, initialMousePos: projCoords, initialWaypoints: artifact.waypoints });
+    }
+    setActiveArtifactId(id);
+  }, [artifacts]);
+
+  const handleArtifactDrag = useCallback((projCoords: [number, number]) => {
+    if (!draggedArtifactInfo) return;
+
+    const dx = projCoords[0] - draggedArtifactInfo.initialMousePos[0];
+    const dy = projCoords[1] - draggedArtifactInfo.initialMousePos[1];
+
+    setArtifacts(prev => prev.map(a => {
+        if (a.id === draggedArtifactInfo.id) {
+            if ((a.type === 'circle' || a.type === 'rectangle') && draggedArtifactInfo.initialCenter) {
+                return { ...a, center: [draggedArtifactInfo.initialCenter[0] + dx, draggedArtifactInfo.initialCenter[1] + dy] };
+            } else if (a.type === 'path' && draggedArtifactInfo.initialWaypoints) {
+                const newWaypoints = draggedArtifactInfo.initialWaypoints.map(wp => [wp[0] + dx, wp[1] + dy]) as [number, number][];
+                return { ...a, waypoints: newWaypoints };
+            }
+        }
+        return a;
+    }));
+  }, [draggedArtifactInfo]);
+
+  const handleArtifactDragEnd = useCallback(() => {
+    setDraggedArtifactInfo(null);
   }, []);
+
+  const handleRemoveArtifact = useCallback((id: string) => {
+    setArtifacts(prev => prev.filter(a => a.id !== id));
+    if (activeArtifactId === id) setActiveArtifactId(null);
+  }, [activeArtifactId]);
+
+  const handleClearSelection = useCallback(() => { setSelectedCells([]); }, []);
 
   const handleZoomToSelection = useCallback(() => {
     if (!timeRange || !fullTimeDomain) return;
@@ -578,54 +655,210 @@ const App: React.FC = () => {
     setTimeZoomDomain(newDomain);
   }, [timeRange, fullTimeDomain]);
 
-  const handleResetTimeZoom = useCallback(() => {
-    if (fullTimeDomain) setTimeZoomDomain(fullTimeDomain);
-  }, [fullTimeDomain]);
+  const handleResetTimeZoom = useCallback(() => { if (fullTimeDomain) setTimeZoomDomain(fullTimeDomain); }, [fullTimeDomain]);
 
   const handleToggleFlicker = useCallback((layerId: string) => {
     const currentlyFlickeringId = flickeringLayerId;
-
-    if (flickerIntervalRef.current) {
-        clearInterval(flickerIntervalRef.current);
-        flickerIntervalRef.current = null;
-    }
-
-    if (currentlyFlickeringId && originalVisibilityRef.current !== null) {
-        handleUpdateLayer(currentlyFlickeringId, { visible: originalVisibilityRef.current });
-    }
-
-    if (currentlyFlickeringId === layerId) {
-        setFlickeringLayerId(null);
-        originalVisibilityRef.current = null;
-    } else {
+    if (flickerIntervalRef.current) { clearInterval(flickerIntervalRef.current); flickerIntervalRef.current = null; }
+    if (currentlyFlickeringId && originalVisibilityRef.current !== null) { handleUpdateLayer(currentlyFlickeringId, { visible: originalVisibilityRef.current }); }
+    if (currentlyFlickeringId === layerId) { setFlickeringLayerId(null); originalVisibilityRef.current = null; }
+    else {
         const layerToFlicker = layers.find(l => l.id === layerId);
-        if (layerToFlicker) {
-            originalVisibilityRef.current = layerToFlicker.visible;
-            setFlickeringLayerId(layerId);
-        }
+        if (layerToFlicker) { originalVisibilityRef.current = layerToFlicker.visible; setFlickeringLayerId(layerId); }
     }
   }, [layers, flickeringLayerId, handleUpdateLayer]);
 
   useEffect(() => {
     if (flickeringLayerId) {
         flickerIntervalRef.current = window.setInterval(() => {
-            setLayers(prevLayers =>
-                prevLayers.map(l =>
-                    l.id === flickeringLayerId ? { ...l, visible: !l.visible } : l
-                )
-            );
+            setLayers(prevLayers => prevLayers.map(l => l.id === flickeringLayerId ? { ...l, visible: !l.visible } : l));
         }, 400);
     }
-    return () => {
-        if (flickerIntervalRef.current) {
-            clearInterval(flickerIntervalRef.current);
-            flickerIntervalRef.current = null;
+    return () => { if (flickerIntervalRef.current) { clearInterval(flickerIntervalRef.current); flickerIntervalRef.current = null; } };
+  }, [flickeringLayerId]);
+  
+  const handleExportConfig = useCallback(async () => {
+    if (layers.length === 0) { alert("Cannot export an empty session."); return; }
+    setIsLoading("Exporting session...");
+    try {
+        const serializableLayers: SerializableLayer[] = layers.map((l): SerializableLayer => {
+            if (l.type === 'basemap') {
+                const { image, ...rest } = l; // Omit non-serializable image element
+                return rest;
+            } else { // data or analysis
+                const { dataset, ...rest } = l; // Omit large dataset
+                return rest;
+            }
+        });
+
+        const config: AppStateConfig = {
+            version: 1,
+            layers: serializableLayers,
+            activeLayerId,
+            timeRange,
+            timeZoomDomain: timeZoomDomain ? [timeZoomDomain[0].toISOString(), timeZoomDomain[1].toISOString()] : null,
+            viewState,
+            showGraticule,
+            graticuleDensity,
+            showGrid,
+            gridSpacing,
+            gridColor,
+            selectedCells,
+            selectionColor,
+            activeTool,
+            artifacts: artifacts.map(a => ({...a})),
+        };
+        
+        const jsonString = JSON.stringify(config, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `session_${new Date().toISOString()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        alert(`Error exporting session: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+        setIsLoading(null);
+    }
+  }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts]);
+
+  const handleImportConfig = useCallback((file: File) => {
+    setIsLoading("Reading config file...");
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const config = JSON.parse(event.target?.result as string) as AppStateConfig;
+            if (config.version !== 1) { throw new Error("Unsupported config version."); }
+            
+            const requiredFiles: string[] = [];
+            for (const l of config.layers) {
+                if (l.type === 'data') {
+                    requiredFiles.push(l.fileName);
+                } else if (l.type === 'basemap') {
+                    requiredFiles.push(l.pngFileName);
+                    requiredFiles.push(l.vrtFileName);
+                }
+            }
+
+            if (requiredFiles.length > 0) {
+                setImportRequest({ config, requiredFiles });
+            } else {
+                handleRestoreSession(config, []); // No files required
+            }
+        } catch (e) {
+            alert(`Error reading config file: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+            setIsLoading(null);
         }
     };
-  }, [flickeringLayerId]);
+    reader.onerror = () => {
+        alert("Failed to read the file.");
+        setIsLoading(null);
+    };
+    reader.readAsText(file);
+  }, []);
+  
+  const handleRestoreSession = useCallback(async (config: AppStateConfig, files: FileList | File[]) => {
+    setImportRequest(null);
+    setIsLoading("Restoring session...");
+
+    try {
+        const fileMap = new Map<string, File>();
+        Array.from(files).forEach(f => fileMap.set(f.name, f));
+
+        // Reset state
+        setLayers([]); setTimeRange(null); setTimeZoomDomain(null); setViewState(null); setSelectedCells([]); setArtifacts([]);
+
+        let newLayers: Layer[] = [];
+
+        // 1. Load BaseMap and Data layers
+        for (const sLayer of config.layers) {
+            if (sLayer.type === 'basemap') {
+                const pngFile = fileMap.get(sLayer.pngFileName);
+                const vrtFile = fileMap.get(sLayer.vrtFileName);
+                if (!pngFile) throw new Error(`Required file "${sLayer.pngFileName}" was not provided.`);
+                if (!vrtFile) throw new Error(`Required file "${sLayer.vrtFileName}" was not provided.`);
+                
+                const vrtContent = await vrtFile.text();
+                const vrtData = parseVrt(vrtContent);
+                if (!vrtData) throw new Error(`Failed to parse VRT file: ${vrtFile.name}`);
+
+                const image = await dataUrlToImage(URL.createObjectURL(pngFile));
+
+                const layer: BaseMapLayer = { ...sLayer, image, vrt: vrtData };
+                newLayers.push(layer);
+
+            } else if (sLayer.type === 'data') {
+                const file = fileMap.get(sLayer.fileName);
+                if (!file) throw new Error(`Required file "${sLayer.fileName}" was not provided.`);
+                
+                const arrayBuffer = await file.arrayBuffer();
+                const { data: float32Array, shape, header } = parseNpy(arrayBuffer);
+                const [height, width, time] = shape;
+                const dataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width)));
+                let flatIndex = 0;
+                if (header.fortran_order) { for (let t = 0; t < time; t++) for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) dataset[t][y][x] = float32Array[flatIndex++]; }
+                else { for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let t = 0; t < time; t++) dataset[t][y][x] = float32Array[flatIndex++]; }
+
+                const layer: DataLayer = { ...sLayer, dataset };
+                newLayers.push(layer);
+            }
+        }
+        setLayers(newLayers); // Set base layers so analysis layers can find their source
+
+        // 2. Re-calculate Analysis layers
+        let finalLayers = [...newLayers];
+        for (const sLayer of config.layers) {
+            if (sLayer.type === 'analysis') {
+                const sourceLayer = newLayers.find(l => l.id === sLayer.sourceLayerId) as DataLayer | undefined;
+                if (!sourceLayer) throw new Error(`Source layer with ID ${sLayer.sourceLayerId} not found for analysis layer "${sLayer.name}".`);
+                
+                let calculatedDataset: DataSet;
+                if (sLayer.analysisType === 'nightfall') {
+                    const { dataset } = await calculateNightfallDataset(sourceLayer);
+                    calculatedDataset = dataset;
+                } else { // daylight_fraction
+                    const calcTimeRange = config.timeRange || { start: 0, end: sourceLayer.dimensions.time - 1};
+                    const { slice } = calculateDaylightFraction(sourceLayer.dataset, calcTimeRange, sourceLayer.dimensions);
+                    calculatedDataset = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
+                }
+                const analysisLayer: AnalysisLayer = { ...sLayer, dataset: calculatedDataset };
+                finalLayers.push(analysisLayer);
+            }
+        }
+        
+        // 3. Set final state
+        setLayers(finalLayers);
+        setActiveLayerId(config.activeLayerId);
+        setTimeRange(config.timeRange);
+        setViewState(config.viewState);
+        setShowGraticule(config.showGraticule);
+        setGraticuleDensity(config.graticuleDensity);
+        setShowGrid(config.showGrid);
+        setGridSpacing(config.gridSpacing);
+        setGridColor(config.gridColor);
+        setSelectedCells(config.selectedCells);
+        setSelectionColor(config.selectionColor);
+        setActiveTool(config.activeTool);
+        setArtifacts(config.artifacts || []);
+        if (config.timeZoomDomain) {
+            setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
+        }
+
+    } catch (e) {
+        alert(`Error restoring session: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+        setIsLoading(null);
+    }
+  }, []);
 
   return (
     <div className="h-screen bg-gray-900 text-gray-200 flex flex-row font-sans overflow-hidden">
+      {importRequest && <ImportFilesModal requiredFiles={importRequest.requiredFiles} onCancel={() => setImportRequest(null)} onConfirm={(files) => handleRestoreSession(importRequest.config, files)} />}
       <ToolBar activeTool={activeTool} onToolSelect={setActiveTool} />
       
       <SidePanel
@@ -640,7 +873,7 @@ const App: React.FC = () => {
         onCalculateNightfallLayer={handleCalculateNightfallLayer}
         onCalculateDaylightFractionLayer={handleCalculateDaylightFractionLayer}
         isLoading={isLoading}
-        isDataLoaded={!!primaryDataLayer}
+        isDataLoaded={!!primaryDataLayer || !!baseMapLayer}
         hoveredCoords={hoveredCoords}
         selectedPixel={selectedPixel}
         timeRange={timeRange}
@@ -666,6 +899,16 @@ const App: React.FC = () => {
         playbackSpeed={playbackSpeed}
         onTogglePlay={handleTogglePlay}
         onPlaybackSpeedChange={setPlaybackSpeed}
+        onImportConfig={handleImportConfig}
+        onExportConfig={handleExportConfig}
+        artifacts={artifacts}
+        activeArtifactId={activeArtifactId}
+        onActiveArtifactChange={setActiveArtifactId}
+        onUpdateArtifact={handleUpdateArtifact}
+        onRemoveArtifact={handleRemoveArtifact}
+        artifactCreationMode={artifactCreationMode}
+        onSetArtifactCreationMode={setArtifactCreationMode}
+        onFinishArtifactCreation={handleFinishArtifactCreation}
       />
       
       <main className="flex-grow flex flex-col min-w-0">
@@ -684,13 +927,19 @@ const App: React.FC = () => {
             proj={proj}
             viewState={viewState}
             onViewStateChange={setViewState}
-            isDataLoaded={!!primaryDataLayer}
+            isDataLoaded={!!primaryDataLayer || !!baseMapLayer}
             showGrid={showGrid}
             gridSpacing={gridSpacing}
             gridColor={gridColor}
             activeTool={activeTool}
             selectedCells={selectedCells}
             selectionColor={selectionColor}
+            artifacts={artifacts}
+            artifactCreationMode={artifactCreationMode}
+            onArtifactDragStart={handleArtifactDragStart}
+            onArtifactDrag={handleArtifactDrag}
+            onArtifactDragEnd={handleArtifactDragEnd}
+            isDraggingArtifact={!!draggedArtifactInfo}
           />
         </section>
         

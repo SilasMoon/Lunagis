@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 
@@ -11,7 +11,7 @@ interface DataCanvasProps {
   timeIndex: number;
   debouncedTimeRange: TimeRange | null;
   onCellHover: (coords: GeoCoordinates) => void;
-  onMapClick: (coords: GeoCoordinates) => void;
+  onMapClick: (coords: GeoCoordinates, projCoords: [number, number]) => void;
   onCellLeave: () => void;
   latRange: [number, number];
   lonRange: [number, number];
@@ -27,6 +27,12 @@ interface DataCanvasProps {
   activeTool: Tool;
   selectedCells: {x: number, y: number}[];
   selectionColor: string;
+  artifacts: Artifact[];
+  artifactCreationMode: Artifact['type'] | null;
+  onArtifactDragStart: (id: string, projCoords: [number, number]) => void;
+  onArtifactDrag: (projCoords: [number, number]) => void;
+  onArtifactDragEnd: () => void;
+  isDraggingArtifact: boolean;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -42,10 +48,12 @@ const LoadingSpinner: React.FC = () => (
 export const DataCanvas: React.FC<DataCanvasProps> = ({ 
   layers, timeIndex, onCellHover, onCellLeave, onMapClick, latRange, lonRange, 
   showGraticule, graticuleDensity, proj, viewState, onViewStateChange, isDataLoaded,
-  debouncedTimeRange, showGrid, gridSpacing, gridColor, activeTool, selectedCells, selectionColor
+  debouncedTimeRange, showGrid, gridSpacing, gridColor, activeTool, selectedCells, selectionColor,
+  artifacts, artifactCreationMode, onArtifactDragStart, onArtifactDrag, onArtifactDragEnd, isDraggingArtifact
 }) => {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const dataCanvasRef = useRef<HTMLCanvasElement>(null);
+  const artifactCanvasRef = useRef<HTMLCanvasElement>(null);
   const graticuleCanvasRef = useRef<HTMLCanvasElement>(null);
   const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -56,6 +64,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
   const isPanning = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const [initialViewState, setInitialViewState] = useState<ViewState | null>(null);
+  const [hoveredArtifactId, setHoveredArtifactId] = useState<string | null>(null);
 
   const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
   const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
@@ -114,6 +123,21 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     const projY = -(canvasY * dpr - canvas.height / 2) / (scale * dpr) + center[1];
     return [projX, projY];
   }, [viewState]);
+
+  const getMetersPerProjectedUnit = useCallback(() => {
+    if (!proj || !viewState) return 1;
+    try {
+        const { center } = viewState;
+        const g1 = proj.inverse(center);
+        const g2 = proj.inverse([center[0] + 1, center[1]]);
+        const R = 6371e3; // metres
+        const φ1 = g1[1] * Math.PI/180; const φ2 = g2[1] * Math.PI/180;
+        const Δλ = (g2[0]-g1[0]) * Math.PI/180;
+        const d = Math.acos( Math.sin(φ1)*Math.sin(φ2) + Math.cos(φ1)*Math.cos(φ2) * Math.cos(Δλ) ) * R;
+        if (!isNaN(d) && d > 0) return d;
+    } catch (e) { /* ignore */ }
+    return 1;
+  }, [proj, viewState]);
 
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
@@ -293,6 +317,81 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
   }, [layers, timeIndex, showGraticule, graticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, showGrid, gridSpacing, gridColor]);
   
+  // Effect for drawing artifacts
+  useEffect(() => {
+    const canvas = artifactCanvasRef.current;
+    if (!canvas || !viewState || !proj) {
+        canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    };
+
+    const dpr = window.devicePixelRatio || 1;
+    const { clientWidth, clientHeight } = canvas.parentElement!;
+    canvas.width = clientWidth * dpr;
+    canvas.height = clientHeight * dpr;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const { center, scale } = viewState;
+    ctx.save();
+    ctx.translate(ctx.canvas.width / 2, ctx.canvas.height / 2);
+    const effectiveScale = scale * dpr;
+    ctx.scale(effectiveScale, -effectiveScale);
+    ctx.translate(-center[0], -center[1]);
+
+    const metersPerProjectedUnit = getMetersPerProjectedUnit();
+
+    artifacts.forEach(artifact => {
+        if (!artifact.visible) return;
+
+        ctx.strokeStyle = artifact.color;
+        ctx.lineWidth = artifact.thickness / effectiveScale;
+        ctx.fillStyle = 'transparent';
+
+        if (artifact.type === 'circle') {
+            const radiusInProjUnits = artifact.radius / metersPerProjectedUnit;
+            ctx.beginPath();
+            ctx.arc(artifact.center[0], artifact.center[1], radiusInProjUnits, 0, 2 * Math.PI);
+            ctx.stroke();
+        } else if (artifact.type === 'rectangle') {
+            const w = artifact.width / metersPerProjectedUnit;
+            const h = artifact.height / metersPerProjectedUnit;
+            ctx.save();
+            ctx.translate(artifact.center[0], artifact.center[1]);
+            ctx.rotate(artifact.rotation * Math.PI / 180);
+            ctx.strokeRect(-w/2, -h/2, w, h);
+            ctx.restore();
+        } else if (artifact.type === 'path') {
+            if (artifact.waypoints.length === 0) return;
+            ctx.beginPath();
+            ctx.moveTo(artifact.waypoints[0][0], artifact.waypoints[0][1]);
+            for (let i = 1; i < artifact.waypoints.length; i++) {
+                ctx.lineTo(artifact.waypoints[i][0], artifact.waypoints[i][1]);
+            }
+            ctx.stroke();
+        }
+        
+        // Draw name label
+        ctx.save();
+        const centerPos = artifact.type === 'path' ? artifact.waypoints[0] : artifact.center;
+        if (centerPos) {
+            ctx.translate(centerPos[0], centerPos[1]);
+            ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+            ctx.fillStyle = artifact.color;
+            ctx.font = `bold 14px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(artifact.name, 0, -10);
+            ctx.fillText(artifact.name, 0, -10);
+        }
+        ctx.restore();
+    });
+    ctx.restore();
+  }, [artifacts, viewState, proj, getMetersPerProjectedUnit]);
+
+
   // Effect for drawing cell selections
   useEffect(() => {
     const canvas = selectionCanvasRef.current;
@@ -350,6 +449,14 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
   }, [selectedCells, selectionColor, viewState, primaryDataLayer, proj, lonRange, latRange]);
 
   const handleInteractionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+    
+    if (isDraggingArtifact && projCoords) {
+        onArtifactDrag(projCoords);
+        return;
+    }
+
     if (isPanning.current && viewState) {
         const dx = e.clientX - lastMousePos.current.x; const dy = e.clientY - lastMousePos.current.y;
         const dpr = window.devicePixelRatio || 1;
@@ -357,30 +464,71 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         onViewStateChange({ ...viewState, center: newCenter });
         lastMousePos.current = { x: e.clientX, y: e.clientY };
     }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+    
     if (projCoords && proj) {
+        // Hit detection for artifacts
+        const metersPerUnit = getMetersPerProjectedUnit();
+        let foundArtifact = false;
+        for (let i = artifacts.length - 1; i >= 0; i--) {
+            const artifact = artifacts[i];
+            if (!artifact.visible) continue;
+            let hit = false;
+            if (artifact.type === 'circle') {
+                const dist = Math.sqrt(Math.pow(projCoords[0] - artifact.center[0], 2) + Math.pow(projCoords[1] - artifact.center[1], 2));
+                if (dist <= artifact.radius / metersPerUnit) hit = true;
+            } else if (artifact.type === 'rectangle') {
+                const w = artifact.width / metersPerUnit; const h = artifact.height / metersPerUnit;
+                const angle = -artifact.rotation * Math.PI / 180;
+                const dx = projCoords[0] - artifact.center[0];
+                const dy = projCoords[1] - artifact.center[1];
+                const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
+                const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
+                if (Math.abs(rotatedX) <= w / 2 && Math.abs(rotatedY) <= h / 2) hit = true;
+            } else if (artifact.type === 'path') {
+                const minX = Math.min(...artifact.waypoints.map(w => w[0])); const maxX = Math.max(...artifact.waypoints.map(w => w[0]));
+                const minY = Math.min(...artifact.waypoints.map(w => w[1])); const maxY = Math.max(...artifact.waypoints.map(w => w[1]));
+                if (projCoords[0] >= minX && projCoords[0] <= maxX && projCoords[1] >= minY && projCoords[1] <= maxY) hit = true;
+            }
+
+            if (hit) { setHoveredArtifactId(artifact.id); foundArtifact = true; break; }
+        }
+        if (!foundArtifact) setHoveredArtifactId(null);
         try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch(e) { onCellLeave(); }
-    } else { onCellLeave(); }
-  }, [viewState, onViewStateChange, canvasToProjCoords, proj, onCellHover, onCellLeave]);
+    } else { onCellLeave(); setHoveredArtifactId(null); }
+  }, [viewState, onViewStateChange, canvasToProjCoords, proj, onCellHover, onCellLeave, isDraggingArtifact, onArtifactDrag, artifacts, getMetersPerProjectedUnit]);
 
   const handleMapClickInternal = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isPanning.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
-    if (projCoords && proj) {
-      try {
-        const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords);
-        onMapClick({ lat, lon });
-      } catch (e) {
-        // Ignore clicks outside valid projection area
-      }
+    if (isPanning.current && e.movementX === 0 && e.movementY === 0) { // It's a click, not a drag end
+        const rect = e.currentTarget.getBoundingClientRect();
+        const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+        if (projCoords && proj) {
+          try {
+            const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords);
+            onMapClick({ lat, lon }, projCoords);
+          } catch (e) { /* Ignore */ }
+        }
     }
   };
   
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = true; lastMousePos.current = { x: e.clientX, y: e.clientY }; };
-  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = false; };
-  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = false; onCellLeave(); };
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => { 
+    if (hoveredArtifactId && artifactCreationMode === null) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+        if (projCoords) onArtifactDragStart(hoveredArtifactId, projCoords);
+        return;
+    }
+    isPanning.current = true; lastMousePos.current = { x: e.clientX, y: e.clientY }; 
+  };
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => { 
+    handleMapClickInternal(e);
+    isPanning.current = false;
+    if (isDraggingArtifact) onArtifactDragEnd();
+  };
+  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => { 
+    isPanning.current = false; 
+    onCellLeave(); 
+    if (isDraggingArtifact) onArtifactDragEnd();
+  };
   
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!viewState) return; e.preventDefault();
@@ -396,11 +544,18 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
   const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; onViewStateChange({ ...viewState, scale: viewState.scale * factor }); }, [viewState, onViewStateChange]);
   const handleResetView = useCallback(() => { if(initialViewState) { onViewStateChange(initialViewState); } }, [initialViewState, onViewStateChange]);
 
+  const cursorStyle = useMemo(() => {
+    if (artifactCreationMode) return 'crosshair';
+    if (isDraggingArtifact) return 'grabbing';
+    if (hoveredArtifactId) return 'move';
+    if (activeTool === 'measurement') return 'copy';
+    if (isPanning.current) return 'grabbing';
+    return 'default';
+  }, [artifactCreationMode, isDraggingArtifact, hoveredArtifactId, activeTool, isPanning.current]);
+
   if (!isDataLoaded) {
     return (<div className="w-full h-full flex items-center justify-center text-center text-gray-400 bg-gray-900/50 rounded-lg"><div><h3 className="text-xl font-semibold">No Data Loaded</h3><p className="mt-2">Use the Layers panel to load a basemap or data file.</p></div></div>);
   }
-
-  const cursorStyle = activeTool === 'measurement' ? 'copy' : (isPanning.current ? 'grabbing' : 'crosshair');
 
   return (
     <div 
@@ -410,14 +565,14 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
       onMouseUp={handleMouseUp} 
       onMouseLeave={handleMouseLeave} 
       onWheel={handleWheel}
-      onClick={handleMapClickInternal}
       style={{ cursor: cursorStyle }}
     >
       {isRendering && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 z-50"><LoadingSpinner /></div>}
       <canvas ref={baseCanvasRef} className="pixelated absolute inset-0 w-full h-full z-0" />
       <canvas ref={dataCanvasRef} className="pixelated absolute inset-0 w-full h-full z-10" />
-      <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
-      <canvas ref={selectionCanvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />
+      <canvas ref={artifactCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
+      <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />
+      <canvas ref={selectionCanvasRef} className="absolute inset-0 w-full h-full z-40 pointer-events-none" />
       <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} />
     </div>
   );
