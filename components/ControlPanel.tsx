@@ -95,9 +95,10 @@ const hexAlphaToRgba = (hex: string, alpha: number): string => {
 const CustomColormapEditor: React.FC<{
     stops: ColorStop[];
     onStopsChange: (stops: ColorStop[]) => void;
-    dataRange: { min: number; max: number };
-}> = ({ stops, onStopsChange, dataRange }) => {
-    const [newValue, setNewValue] = useState<string>(dataRange.min.toFixed(1));
+    units?: 'days' | string;
+    layerRange: { min: number; max: number };
+}> = ({ stops, onStopsChange, units, layerRange }) => {
+    const [newValue, setNewValue] = useState<string>("0");
     const [newHex, setNewHex] = useState('#ffffff');
     const [newAlpha, setNewAlpha] = useState(1.0);
 
@@ -110,20 +111,24 @@ const CustomColormapEditor: React.FC<{
         onStopsChange(newStops);
     };
     
-    const handleUpdateStop = (index: number, updatedProp: Partial<{ color: string; alpha: number }>) => {
+    const handleUpdateStop = (index: number, updatedProp: Partial<ColorStop & {alpha: number}>) => {
         const newStops = [...stops];
         const currentStop = newStops[index];
-        const { hex, alpha } = rgbaToHexAlpha(currentStop.color);
-
-        const nextHex = updatedProp.color ?? hex;
-        const nextAlpha = updatedProp.alpha ?? alpha;
         
-        newStops[index] = {
-            ...currentStop,
-            color: hexAlphaToRgba(nextHex, nextAlpha)
-        };
+        if ('value' in updatedProp) {
+            const numericValue = typeof updatedProp.value === 'string' ? parseFloat(updatedProp.value) : updatedProp.value;
+            if (isNaN(numericValue as number)) return;
+            newStops[index] = { ...currentStop, value: numericValue as number };
+            newStops.sort((a, b) => a.value - b.value);
+        } else {
+            const { hex, alpha } = rgbaToHexAlpha(currentStop.color);
+            const nextHex = 'color' in updatedProp ? updatedProp.color! : hex;
+            const nextAlpha = 'alpha' in updatedProp ? updatedProp.alpha! : alpha;
+            newStops[index] = { ...currentStop, color: hexAlphaToRgba(nextHex, nextAlpha) };
+        }
         onStopsChange(newStops);
     };
+
 
     const handleRemoveStop = (index: number) => {
         onStopsChange(stops.filter((_, i) => i !== index));
@@ -131,58 +136,82 @@ const CustomColormapEditor: React.FC<{
 
     return (
         <div className="space-y-3 p-3 bg-gray-900/30 rounded-md">
-            <h4 className="text-sm font-medium text-gray-300">Custom Colormap Editor</h4>
+            <h4 className="text-sm font-medium text-gray-300">Colormap Stops</h4>
             <div className="space-y-2">
                 {stops.map((stop, index) => {
                     const { hex, alpha } = rgbaToHexAlpha(stop.color);
+                    const isFirstStop = index === 0;
+                    
+                    const displayValue = isFirstStop
+                        ? (units === 'days' ? (layerRange.min / 24).toFixed(1) : layerRange.min.toFixed(0))
+                        : stop.value.toFixed(units === 'days' ? 1 : 0);
+
                     return (
-                        <div key={index} className="flex items-center gap-2 text-sm">
-                            <span className="font-mono text-gray-300 w-12 text-right">{stop.value.toFixed(1)}</span>
-                             <input 
+                        <div key={index} className="grid grid-cols-[20px_1fr_auto_auto_auto] items-center gap-2 text-sm">
+                            <span className="text-right pr-1 font-mono text-gray-400">
+                                {!isFirstStop && '>='}
+                            </span>
+                            <input 
+                                type="text" // Use text to display formatted value
+                                defaultValue={displayValue}
+                                key={displayValue + stop.color} // Force re-render on sort
+                                readOnly={isFirstStop}
+                                onBlur={isFirstStop ? undefined : (e) => handleUpdateStop(index, { value: parseFloat(e.target.value) })}
+                                className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600 disabled:bg-gray-800 disabled:text-gray-500"
+                                disabled={isFirstStop}
+                                title={`Value${units === 'days' ? ' (days)' : ''}`}
+                            />
+                            <input 
                                 type="color"
                                 value={hex}
                                 onChange={(e) => handleUpdateStop(index, { color: e.target.value })}
                                 className="w-8 h-8 p-0 border-none rounded-md bg-transparent"
                             />
                             <input 
-                                type="range"
+                                type="number"
                                 min="0" max="1" step="0.01"
-                                value={alpha}
-                                onChange={(e) => handleUpdateStop(index, { alpha: Number(e.target.value) })}
-                                className="flex-grow h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-gray-500"
-                                title={`Opacity: ${Math.round(alpha * 100)}%`}
+                                defaultValue={alpha.toFixed(2)}
+                                onBlur={(e) => {
+                                    let newAlpha = parseFloat(e.target.value);
+                                    if (isNaN(newAlpha)) newAlpha = 1.0;
+                                    if (newAlpha < 0) newAlpha = 0; if (newAlpha > 1) newAlpha = 1;
+                                    handleUpdateStop(index, { alpha: newAlpha });
+                                }}
+                                className="w-16 bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600"
+                                placeholder="Opacity"
                             />
-                            <button onClick={() => handleRemoveStop(index)} className="text-gray-500 hover:text-red-400">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                            <button disabled={isFirstStop} onClick={() => handleRemoveStop(index)} className="text-gray-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed ml-auto">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
                             </button>
                         </div>
                     );
                 })}
             </div>
-             <div className="border-t border-gray-600 pt-3 flex items-center gap-2">
+             <div className="border-t border-gray-600 pt-3 grid grid-cols-[20px_1fr_auto_auto_auto] items-center gap-2">
+                <span/>
                 <input 
                     type="number"
-                    step="0.1"
+                    step={units === 'days' ? 0.1 : 1}
                     value={newValue}
                     onChange={(e) => setNewValue(e.target.value)}
-                    className="w-20 bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600"
+                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600"
                     placeholder="Value"
                 />
-                 <input 
+                <input 
                     type="color"
                     value={newHex}
                     onChange={(e) => setNewHex(e.target.value)}
                     className="w-8 h-8 p-0 border-none rounded-md bg-transparent"
                 />
-                 <input 
-                    type="range"
+                <input 
+                    type="number"
                     min="0" max="1" step="0.01"
                     value={newAlpha}
                     onChange={(e) => setNewAlpha(Number(e.target.value))}
-                    className="w-16 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-gray-500"
-                    title={`Opacity: ${Math.round(newAlpha * 100)}%`}
+                    className="w-16 bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600"
+                    placeholder="Opacity"
                 />
-                <button onClick={handleAddStop} className="flex-grow bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold py-1.5 px-2 rounded-md">Add</button>
+                <button onClick={handleAddStop} className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold py-1.5 px-2 rounded-md">Add</button>
             </div>
         </div>
     );
@@ -245,22 +274,21 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                           </div>
                            {layer.colormap === 'Custom' && (
                                <CustomColormapEditor
+                                   layerRange={layer.range}
                                    stops={
-                                    useDaysUnitForCustom
-                                      ? (layer.customColormap || []).map(s => ({ ...s, value: s.value / 24 }))
-                                      : layer.customColormap || []
+                                    (layer.customColormap || []).map(s => ({ 
+                                        ...s, 
+                                        value: useDaysUnitForCustom ? s.value / 24 : s.value
+                                    }))
                                    }
                                    onStopsChange={(stops) => {
-                                      const stopsInHours = useDaysUnitForCustom
-                                          ? stops.map(s => ({ ...s, value: s.value * 24 }))
-                                          : stops;
+                                      const stopsInHours = stops.map(s => ({ 
+                                          ...s, 
+                                          value: useDaysUnitForCustom ? s.value * 24 : s.value
+                                        }));
                                       onUpdate(layer.id, { customColormap: stopsInHours });
                                    }}
-                                   dataRange={
-                                     useDaysUnitForCustom
-                                        ? { min: layer.range.min / 24, max: layer.range.max / 24 }
-                                        : layer.range
-                                   }
+                                   units={useDaysUnitForCustom ? 'days' : undefined}
                                />
                            )}
                           <div className="flex flex-col items-center">
@@ -269,13 +297,13 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                                 customColormap={layer.customColormap}
                                 dataRange={
                                     isNightfall
-                                    ? { min: 0, max: layer.params.clipValue ?? 0 }
+                                    ? { min: -(layer.params.clipValue ?? 0), max: layer.params.clipValue ?? 0 }
                                     : layer.range
                                 }
                                 units={
                                     layer.type === 'analysis' 
                                         ? (layer.analysisType === 'nightfall' 
-                                            ? (useDaysUnitForCustom ? 'days' : 'hours') 
+                                            ? 'days' 
                                             : '%') 
                                         : undefined
                                 } 
@@ -331,9 +359,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                             <div>
                                 <label className="block text-xs text-gray-400">
                                     Clip colormap at: {
-                                        useDaysUnitForCustom 
-                                        ? `${((layer.params.clipValue ?? 0) / 24).toFixed(1)} days`
-                                        : `${(layer.params.clipValue ?? 0).toFixed(0)} hours`
+                                        `${((layer.params.clipValue ?? 0) / 24).toFixed(1)} days`
                                     }
                                 </label>
                                 <input 
@@ -635,6 +661,7 @@ const StopIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-
 
 const ConfigurationPanel: React.FC<{ 
     isDataLoaded: boolean;
+    activeLayer: Layer | undefined;
     timeRange: TimeRange | null; 
     showGraticule: boolean; 
     onShowGraticuleChange: (v: boolean) => void; 
@@ -657,8 +684,10 @@ const ConfigurationPanel: React.FC<{
     onExportConfig: () => void;
     artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
     onSetArtifactDisplayOptions: (opts: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }) => void;
+    nightfallPlotYAxisRange: { min: number; max: number; };
+    onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
 }> = ({ 
-    isDataLoaded, timeRange, 
+    isDataLoaded, activeLayer, timeRange, 
     showGraticule, onShowGraticuleChange, 
     graticuleDensity, onGraticuleDensityChange, 
     hoveredCoords, selectedPixel,
@@ -669,6 +698,7 @@ const ConfigurationPanel: React.FC<{
     onTogglePlay, onPlaybackSpeedChange,
     onImportConfig, onExportConfig,
     artifactDisplayOptions, onSetArtifactDisplayOptions,
+    nightfallPlotYAxisRange, onNightfallPlotYAxisRangeChange,
 }) => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -680,6 +710,8 @@ const ConfigurationPanel: React.FC<{
           e.target.value = ''; // Reset input to allow selecting the same file again
       }
   };
+  
+  const isNightfallActive = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall';
 
   return (
     <div className="space-y-4">
@@ -695,6 +727,21 @@ const ConfigurationPanel: React.FC<{
         
         {!isDataLoaded ? <p className="text-sm text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
             <>
+              {isNightfallActive && (
+                  <Section title="Plot Options" defaultOpen={true}>
+                      <h4 className="text-sm font-medium text-gray-300 mb-2">Nightfall Plot Y-Axis Range</h4>
+                      <div className="flex items-center gap-2">
+                          <label className="text-xs text-gray-400">Min (days)</label>
+                          <input type="number" step="1" value={nightfallPlotYAxisRange.min}
+                              onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, min: Number(e.target.value) })}
+                              className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                          <label className="text-xs text-gray-400">Max (days)</label>
+                          <input type="number" step="1" value={nightfallPlotYAxisRange.max}
+                              onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, max: Number(e.target.value) })}
+                              className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                      </div>
+                  </Section>
+              )}
               <Section title="Time Animation">
                   <div className="flex items-center gap-4">
                       <button
@@ -795,6 +842,7 @@ const ConfigurationPanel: React.FC<{
 export const SidePanel: React.FC<{
   activeTool: Tool;
   layers: Layer[];
+  activeLayer: Layer | undefined;
   activeLayerId: string | null;
   onActiveLayerChange: (id: string | null) => void;
   onAddDataLayer: (file: File) => void;
@@ -844,6 +892,8 @@ export const SidePanel: React.FC<{
   onSetArtifactDisplayOptions: (opts: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }) => void;
   isAppendingWaypoints: boolean;
   onStartAppendWaypoints: () => void;
+  nightfallPlotYAxisRange: { min: number; max: number; };
+  onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
 }> = ({ activeTool, ...props }) => {
   const renderPanel = () => {
     switch (activeTool) {

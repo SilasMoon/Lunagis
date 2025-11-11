@@ -200,4 +200,5 @@ export interface AppStateConfig {
     showSegmentLengths: boolean;
     labelFontSize: number;
   };
+  nightfallPlotYAxisRange: { min: number; max: number; };
 }

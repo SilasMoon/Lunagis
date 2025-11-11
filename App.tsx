@@ -7,7 +7,7 @@ import { TimeSlider } from './components/TimeSlider';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { parseNpy } from './services/npyParser';
 import { parseVrt } from './services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint } from './types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop } from './types';
 import { indexToDate } from './utils/time';
 
 declare const proj4: any;
@@ -56,35 +56,71 @@ const calculateNightfallDataset = async (sourceLayer: DataLayer): Promise<{datas
     const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(0)));
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
     let maxDuration = 0;
+    let minDuration = 0;
 
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
+            const pixelTimeSeries = dataset.map(slice => slice[y][x]);
+
+            // --- Pass 1: Pre-compute all night periods for this pixel ---
+            const nightPeriods: { start: number; end: number; duration: number }[] = [];
+            let inNight = false;
+            let nightStart = -1;
+
             for (let t = 0; t < time; t++) {
-                if (dataset[t][y][x] === 0) {
-                    resultDataset[t][y][x] = -1;
-                } else {
-                    let nightStart = -1;
-                    for (let k = t + 1; k < time; k++) {
-                        if (dataset[k][y][x] === 0) { nightStart = k; break; }
+                const isCurrentlyNight = pixelTimeSeries[t] === 0;
+                if (isCurrentlyNight && !inNight) {
+                    // Sunset: a new night period begins
+                    inNight = true;
+                    nightStart = t;
+                } else if (!isCurrentlyNight && inNight) {
+                    // Sunrise: the night period ends
+                    inNight = false;
+                    const duration = t - nightStart;
+                    nightPeriods.push({ start: nightStart, end: t, duration });
+                }
+            }
+            // Handle case where the series ends during a night period
+            if (inNight) {
+                const duration = time - nightStart;
+                nightPeriods.push({ start: nightStart, end: time, duration });
+            }
+            
+            // --- Pass 2: Populate the forecast using the pre-computed list ---
+            let nextNightIndex = 0;
+            for (let t = 0; t < time; t++) {
+                if (pixelTimeSeries[t] === 1) { // It's DAY
+                    // Find the next night period that starts after the current time
+                    while (nextNightIndex < nightPeriods.length && nightPeriods[nextNightIndex].start <= t) {
+                        nextNightIndex++;
                     }
-                    if (nightStart !== -1) {
-                        let nightEnd = time;
-                        for (let k = nightStart; k < time; k++) {
-                            if (dataset[k][y][x] === 1) { nightEnd = k; break; }
-                        }
-                        const duration = nightEnd - nightStart;
-                        resultDataset[t][y][x] = duration;
-                        if (duration > maxDuration) maxDuration = duration;
+
+                    if (nextNightIndex < nightPeriods.length) {
+                        const nextNight = nightPeriods[nextNightIndex];
+                        resultDataset[t][y][x] = nextNight.duration;
+                        if (nextNight.duration > maxDuration) maxDuration = nextNight.duration;
                     } else {
-                        resultDataset[t][y][x] = 0;
+                        resultDataset[t][y][x] = 0; // No more night periods
+                    }
+                } else { // It's NIGHT
+                    // Find which night period the current time falls into
+                    const currentNight = nightPeriods.find(p => t >= p.start && t < p.end);
+                    if (currentNight) {
+                        const forecastValue = -currentNight.duration;
+                        resultDataset[t][y][x] = forecastValue;
+                        if (forecastValue < minDuration) minDuration = forecastValue;
+                    } else {
+                        // This case should ideally not happen if logic is correct
+                        resultDataset[t][y][x] = -1; 
                     }
                 }
             }
         }
         if (y % 10 === 0) await yieldToMain();
     }
-    return { dataset: resultDataset, range: { min: -1, max: maxDuration }, maxDuration };
+    return { dataset: resultDataset, range: { min: minDuration, max: maxDuration }, maxDuration };
 };
+
 
 const ImportFilesModal: React.FC<{
     requiredFiles: string[];
@@ -141,7 +177,7 @@ const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<Tool>('layers');
   
   const [selectedPixel, setSelectedPixel] = useState<PixelCoords & { layerId: string } | null>(null);
-  const [timeSeriesData, setTimeSeriesData] = useState<{data: number[], range: {min: number, max: number}, clipValue?: number} | null>(null);
+  const [timeSeriesData, setTimeSeriesData] = useState<{data: number[], range: {min: number, max: number}} | null>(null);
   const [timeZoomDomain, setTimeZoomDomain] = useState<TimeDomain | null>(null);
   const [daylightFractionHoverData, setDaylightFractionHoverData] = useState<DaylightFractionHoverData | null>(null);
   
@@ -181,9 +217,11 @@ const App: React.FC = () => {
     showSegmentLengths: true,
     labelFontSize: 14,
   });
+  const [nightfallPlotYAxisRange, setNightfallPlotYAxisRange] = useState<{ min: number; max: number; }>({ min: -15, max: 15 });
 
   const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
   const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
+  const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
   
   const proj = useMemo(() => (baseMapLayer ? proj4(baseMapLayer.vrt.srs) : null), [baseMapLayer]);
 
@@ -231,12 +269,9 @@ const App: React.FC = () => {
   useEffect(() => {
     if (selectedPixel) {
         const layer = layers.find(l => l.id === selectedPixel.layerId);
-        if (layer?.type === 'data') {
+        if (layer?.type === 'data' || (layer?.type === 'analysis')) {
             const series = layer.dataset.map(slice => slice[selectedPixel.y][selectedPixel.x]);
             setTimeSeriesData({data: series, range: layer.range});
-        } else if (layer?.type === 'analysis' && layer.analysisType === 'nightfall') {
-            const series = layer.dataset.map(slice => slice[selectedPixel.y][selectedPixel.x]);
-            setTimeSeriesData({data: series, range: layer.range, clipValue: layer.params.clipValue});
         } else {
             setTimeSeriesData(null);
         }
@@ -406,16 +441,28 @@ const App: React.FC = () => {
     
     const { dataset, range, maxDuration } = await calculateNightfallDataset(sourceLayer);
     
+    const transparent = 'rgba(0,0,0,0)';
+    const fourteenDaysInHours = 14 * 24; // 336
+
+    const defaultCustomColormap: ColorStop[] = [
+      { value: -Infinity, color: transparent },
+      { value: -fourteenDaysInHours, color: 'cyan' },
+      { value: 0, color: 'yellow' },
+      { value: fourteenDaysInHours + 0.001, color: transparent }
+    ];
+
     const defaultClip = Math.min(1000, Math.ceil(maxDuration / 24) * 24 || 24);
 
     const newLayer: AnalysisLayer = {
         id: `analysis-${Date.now()}`,
         name: `Nightfall Forecast for ${sourceLayer.name}`,
         type: 'analysis', analysisType: 'nightfall',
-        visible: true, opacity: 1.0, colormap: 'Plasma', colormapInverted: true,
+        visible: true, opacity: 1.0,
+        colormap: 'Custom',
+        colormapInverted: false,
         dataset, range,
         dimensions: sourceLayer.dimensions, sourceLayerId,
-        customColormap: [{ value: 0, color: '#000000' }, { value: maxDuration, color: '#ffffff' }],
+        customColormap: defaultCustomColormap,
         params: { clipValue: defaultClip },
     };
 
@@ -782,6 +829,7 @@ const App: React.FC = () => {
             activeTool,
             artifacts: artifacts.map(a => ({...a})),
             artifactDisplayOptions,
+            nightfallPlotYAxisRange,
         };
         
         const jsonString = JSON.stringify(config, null, 2);
@@ -799,7 +847,7 @@ const App: React.FC = () => {
     } finally {
         setIsLoading(null);
     }
-  }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions]);
+  }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions, nightfallPlotYAxisRange]);
 
   const handleImportConfig = useCallback((file: File) => {
     setIsLoading("Reading config file...");
@@ -924,6 +972,7 @@ const App: React.FC = () => {
             setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
         }
         setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14 });
+        setNightfallPlotYAxisRange(config.nightfallPlotYAxisRange || { min: -15, max: 15 });
 
     } catch (e) {
         alert(`Error restoring session: ${e instanceof Error ? e.message : String(e)}`);
@@ -940,6 +989,7 @@ const App: React.FC = () => {
       <SidePanel
         activeTool={activeTool}
         layers={layers}
+        activeLayer={activeLayer}
         activeLayerId={activeLayerId}
         onActiveLayerChange={setActiveLayerId}
         onAddDataLayer={handleAddDataLayer}
@@ -989,6 +1039,8 @@ const App: React.FC = () => {
         onSetArtifactDisplayOptions={setArtifactDisplayOptions}
         isAppendingWaypoints={isAppendingWaypoints}
         onStartAppendWaypoints={handleStartAppendWaypoints}
+        nightfallPlotYAxisRange={nightfallPlotYAxisRange}
+        onNightfallPlotYAxisRangeChange={setNightfallPlotYAxisRange}
       />
       
       <main className="flex-grow flex flex-col min-w-0">
@@ -1029,12 +1081,18 @@ const App: React.FC = () => {
           isDataLoaded={!!primaryDataLayer}
           timeSeriesData={timeSeriesData?.data ?? null}
           dataRange={timeSeriesData?.range ?? null}
-          clipValue={timeSeriesData?.clipValue}
           timeRange={timeRange}
           fullTimeDomain={fullTimeDomain}
           timeZoomDomain={timeZoomDomain}
           onZoomToSelection={handleZoomToSelection}
           onResetZoom={handleResetTimeZoom}
+          yAxisUnit={activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? 'days' : undefined}
+          yAxisRange={activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? nightfallPlotYAxisRange : undefined}
+          colormapThresholds={
+            activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' && activeLayer.colormap === 'Custom'
+            ? activeLayer.customColormap
+            : undefined
+          }
         />
 
         <TimeSlider

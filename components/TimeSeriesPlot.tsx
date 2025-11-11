@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import type { TimeRange, TimeDomain } from '../types';
+import type { TimeRange, TimeDomain, ColorStop } from '../types';
 import { indexToDate } from '../utils/time';
 
 declare const d3: any;
@@ -14,7 +14,9 @@ interface TimeSeriesPlotProps {
   onZoomToSelection: () => void;
   onResetZoom: () => void;
   dataRange: { min: number; max: number } | null;
-  clipValue?: number;
+  yAxisUnit?: 'days';
+  yAxisRange?: { min: number; max: number }; // In days if yAxisUnit is 'days'
+  colormapThresholds?: ColorStop[];
 }
 
 export const MARGIN = { top: 10, right: 30, bottom: 20, left: 50 };
@@ -28,7 +30,9 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
   onZoomToSelection,
   onResetZoom,
   dataRange,
-  clipValue,
+  yAxisUnit,
+  yAxisRange,
+  colormapThresholds,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,15 +56,13 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
 
   const dataWithDates = useMemo(() => {
     if (!timeSeriesData) return [];
-    const startDate = new Date('2030-01-01T00:00:00Z');
+    const isDays = yAxisUnit === 'days';
     return timeSeriesData.map((value, i) => {
-        const date = new Date(startDate.getTime());
-        date.setUTCHours(date.getUTCHours() + i);
-        // Only clip positive values (durations). Leave -1 (night) untouched.
-        const finalValue = (clipValue !== undefined && value > 0) ? Math.min(value, clipValue) : value;
+        const date = indexToDate(i);
+        const finalValue = isDays ? value / 24 : value;
         return { date, value: finalValue };
     });
-  }, [timeSeriesData, clipValue]);
+  }, [timeSeriesData, yAxisUnit]);
 
   useEffect(() => {
     if (!isDataLoaded || !timeSeriesData || !dataRange || !timeZoomDomain || innerWidth <= 0 || innerHeight <= 0) {
@@ -74,9 +76,19 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
 
     const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
-    const yDomainMax = clipValue !== undefined ? clipValue : dataRange.max;
+    const isDays = yAxisUnit === 'days';
+    
+    let yDomain: [number, number];
+    if (yAxisRange) {
+        yDomain = [yAxisRange.min, yAxisRange.max];
+    } else {
+        yDomain = isDays 
+            ? [dataRange.min / 24, dataRange.max / 24]
+            : [dataRange.min, dataRange.max];
+    }
+    
     const xScale = d3.scaleUtc().domain(timeZoomDomain).range([0, innerWidth]);
-    const yScale = d3.scaleLinear().domain([dataRange.min, yDomainMax]).range([innerHeight, 0]).nice();
+    const yScale = d3.scaleLinear().domain(yDomain).range([innerHeight, 0]).nice();
     
     // Define clipping path
     g.append('clipPath')
@@ -87,11 +99,8 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
 
     // Draw Highlighted Range
     if (timeRange) {
-        const startDate = new Date('2030-01-01T00:00:00Z');
-        const start = new Date(startDate.getTime());
-        start.setUTCHours(start.getUTCHours() + timeRange.start);
-        const end = new Date(startDate.getTime());
-        end.setUTCHours(end.getUTCHours() + timeRange.end);
+        const start = indexToDate(timeRange.start);
+        const end = indexToDate(timeRange.end);
         
         g.append('rect')
          .attr('x', xScale(start))
@@ -100,6 +109,49 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
          .attr('height', innerHeight)
          .attr('fill', 'rgba(79, 209, 197, 0.2)');
     }
+    
+    // Draw threshold color bands
+    if (colormapThresholds) {
+        const bands = [];
+        for (let i = 0; i < colormapThresholds.length; i++) {
+            const currentStop = colormapThresholds[i];
+            const nextStop = colormapThresholds[i + 1];
+
+            const convertValue = (val: number) => isDays ? val / 24 : val;
+
+            const y0Value = convertValue(currentStop.value);
+            const y1Value = nextStop ? convertValue(nextStop.value) : yDomain[1];
+
+            const bandTopVal = Math.min(yDomain[1], y1Value);
+            const bandBottomVal = Math.max(yDomain[0], y0Value);
+
+            const y = yScale(bandTopVal);
+            const height = yScale(bandBottomVal) - y;
+
+            if (height > 0) {
+                bands.push({
+                    y: y,
+                    height: height,
+                    color: currentStop.color,
+                });
+            }
+        }
+        
+        g.append('g')
+         .attr('class', 'threshold-bands')
+         .attr('clip-path', 'url(#clip)')
+         .selectAll('rect')
+         .data(bands)
+         .enter()
+         .append('rect')
+         .attr('x', 0)
+         .attr('width', innerWidth)
+         .attr('y', d => d.y)
+         .attr('height', d => d.height)
+         .attr('fill', d => d.color)
+         .attr('opacity', 0.2);
+    }
+
 
     // Draw Line
     const line = d3.line()
@@ -116,7 +168,8 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
      
     // Draw Axes
     const xAxis = d3.axisBottom(xScale).ticks(innerWidth / 80).tickSizeOuter(0);
-    const yAxis = d3.axisLeft(yScale).ticks(innerHeight / 30).tickSize(-innerWidth);
+    const yAxis = d3.axisLeft(yScale).ticks(innerHeight / 30).tickSize(-innerWidth)
+      .tickFormat(d => isDays ? `${d.valueOf().toFixed(1)} days` : d.valueOf().toString());
 
     g.append('g')
      .attr('transform', `translate(0,${innerHeight})`)
@@ -137,7 +190,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
         .attr('fill', '#90CDF4')
         .style('font-size', '10px'));
 
-  }, [isDataLoaded, timeSeriesData, timeRange, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, clipValue]);
+  }, [isDataLoaded, timeSeriesData, timeRange, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, yAxisUnit, yAxisRange, colormapThresholds]);
   
   const isAtFullZoom = useMemo(() => (
     timeZoomDomain && fullTimeDomain &&

@@ -235,7 +235,9 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
           const isThreshold = layer.colormap === 'Custom';
 
           if (layer.type === 'analysis' && layer.analysisType === 'nightfall') {
-            colorDomain = [0, layer.params.clipValue ?? layer.range.max];
+             // For nightfall, the color scale needs to handle the full range of values.
+             // The custom threshold scale gets its domain from the stops, so this is mainly for non-custom scales.
+             colorDomain = [layer.range.min, layer.params.clipValue ?? layer.range.max];
           } else {
             colorDomain = [layer.range.min, layer.range.max];
           }
@@ -246,17 +248,12 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
           for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) {
                   const value = slice[y][x];
                   const index = (y * width + x) * 4;
-
-                  if (layer.type === 'analysis' && layer.analysisType === 'nightfall' && value < 0) {
-                      imageData.data[index + 3] = 0;
-                  } else {
-                      const finalColor = d3.color(colorScale(value));
-                      if (finalColor) {
-                        imageData.data[index] = finalColor.r;
-                        imageData.data[index + 1] = finalColor.g;
-                        imageData.data[index + 2] = finalColor.b;
-                        imageData.data[index + 3] = finalColor.opacity * 255;
-                      }
+                  const finalColor = d3.color(colorScale(value));
+                  if (finalColor) {
+                    imageData.data[index] = finalColor.r;
+                    imageData.data[index + 1] = finalColor.g;
+                    imageData.data[index + 2] = finalColor.b;
+                    imageData.data[index + 3] = finalColor.opacity * 255;
                   }
           }}
           offscreenCtx.putImageData(imageData, 0, 0);
