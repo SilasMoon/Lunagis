@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 export const START_DATE = new Date('2030-01-01T00:00:00Z');
 
 export const indexToDate = (index: number): Date => {

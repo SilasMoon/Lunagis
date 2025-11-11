@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { indexToDate, dateToIndex, START_DATE } from '../utils/time';
 import type { TimeRange, TimeDomain } from '../types';

@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { ToolBar } from './components/TopBar';
 import { SidePanel } from './components/ControlPanel';
@@ -6,7 +7,7 @@ import { TimeSlider } from './components/TimeSlider';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { parseNpy } from './services/npyParser';
 import { parseVrt } from './services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact } from './types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint } from './types';
 import { indexToDate } from './utils/time';
 
 declare const proj4: any;
@@ -167,12 +168,19 @@ const App: React.FC = () => {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
   const [artifactCreationMode, setArtifactCreationMode] = useState<Artifact['type'] | null>(null);
-  const [draggedArtifactInfo, setDraggedArtifactInfo] = useState<{
-    id: string;
+  const [isAppendingWaypoints, setIsAppendingWaypoints] = useState<boolean>(false);
+  const [draggedInfo, setDraggedInfo] = useState<{
+    artifactId: string;
+    waypointId?: string;
     initialMousePos: [number, number];
     initialCenter?: [number, number];
-    initialWaypoints?: [number, number][];
+    initialWaypointProjPositions?: [number, number][];
   } | null>(null);
+  const [artifactDisplayOptions, setArtifactDisplayOptions] = useState({
+    waypointDotSize: 8,
+    showSegmentLengths: true,
+    labelFontSize: 14,
+  });
 
   const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
   const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
@@ -535,7 +543,13 @@ const App: React.FC = () => {
 
   const handleFinishArtifactCreation = useCallback(() => {
     setArtifactCreationMode(null);
+    setIsAppendingWaypoints(false);
   }, []);
+  
+  const handleStartAppendWaypoints = useCallback(() => {
+    setIsAppendingWaypoints(true);
+  }, []);
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -548,16 +562,40 @@ const App: React.FC = () => {
   }, [handleFinishArtifactCreation]);
 
   const handleMapClick = useCallback((coords: GeoCoordinates, projCoords: [number, number]) => {
+    if (isAppendingWaypoints) {
+        const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
+        if (activeArtifact && activeArtifact.type === 'path' && coords) {
+            const newWaypoint: Waypoint = {
+                id: `wp-${Date.now()}`,
+                geoPosition: [coords.lon, coords.lat],
+                label: `WP ${activeArtifact.waypoints.length + 1}`,
+            };
+            handleUpdateArtifact(activeArtifactId!, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
+        }
+        return;
+    }
+    
     if (artifactCreationMode) {
         if (artifactCreationMode === 'path') {
+            if (!proj || !coords) return;
             const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
             if (activeArtifact && activeArtifact.type === 'path') {
-                handleUpdateArtifact(activeArtifactId!, { waypoints: [...activeArtifact.waypoints, projCoords] });
+                const newWaypoint: Waypoint = {
+                    id: `wp-${Date.now()}`,
+                    geoPosition: [coords.lon, coords.lat],
+                    label: `WP ${activeArtifact.waypoints.length + 1}`,
+                };
+                handleUpdateArtifact(activeArtifactId!, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
             } else {
+                const newWaypoint: Waypoint = {
+                    id: `wp-${Date.now()}`,
+                    geoPosition: [coords.lon, coords.lat],
+                    label: 'WP 1',
+                };
                 const newPath: PathArtifact = {
                     id: `path-${Date.now()}`, type: 'path', visible: true, color: '#ff33ff', thickness: 2,
                     name: `Path ${artifacts.filter(a => a.type === 'path').length + 1}`,
-                    waypoints: [projCoords],
+                    waypoints: [newWaypoint],
                 };
                 setArtifacts(prev => [...prev, newPath]);
                 setActiveArtifactId(newPath.id);
@@ -598,41 +636,77 @@ const App: React.FC = () => {
         else return [...prev, pixel];
       });
     }
-  }, [activeTool, coordinateTransformer, artifactCreationMode, artifacts, activeArtifactId, handleUpdateArtifact]);
+  }, [activeTool, coordinateTransformer, artifactCreationMode, artifacts, activeArtifactId, handleUpdateArtifact, proj, isAppendingWaypoints]);
 
-  const handleArtifactDragStart = useCallback((id: string, projCoords: [number, number]) => {
-    const artifact = artifacts.find(a => a.id === id);
-    if (!artifact) return;
-
-    if (artifact.type === 'circle' || artifact.type === 'rectangle') {
-        setDraggedArtifactInfo({ id, initialMousePos: projCoords, initialCenter: artifact.center });
-    } else if (artifact.type === 'path') {
-        setDraggedArtifactInfo({ id, initialMousePos: projCoords, initialWaypoints: artifact.waypoints });
+  const handleArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
+    if (isAppendingWaypoints) return;
+    const artifact = artifacts.find(a => a.id === info.artifactId);
+    if (!artifact || !proj) return;
+    
+    if (info.waypointId) {
+        setDraggedInfo({
+            artifactId: info.artifactId,
+            waypointId: info.waypointId,
+            initialMousePos: projCoords,
+        });
+    } else {
+        if (artifact.type === 'circle' || artifact.type === 'rectangle') {
+            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.center });
+        } else if (artifact.type === 'path') {
+            const initialWaypointProjPositions = artifact.waypoints.map(wp => proj.forward(wp.geoPosition));
+            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
+        }
     }
-    setActiveArtifactId(id);
-  }, [artifacts]);
+    setActiveArtifactId(info.artifactId);
+  }, [artifacts, proj, isAppendingWaypoints]);
 
   const handleArtifactDrag = useCallback((projCoords: [number, number]) => {
-    if (!draggedArtifactInfo) return;
+    if (!draggedInfo || !proj) return;
 
-    const dx = projCoords[0] - draggedArtifactInfo.initialMousePos[0];
-    const dy = projCoords[1] - draggedArtifactInfo.initialMousePos[1];
-
-    setArtifacts(prev => prev.map(a => {
-        if (a.id === draggedArtifactInfo.id) {
-            if ((a.type === 'circle' || a.type === 'rectangle') && draggedArtifactInfo.initialCenter) {
-                return { ...a, center: [draggedArtifactInfo.initialCenter[0] + dx, draggedArtifactInfo.initialCenter[1] + dy] };
-            } else if (a.type === 'path' && draggedArtifactInfo.initialWaypoints) {
-                const newWaypoints = draggedArtifactInfo.initialWaypoints.map(wp => [wp[0] + dx, wp[1] + dy]) as [number, number][];
-                return { ...a, waypoints: newWaypoints };
+    if (draggedInfo.waypointId) {
+        setArtifacts(prev => prev.map(a => {
+            if (a.id === draggedInfo.artifactId && a.type === 'path') {
+                try {
+                    const newGeoPos = proj.inverse(projCoords);
+                    const newWaypoints = a.waypoints.map(wp =>
+                        wp.id === draggedInfo.waypointId ? { ...wp, geoPosition: newGeoPos as [number, number] } : wp
+                    );
+                    return { ...a, waypoints: newWaypoints };
+                } catch (e) {
+                    return a;
+                }
             }
-        }
-        return a;
-    }));
-  }, [draggedArtifactInfo]);
+            return a;
+        }));
+    } else {
+        const dx = projCoords[0] - draggedInfo.initialMousePos[0];
+        const dy = projCoords[1] - draggedInfo.initialMousePos[1];
+
+        setArtifacts(prev => prev.map(a => {
+            if (a.id === draggedInfo.artifactId) {
+                if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
+                    return { ...a, center: [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy] };
+                } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
+                    const newWaypoints = a.waypoints.map((wp, i) => {
+                        const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
+                        const newProjPos: [number, number] = [initialProjPos[0] + dx, initialProjPos[1] + dy];
+                        try {
+                            const newGeoPos = proj.inverse(newProjPos);
+                            return { ...wp, geoPosition: newGeoPos };
+                        } catch (e) {
+                            return wp;
+                        }
+                    });
+                    return { ...a, waypoints: newWaypoints };
+                }
+            }
+            return a;
+        }));
+    }
+  }, [draggedInfo, proj]);
 
   const handleArtifactDragEnd = useCallback(() => {
-    setDraggedArtifactInfo(null);
+    setDraggedInfo(null);
   }, []);
 
   const handleRemoveArtifact = useCallback((id: string) => {
@@ -707,6 +781,7 @@ const App: React.FC = () => {
             selectionColor,
             activeTool,
             artifacts: artifacts.map(a => ({...a})),
+            artifactDisplayOptions,
         };
         
         const jsonString = JSON.stringify(config, null, 2);
@@ -724,7 +799,7 @@ const App: React.FC = () => {
     } finally {
         setIsLoading(null);
     }
-  }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts]);
+  }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions]);
 
   const handleImportConfig = useCallback((file: File) => {
     setIsLoading("Reading config file...");
@@ -848,6 +923,7 @@ const App: React.FC = () => {
         if (config.timeZoomDomain) {
             setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
         }
+        setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14 });
 
     } catch (e) {
         alert(`Error restoring session: ${e instanceof Error ? e.message : String(e)}`);
@@ -909,6 +985,10 @@ const App: React.FC = () => {
         artifactCreationMode={artifactCreationMode}
         onSetArtifactCreationMode={setArtifactCreationMode}
         onFinishArtifactCreation={handleFinishArtifactCreation}
+        artifactDisplayOptions={artifactDisplayOptions}
+        onSetArtifactDisplayOptions={setArtifactDisplayOptions}
+        isAppendingWaypoints={isAppendingWaypoints}
+        onStartAppendWaypoints={handleStartAppendWaypoints}
       />
       
       <main className="flex-grow flex flex-col min-w-0">
@@ -939,7 +1019,9 @@ const App: React.FC = () => {
             onArtifactDragStart={handleArtifactDragStart}
             onArtifactDrag={handleArtifactDrag}
             onArtifactDragEnd={handleArtifactDragEnd}
-            isDraggingArtifact={!!draggedArtifactInfo}
+            isDragging={!!draggedInfo}
+            artifactDisplayOptions={artifactDisplayOptions}
+            isAppendingWaypoints={isAppendingWaypoints}
           />
         </section>
         

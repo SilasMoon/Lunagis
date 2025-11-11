@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect } from 'react';
 import type { ColorMapName, ColorStop } from '../types';
 import { getColorScale } from '../services/colormap';

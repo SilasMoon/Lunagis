@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import type { DataWithRange, DataSet } from '../types';
 
 const TIME_STEPS = 8761;

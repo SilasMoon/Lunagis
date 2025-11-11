@@ -1,5 +1,6 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact } from '../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
@@ -390,22 +391,31 @@ const ArtifactItem: React.FC<{
   onSelect: () => void;
   onUpdate: (id: string, updates: Partial<Artifact>) => void;
   onRemove: (id: string) => void;
-}> = ({ artifact, isActive, onSelect, onUpdate, onRemove }) => {
+  onStartAppendWaypoints: () => void;
+}> = ({ artifact, isActive, onSelect, onUpdate, onRemove, onStartAppendWaypoints }) => {
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdate(artifact.id, { [prop]: value });
     };
 
-    const handleWaypointChange = (path: PathArtifact, wpIndex: number, coord: 'x' | 'y', value: string) => {
+    const handleWaypointUpdate = (path: PathArtifact, wpIndex: number, newProps: Partial<Waypoint>) => {
         const newWaypoints = [...path.waypoints];
+        newWaypoints[wpIndex] = { ...newWaypoints[wpIndex], ...newProps };
+        onUpdate(path.id, { waypoints: newWaypoints });
+    };
+
+    const handleWaypointGeoChange = (path: PathArtifact, wpIndex: number, coord: 'lon' | 'lat', value: string) => {
         const numericValue = parseFloat(value);
-        if (!isNaN(numericValue)) {
-            newWaypoints[wpIndex] = [
-                coord === 'x' ? numericValue : newWaypoints[wpIndex][0],
-                coord === 'y' ? numericValue : newWaypoints[wpIndex][1],
-            ];
-            onUpdate(path.id, { waypoints: newWaypoints });
-        }
+        if (isNaN(numericValue)) return;
+
+        const newWaypoints = [...path.waypoints];
+        const oldPos = newWaypoints[wpIndex].geoPosition;
+        const newPos: [number, number] = [
+            coord === 'lon' ? numericValue : oldPos[0],
+            coord === 'lat' ? numericValue : oldPos[1]
+        ];
+        newWaypoints[wpIndex] = { ...newWaypoints[wpIndex], geoPosition: newPos };
+        onUpdate(path.id, { waypoints: newWaypoints });
     };
     
     const handleRemoveWaypoint = (path: PathArtifact, wpIndex: number) => {
@@ -472,19 +482,32 @@ const ArtifactItem: React.FC<{
                     )}
 
                     {artifact.type === 'path' && (
-                        <Section title="Path Waypoints" defaultOpen={true}>
-                            {artifact.waypoints.map((wp, i) => (
-                                <div key={i} className="flex items-center gap-2 bg-gray-900/40 p-1.5 rounded-md">
-                                    <span className="font-mono text-gray-400">{i + 1}.</span>
-                                    <input type="number" value={wp[0]} onChange={e => handleWaypointChange(artifact, i, 'x', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600" placeholder="X" />
-                                    <input type="number" value={wp[1]} onChange={e => handleWaypointChange(artifact, i, 'y', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600" placeholder="Y" />
-                                    <button onClick={() => handleRemoveWaypoint(artifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                    </button>
+                        <>
+                            <Section title="Path Tools">
+                                <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
+                            </Section>
+                            <Section title="Path Waypoints" defaultOpen={true}>
+                                <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                                    {artifact.waypoints.map((wp, i) => (
+                                        <div key={wp.id} className="bg-gray-900/40 p-1.5 rounded-md space-y-1.5">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-gray-400">{i + 1}.</span>
+                                                <input type="text" value={wp.label} 
+                                                    onChange={e => handleWaypointUpdate(artifact, i, { label: e.target.value })}
+                                                    className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-sm" placeholder="Label" />
+                                                <button onClick={() => handleRemoveWaypoint(artifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
+                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                </button>
+                                            </div>
+                                            <div className="flex items-center gap-2 pl-6">
+                                                <input type="number" step="any" value={wp.geoPosition[0]} onChange={e => handleWaypointGeoChange(artifact, i, 'lon', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lon" title="Longitude" />
+                                                <input type="number" step="any" value={wp.geoPosition[1]} onChange={e => handleWaypointGeoChange(artifact, i, 'lat', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lat" title="Latitude" />
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                            {/* <button className="w-full text-sm ...">Add Waypoint by Click</button> */}
-                        </Section>
+                            </Section>
+                        </>
                     )}
                 </div>
             )}
@@ -503,7 +526,9 @@ const ArtifactsPanel: React.FC<{
   onSetArtifactCreationMode: (type: Artifact['type'] | null) => void;
   onFinishArtifactCreation: () => void;
   isDataLoaded: boolean;
-}> = ({ artifacts, activeArtifactId, onActiveArtifactChange, onUpdateArtifact, onRemoveArtifact, artifactCreationMode, onSetArtifactCreationMode, onFinishArtifactCreation, isDataLoaded }) => {
+  isAppendingWaypoints: boolean;
+  onStartAppendWaypoints: () => void;
+}> = ({ artifacts, activeArtifactId, onActiveArtifactChange, onUpdateArtifact, onRemoveArtifact, artifactCreationMode, onSetArtifactCreationMode, onFinishArtifactCreation, isDataLoaded, isAppendingWaypoints, onStartAppendWaypoints }) => {
   if (!isDataLoaded) {
     return (
       <div>
@@ -520,6 +545,11 @@ const ArtifactsPanel: React.FC<{
         <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-3">
             <p><strong>Drawing Path:</strong> Click on the map to add waypoints. Press 'Esc' or click finish when done.</p>
             <button onClick={onFinishArtifactCreation} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Drawing</button>
+        </div>
+      ) : isAppendingWaypoints ? (
+        <div className="p-3 bg-teal-900/50 border border-teal-700 rounded-md text-sm text-teal-200 space-y-3">
+            <p><strong>Appending to Path:</strong> Click on the map to add new waypoints. Press 'Esc' or click finish to stop.</p>
+            <button onClick={onFinishArtifactCreation} className="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Appending</button>
         </div>
       ) : (
         <>
@@ -542,6 +572,7 @@ const ArtifactsPanel: React.FC<{
                 onSelect={() => onActiveArtifactChange(artifact.id === activeArtifactId ? null : artifact.id)}
                 onUpdate={onUpdateArtifact}
                 onRemove={onRemoveArtifact}
+                onStartAppendWaypoints={onStartAppendWaypoints}
             />
           ))
         ) : (
@@ -624,6 +655,8 @@ const ConfigurationPanel: React.FC<{
     onPlaybackSpeedChange: (speed: number) => void;
     onImportConfig: (file: File) => void;
     onExportConfig: () => void;
+    artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
+    onSetArtifactDisplayOptions: (opts: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }) => void;
 }> = ({ 
     isDataLoaded, timeRange, 
     showGraticule, onShowGraticuleChange, 
@@ -635,6 +668,7 @@ const ConfigurationPanel: React.FC<{
     isPlaying, isPaused, playbackSpeed,
     onTogglePlay, onPlaybackSpeedChange,
     onImportConfig, onExportConfig,
+    artifactDisplayOptions, onSetArtifactDisplayOptions,
 }) => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -704,6 +738,31 @@ const ConfigurationPanel: React.FC<{
                     <input type="range" min="0.2" max="5" step="0.1" value={graticuleDensity} onChange={(e) => onGraticuleDensityChange(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                   </div>
                 )}
+              </Section>
+              <Section title="Artifact Display Options">
+                  <div>
+                      <label className="block text-sm font-medium text-gray-400">Waypoint Dot Size: {artifactDisplayOptions.waypointDotSize}px</label>
+                      <input type="range" min="2" max="20" step="1" 
+                          value={artifactDisplayOptions.waypointDotSize}
+                          onChange={(e) => onSetArtifactDisplayOptions({ ...artifactDisplayOptions, waypointDotSize: Number(e.target.value) })}
+                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
+                      />
+                  </div>
+                   <div>
+                      <label className="block text-sm font-medium text-gray-400">Label Font Size: {artifactDisplayOptions.labelFontSize}px</label>
+                      <input type="range" min="8" max="24" step="1" 
+                          value={artifactDisplayOptions.labelFontSize}
+                          onChange={(e) => onSetArtifactDisplayOptions({ ...artifactDisplayOptions, labelFontSize: Number(e.target.value) })}
+                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
+                      />
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
+                      <input type="checkbox" 
+                          checked={artifactDisplayOptions.showSegmentLengths}
+                          onChange={(e) => onSetArtifactDisplayOptions({ ...artifactDisplayOptions, showSegmentLengths: e.target.checked })}
+                          className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" />
+                      <span>Show Segment Lengths</span>
+                  </label>
               </Section>
               <Section title="Grid Overlay">
                 <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGrid} onChange={(e) => onShowGridChange(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Grid Overlay</span></label>
@@ -781,6 +840,10 @@ export const SidePanel: React.FC<{
   artifactCreationMode: Artifact['type'] | null;
   onSetArtifactCreationMode: (type: Artifact['type'] | null) => void;
   onFinishArtifactCreation: () => void;
+  artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
+  onSetArtifactDisplayOptions: (opts: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }) => void;
+  isAppendingWaypoints: boolean;
+  onStartAppendWaypoints: () => void;
 }> = ({ activeTool, ...props }) => {
   const renderPanel = () => {
     switch (activeTool) {

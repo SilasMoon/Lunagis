@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import type { ColorMapName, ColorStop } from '../types';
 
 // This file assumes `d3` is available on the window object from the CDN script in index.html

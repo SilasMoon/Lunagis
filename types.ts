@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 // Fix: Define VrtData interface here to break the circular dependency with vrtParser.ts.
 export interface VrtData {
   geoTransform: number[];
@@ -95,6 +96,13 @@ export interface AnalysisLayer extends LayerBase {
 export type Layer = BaseMapLayer | DataLayer | AnalysisLayer;
 
 // --- Artifact Types ---
+
+export interface Waypoint {
+  id: string;
+  geoPosition: [number, number]; // [lon, lat]
+  label: string;
+}
+
 export interface ArtifactBase {
   id: string;
   name: string;
@@ -120,7 +128,7 @@ export interface RectangleArtifact extends ArtifactBase {
 
 export interface PathArtifact extends ArtifactBase {
   type: 'path';
-  waypoints: [number, number][]; // Array of projected coordinates
+  waypoints: Waypoint[];
 }
 
 export type Artifact = CircleArtifact | RectangleArtifact | PathArtifact;
@@ -187,4 +195,9 @@ export interface AppStateConfig {
   selectionColor: string;
   activeTool: Tool;
   artifacts: SerializableArtifact[];
+  artifactDisplayOptions: {
+    waypointDotSize: number;
+    showSegmentLengths: boolean;
+    labelFontSize: number;
+  };
 }

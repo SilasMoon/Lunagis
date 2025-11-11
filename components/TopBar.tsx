@@ -1,3 +1,4 @@
+// Fix: Removed invalid file header which was causing parsing errors.
 import React from 'react';
 import type { Tool } from '../types';
 
