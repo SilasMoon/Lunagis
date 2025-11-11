@@ -1,4 +1,3 @@
-
 import type { DataWithRange, DataSet } from '../types';
 
 const TIME_STEPS = 8761;

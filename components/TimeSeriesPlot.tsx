@@ -13,6 +13,7 @@ interface TimeSeriesPlotProps {
   onZoomToSelection: () => void;
   onResetZoom: () => void;
   dataRange: { min: number; max: number } | null;
+  clipValue?: number;
 }
 
 export const MARGIN = { top: 10, right: 30, bottom: 20, left: 50 };
@@ -26,6 +27,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
   onZoomToSelection,
   onResetZoom,
   dataRange,
+  clipValue,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,9 +55,11 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
     return timeSeriesData.map((value, i) => {
         const date = new Date(startDate.getTime());
         date.setUTCHours(date.getUTCHours() + i);
-        return { date, value };
+        // Only clip positive values (durations). Leave -1 (night) untouched.
+        const finalValue = (clipValue !== undefined && value > 0) ? Math.min(value, clipValue) : value;
+        return { date, value: finalValue };
     });
-  }, [timeSeriesData]);
+  }, [timeSeriesData, clipValue]);
 
   useEffect(() => {
     if (!isDataLoaded || !timeSeriesData || !dataRange || !timeZoomDomain || innerWidth <= 0 || innerHeight <= 0) {
@@ -69,8 +73,9 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
 
     const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
+    const yDomainMax = clipValue !== undefined ? clipValue : dataRange.max;
     const xScale = d3.scaleUtc().domain(timeZoomDomain).range([0, innerWidth]);
-    const yScale = d3.scaleLinear().domain([dataRange.min, dataRange.max]).range([innerHeight, 0]).nice();
+    const yScale = d3.scaleLinear().domain([dataRange.min, yDomainMax]).range([innerHeight, 0]).nice();
     
     // Define clipping path
     g.append('clipPath')
@@ -131,7 +136,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
         .attr('fill', '#90CDF4')
         .style('font-size', '10px'));
 
-  }, [isDataLoaded, timeSeriesData, timeRange, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain]);
+  }, [isDataLoaded, timeSeriesData, timeRange, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, clipValue]);
   
   const isAtFullZoom = useMemo(() => (
     timeZoomDomain && fullTimeDomain &&

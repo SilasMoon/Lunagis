@@ -1,18 +1,20 @@
-
 import React, { useRef, useEffect } from 'react';
-import type { ColorMapName } from '../types';
+import type { ColorMapName, ColorStop } from '../types';
 import { getColorScale } from '../services/colormap';
 
 interface ColorbarProps {
   colorMap: ColorMapName;
   dataRange: { min: number; max: number } | null;
   units?: string;
+  inverted?: boolean;
+  customColormap?: ColorStop[];
+  isThreshold?: boolean;
 }
 
 const BAR_WIDTH = 20;
 const BAR_HEIGHT = 200;
 
-export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units }) => {
+export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units, inverted, customColormap, isThreshold }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -22,19 +24,34 @@ export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const colorScale = getColorScale(colorMap, [0, 1]); 
+    // For pre-canned colormaps, the domain is normalized to [0,1] for the interpolator.
+    // For custom colormaps, the scale is built directly with the values.
+    const domainForScale: [number, number] = colorMap === 'Custom' ? [dataRange.min, dataRange.max] : [0, 1];
+    const colorScale = getColorScale(colorMap, domainForScale, inverted, customColormap, isThreshold); 
 
     ctx.clearRect(0, 0, BAR_WIDTH, BAR_HEIGHT);
-
+    
+    // For custom or standard scales, we can just sample the final scale, which will correctly
+    // render either a smooth gradient or discrete threshold blocks.
     for (let i = 0; i < BAR_HEIGHT; i++) {
-      ctx.fillStyle = colorScale(1 - i / BAR_HEIGHT);
-      ctx.fillRect(0, i, BAR_WIDTH, 1);
+        const valueRatio = 1 - (i / BAR_HEIGHT);
+        let value: number;
+        if (colorMap === 'Custom') {
+            value = dataRange.min + valueRatio * (dataRange.max - dataRange.min);
+        } else {
+            value = valueRatio;
+        }
+        ctx.fillStyle = colorScale(value);
+        ctx.fillRect(0, i, BAR_WIDTH, 1);
     }
-  }, [colorMap, dataRange]);
+  }, [colorMap, dataRange, inverted, customColormap, isThreshold]);
 
   if (!dataRange) return null;
 
   const formatLabel = (value: number) => {
+    if (units === 'days') {
+      return (value / 24).toFixed(1);
+    }
     return value < 100 ? value.toFixed(1) : Math.round(value);
   }
 

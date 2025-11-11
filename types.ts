@@ -1,4 +1,4 @@
-
+// Fix: Define VrtData here to break a circular dependency.
 export interface VrtData {
   geoTransform: number[];
   srs: string;
@@ -6,7 +6,7 @@ export interface VrtData {
   height: number;
 }
 
-export const COLOR_MAPS = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Cividis', 'Turbo', 'Grayscale'] as const;
+export const COLOR_MAPS = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Cividis', 'Turbo', 'Grayscale', 'Custom'] as const;
 export type ColorMapName = typeof COLOR_MAPS[number];
 
 export type DataPoint = number;
@@ -32,6 +32,20 @@ export type TimeRange = { start: number; end: number };
 export type TimeDomain = [Date, Date];
 export type Tool = 'layers' | 'measurement' | 'config';
 
+export type ColorStop = { value: number; color: string; };
+
+export interface DaylightFractionHoverData {
+  fraction: number;
+  dayHours: number;
+  nightHours: number;
+  longestDayPeriod: number;
+  shortestDayPeriod: number;
+  dayPeriods: number;
+  longestNightPeriod: number;
+  shortestNightPeriod: number;
+  nightPeriods: number;
+}
+
 
 // --- New Layer Architecture Types ---
 
@@ -53,18 +67,25 @@ export interface DataLayer extends LayerBase {
   dataset: DataSet;
   range: { min: number; max: number };
   colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
   dimensions: { time: number; height: number; width: number };
 }
 
+export type AnalysisType = 'nightfall' | 'daylight_fraction';
+
 export interface AnalysisLayer extends LayerBase {
   type: 'analysis';
-  data: DataSlice;
+  analysisType: AnalysisType;
+  dataset: DataSet;
   range: { min: number; max: number };
   colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
   sourceLayerId: string;
   params: {
-    computationThreshold: number;
-    clippingThreshold: number;
+    clipValue?: number;
   };
 }
 

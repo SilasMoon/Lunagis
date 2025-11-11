@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 
@@ -9,7 +9,9 @@ declare const proj4: any;
 interface DataCanvasProps {
   layers: Layer[];
   timeIndex: number;
+  debouncedTimeRange: TimeRange | null;
   onCellHover: (coords: GeoCoordinates) => void;
+  onMapClick: (coords: GeoCoordinates) => void;
   onCellLeave: () => void;
   latRange: [number, number];
   lonRange: [number, number];
@@ -19,6 +21,12 @@ interface DataCanvasProps {
   viewState: ViewState | null;
   onViewStateChange: (vs: ViewState | null) => void;
   isDataLoaded: boolean;
+  showGrid: boolean;
+  gridSpacing: number;
+  gridColor: string;
+  activeTool: Tool;
+  selectedCells: {x: number, y: number}[];
+  selectionColor: string;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -32,12 +40,14 @@ const LoadingSpinner: React.FC = () => (
 );
 
 export const DataCanvas: React.FC<DataCanvasProps> = ({ 
-  layers, timeIndex, onCellHover, onCellLeave, latRange, lonRange, 
-  showGraticule, graticuleDensity, proj, viewState, onViewStateChange, isDataLoaded
+  layers, timeIndex, onCellHover, onCellLeave, onMapClick, latRange, lonRange, 
+  showGraticule, graticuleDensity, proj, viewState, onViewStateChange, isDataLoaded,
+  debouncedTimeRange, showGrid, gridSpacing, gridColor, activeTool, selectedCells, selectionColor
 }) => {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const dataCanvasRef = useRef<HTMLCanvasElement>(null);
   const graticuleCanvasRef = useRef<HTMLCanvasElement>(null);
+  const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isRendering, setIsRendering] = useState(false);
   const offscreenCanvasCache = useRef(new Map<string, HTMLCanvasElement>()).current;
@@ -146,29 +156,64 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         baseCtx.restore();
       } 
       else if ((layer.type === 'data' || layer.type === 'analysis') && proj) {
-        const slice = layer.type === 'data' ? layer.dataset[timeIndex] : layer.data;
-        if (!slice) return;
+        let cacheKey: string;
+        const invertedStr = !!layer.colormapInverted;
+        let baseKey: string;
 
-        let offscreenCanvas = offscreenCanvasCache.get(layer.id);
-        const cacheKey = `${layer.colormap}-${layer.range.min}-${layer.range.max}`;
-        const storedCacheKey = offscreenCanvas?.dataset.cacheKey;
+        if (layer.type === 'analysis' && layer.analysisType === 'daylight_fraction' && debouncedTimeRange) {
+          baseKey = `${layer.id}-${debouncedTimeRange.start}-${debouncedTimeRange.end}-${layer.colormap}-${invertedStr}`;
+        } else {
+          baseKey = `${layer.id}-${timeIndex}-${layer.colormap}-${invertedStr}-${layer.range.min}-${layer.range.max}`;
+          if (layer.type === 'analysis' && layer.analysisType === 'nightfall') {
+            baseKey += `-${layer.params.clipValue}`;
+          }
+        }
+        if (layer.colormap === 'Custom') {
+            baseKey += `-${JSON.stringify(layer.customColormap)}`;
+        }
+        cacheKey = baseKey;
+        
+        let offscreenCanvas = offscreenCanvasCache.get(cacheKey);
 
-        if (!offscreenCanvas || cacheKey !== storedCacheKey) {
-            const width = slice[0].length; const height = slice.length;
-            offscreenCanvas = document.createElement('canvas');
-            offscreenCanvas.width = width; offscreenCanvas.height = height;
-            const offscreenCtx = offscreenCanvas.getContext('2d')!;
-            
-            const colorScale = getColorScale(layer.colormap, [layer.range.min, layer.range.max]);
-            const imageData = offscreenCtx.createImageData(width, height);
-            for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) {
-                    const color = d3.color(colorScale(slice[y][x])); const index = (y * width + x) * 4;
-                    imageData.data[index] = color.r; imageData.data[index + 1] = color.g;
-                    imageData.data[index + 2] = color.b; imageData.data[index + 3] = 255;
-            }}
-            offscreenCtx.putImageData(imageData, 0, 0);
-            offscreenCanvas.dataset.cacheKey = cacheKey;
-            offscreenCanvasCache.set(layer.id, offscreenCanvas);
+        if (!offscreenCanvas) {
+          const slice = layer.dataset[layer.type === 'analysis' && layer.analysisType === 'daylight_fraction' ? 0 : timeIndex];
+          if (!slice) return;
+
+          const { width, height } = layer.dimensions;
+          offscreenCanvas = document.createElement('canvas');
+          offscreenCanvas.width = width; offscreenCanvas.height = height;
+          const offscreenCtx = offscreenCanvas.getContext('2d')!;
+          
+          let colorDomain: [number, number];
+          const isThreshold = layer.colormap === 'Custom';
+
+          if (layer.type === 'analysis' && layer.analysisType === 'nightfall') {
+            colorDomain = [0, layer.params.clipValue ?? layer.range.max];
+          } else {
+            colorDomain = [layer.range.min, layer.range.max];
+          }
+          
+          const colorScale = getColorScale(layer.colormap, colorDomain, layer.colormapInverted, layer.customColormap, isThreshold);
+          const imageData = offscreenCtx.createImageData(width, height);
+          
+          for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) {
+                  const value = slice[y][x];
+                  const index = (y * width + x) * 4;
+
+                  if (layer.type === 'analysis' && layer.analysisType === 'nightfall' && value < 0) {
+                      imageData.data[index + 3] = 0;
+                  } else {
+                      const finalColor = d3.color(colorScale(value));
+                      if (finalColor) {
+                        imageData.data[index] = finalColor.r;
+                        imageData.data[index + 1] = finalColor.g;
+                        imageData.data[index + 2] = finalColor.b;
+                        imageData.data[index + 3] = finalColor.opacity * 255;
+                      }
+                  }
+          }}
+          offscreenCtx.putImageData(imageData, 0, 0);
+          offscreenCanvasCache.set(cacheKey, offscreenCanvas);
         }
         
         dataCtx.save(); dataCtx.globalAlpha = layer.opacity;
@@ -182,27 +227,53 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         dataCtx.restore();
       }
     });
+    
+    const { clientWidth, clientHeight } = graticuleCanvas;
+    const p_tl = canvasToProjCoords(0, 0);
+    const p_br = canvasToProjCoords(clientWidth, clientHeight);
 
-    if (showGraticule && proj) {
-        gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; gratCtx.lineWidth = 1 / (scale * dpr);
-        const { clientWidth, clientHeight } = graticuleCanvas;
-        const samplePoints = [ [0, 0], [clientWidth / 2, 0], [clientWidth, 0], [clientWidth, clientHeight / 2], [clientWidth, clientHeight], [clientWidth / 2, clientHeight], [0, clientHeight], [0, clientHeight / 2] ].map(p => canvasToProjCoords(p[0], p[1]));
-        const geoPoints = samplePoints.filter(p => p !== null).map(p => { try { return proj4('EPSG:4326', proj).inverse(p!); } catch (e) { return null; } }).filter((p): p is [number, number] => p !== null);
-        
-        let lonSpan = 1, latSpan = 1;
-        if (geoPoints.length > 0) {
-            const viewLonMin = Math.min(...geoPoints.map(p => p[0])), viewLonMax = Math.max(...geoPoints.map(p => p[0]));
-            const viewLatMin = Math.min(...geoPoints.map(p => p[1])), viewLatMax = Math.max(...geoPoints.map(p => p[1]));
-            lonSpan = Math.abs(viewLonMax - viewLonMin); if (lonSpan > 180) lonSpan = 360 - lonSpan;
-            latSpan = Math.abs(viewLatMax - viewLatMin);
+    if (p_tl && p_br) {
+        const [projXMin, projYMin] = [p_tl[0], p_br[1]];
+        const [projXMax, projYMax] = [p_br[0], p_tl[1]];
+
+        // --- Render Grid Overlay ---
+        if (showGrid) {
+            gratCtx.strokeStyle = gridColor;
+            gratCtx.lineWidth = 0.8 / (scale * dpr);
+
+            const startX = Math.ceil(projXMin / gridSpacing) * gridSpacing;
+            const startY = Math.ceil(projYMin / gridSpacing) * gridSpacing;
+            
+            gratCtx.beginPath();
+            for (let x = startX; x <= projXMax; x += gridSpacing) {
+                gratCtx.moveTo(x, projYMin);
+                gratCtx.lineTo(x, projYMax);
+            }
+            for (let y = startY; y <= projYMax; y += gridSpacing) {
+                gratCtx.moveTo(projXMin, y);
+                gratCtx.lineTo(projXMax, y);
+            }
+            gratCtx.stroke();
         }
-        
-        const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * graticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
-        const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
-        const p_tl = canvasToProjCoords(0, 0); const p_br = canvasToProjCoords(clientWidth, clientHeight);
 
-        if (p_tl && p_br) {
-            const [projXMin, projYMin] = [p_tl[0], p_br[1]], [projXMax, projYMax] = [p_br[0], p_tl[1]];
+        // --- Render Graticule ---
+        if (showGraticule && proj) {
+            gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            gratCtx.lineWidth = 1 / (scale * dpr);
+            const samplePoints = [ [0, 0], [clientWidth / 2, 0], [clientWidth, 0], [clientWidth, clientHeight / 2], [clientWidth, clientHeight], [clientWidth / 2, clientHeight], [0, clientHeight], [0, clientHeight / 2] ].map(p => canvasToProjCoords(p[0], p[1]));
+            const geoPoints = samplePoints.filter(p => p !== null).map(p => { try { return proj4('EPSG:4326', proj).inverse(p!); } catch (e) { return null; } }).filter((p): p is [number, number] => p !== null);
+            
+            let lonSpan = 1, latSpan = 1;
+            if (geoPoints.length > 0) {
+                const viewLonMin = Math.min(...geoPoints.map(p => p[0])), viewLonMax = Math.max(...geoPoints.map(p => p[0]));
+                const viewLatMin = Math.min(...geoPoints.map(p => p[1])), viewLatMax = Math.max(...geoPoints.map(p => p[1]));
+                lonSpan = Math.abs(viewLonMax - viewLonMin); if (lonSpan > 180) lonSpan = 360 - lonSpan;
+                latSpan = Math.abs(viewLatMax - viewLatMin);
+            }
+            
+            const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * graticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
+            const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
+            
             const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
             const anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep; const anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
 
@@ -220,7 +291,63 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     }
     contexts.forEach(ctx => ctx.restore());
     if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
-  }, [layers, timeIndex, showGraticule, graticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords]);
+  }, [layers, timeIndex, showGraticule, graticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, showGrid, gridSpacing, gridColor]);
+  
+  // Effect for drawing cell selections
+  useEffect(() => {
+    const canvas = selectionCanvasRef.current;
+    if (!canvas || !viewState || !primaryDataLayer || !proj) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const { clientWidth, clientHeight } = canvas.parentElement!;
+    canvas.width = clientWidth * dpr;
+    canvas.height = clientHeight * dpr;
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (selectedCells.length === 0) return;
+
+    ctx.save();
+    const { center, scale } = viewState;
+    ctx.translate(ctx.canvas.width / 2, ctx.canvas.height / 2);
+    const effectiveScale = scale * dpr;
+    ctx.scale(effectiveScale, -effectiveScale);
+    ctx.translate(-center[0], -center[1]);
+    
+    const [lonMin, lonMax] = lonRange;
+    const [latMin, latMax] = latRange;
+    const c_tl = proj.forward([lonMin, latMax]); const c_tr = proj.forward([lonMax, latMax]); const c_bl = proj.forward([lonMin, latMin]);
+    const { width, height } = primaryDataLayer.dimensions;
+    const a = (c_tr[0] - c_tl[0]) / width; const b = (c_tr[1] - c_tl[1]) / width;
+    const c = (c_bl[0] - c_tl[0]) / height; const d = (c_bl[1] - c_tl[1]) / height;
+    const e = c_tl[0]; const f = c_tl[1];
+
+    ctx.strokeStyle = selectionColor;
+    ctx.lineWidth = 2 / (scale * dpr); // Keep line width consistent on screen
+    ctx.beginPath();
+    
+    for (const cell of selectedCells) {
+      const u = cell.x;
+      const v = cell.y;
+      
+      // Project the 4 corners of the cell
+      const p0 = [a * u + c * v + e, b * u + d * v + f];
+      const p1 = [a * (u + 1) + c * v + e, b * (u + 1) + d * v + f];
+      const p2 = [a * (u + 1) + c * (v + 1) + e, b * (u + 1) + d * (v + 1) + f];
+      const p3 = [a * u + c * (v + 1) + e, b * u + d * (v + 1) + f];
+      
+      ctx.moveTo(p0[0], p0[1]);
+      ctx.lineTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+      ctx.lineTo(p3[0], p3[1]);
+      ctx.closePath();
+    }
+    
+    ctx.stroke();
+    ctx.restore();
+
+  }, [selectedCells, selectionColor, viewState, primaryDataLayer, proj, lonRange, latRange]);
 
   const handleInteractionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isPanning.current && viewState) {
@@ -237,9 +364,23 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     } else { onCellLeave(); }
   }, [viewState, onViewStateChange, canvasToProjCoords, proj, onCellHover, onCellLeave]);
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = true; lastMousePos.current = { x: e.clientX, y: e.clientY }; e.currentTarget.style.cursor = 'grabbing'; };
-  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = false; e.currentTarget.style.cursor = 'crosshair'; };
-  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = false; e.currentTarget.style.cursor = 'crosshair'; onCellLeave(); };
+  const handleMapClickInternal = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+    if (projCoords && proj) {
+      try {
+        const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords);
+        onMapClick({ lat, lon });
+      } catch (e) {
+        // Ignore clicks outside valid projection area
+      }
+    }
+  };
+  
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = true; lastMousePos.current = { x: e.clientX, y: e.clientY }; };
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = false; };
+  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => { isPanning.current = false; onCellLeave(); };
   
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!viewState) return; e.preventDefault();
@@ -259,12 +400,24 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     return (<div className="w-full h-full flex items-center justify-center text-center text-gray-400 bg-gray-900/50 rounded-lg"><div><h3 className="text-xl font-semibold">No Data Loaded</h3><p className="mt-2">Use the Layers panel to load a basemap or data file.</p></div></div>);
   }
 
+  const cursorStyle = activeTool === 'measurement' ? 'copy' : (isPanning.current ? 'grabbing' : 'crosshair');
+
   return (
-    <div className="w-full h-full relative" onMouseMove={handleInteractionMove} onMouseDown={handleMouseDown} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} onWheel={handleWheel}>
+    <div 
+      className="w-full h-full relative" 
+      onMouseMove={handleInteractionMove} 
+      onMouseDown={handleMouseDown} 
+      onMouseUp={handleMouseUp} 
+      onMouseLeave={handleMouseLeave} 
+      onWheel={handleWheel}
+      onClick={handleMapClickInternal}
+      style={{ cursor: cursorStyle }}
+    >
       {isRendering && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 z-50"><LoadingSpinner /></div>}
       <canvas ref={baseCanvasRef} className="pixelated absolute inset-0 w-full h-full z-0" />
       <canvas ref={dataCanvasRef} className="pixelated absolute inset-0 w-full h-full z-10" />
-      <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-30 cursor-crosshair" />
+      <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
+      <canvas ref={selectionCanvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />
       <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} />
     </div>
   );

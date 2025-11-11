@@ -121,24 +121,23 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isDataLoaded || !timeRange) return;
 
-      const duration = timeRange.end - timeRange.start;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         const newStart = Math.max(0, timeRange.start - 1);
         if (newStart !== timeRange.start) {
-          onTimeRangeChange({ start: newStart, end: newStart + duration });
+          onTimeRangeChange({ ...timeRange, start: newStart });
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        const newEnd = Math.min(maxTimeIndex, timeRange.end + 1);
-        if (newEnd !== timeRange.end) {
-          onTimeRangeChange({ start: newEnd - duration, end: newEnd });
+        const newStart = Math.min(timeRange.end, timeRange.start + 1);
+        if (newStart !== timeRange.start) {
+          onTimeRangeChange({ ...timeRange, start: newStart });
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.removeEventListener('keydown', handleKeyDown); };
-  }, [isDataLoaded, timeRange, maxTimeIndex, onTimeRangeChange]);
+  }, [isDataLoaded, timeRange, onTimeRangeChange]);
   
   const startX = timeRange ? xScale(indexToDate(timeRange.start)) : 0;
   const endX = timeRange ? xScale(indexToDate(timeRange.end)) : 0;
