@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint } from '../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
@@ -27,16 +27,23 @@ const Section: React.FC<{ title: string; children: React.ReactNode; defaultOpen?
   );
 };
 
-const AddLayerMenu: React.FC<{ onAddDataLayer: (f: File) => void; onAddBaseMapLayer: (p: File, v: File) => void; isLoading: boolean; }> = ({ onAddDataLayer, onAddBaseMapLayer, isLoading }) => {
+const AddLayerMenu: React.FC<{ onAddDataLayer: (f: File) => void; onAddDteCommsLayer: (f: File) => void; onAddLpfCommsLayer: (f: File) => void; onAddBaseMapLayer: (p: File, v: File) => void; isLoading: boolean; }> = ({ onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer, isLoading }) => {
     const [isOpen, setIsOpen] = useState(false);
     const npyInputRef = useRef<HTMLInputElement>(null);
+    const dteInputRef = useRef<HTMLInputElement>(null);
+    const lpfInputRef = useRef<HTMLInputElement>(null);
     const pngInputRef = useRef<HTMLInputElement>(null);
     const vrtInputRef = useRef<HTMLInputElement>(null);
     const [pendingPng, setPendingPng] = useState<File | null>(null);
     const [pendingVrt, setPendingVrt] = useState<File | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const handleNpySelect = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files?.[0]) onAddDataLayer(e.target.files[0]); setIsOpen(false); };
+    const handleNpySelect = (e: React.ChangeEvent<HTMLInputElement>, handler: (f: File) => void) => { 
+        if (e.target.files?.[0]) {
+            handler(e.target.files[0]);
+        }
+        setIsOpen(false);
+    };
     const handleAddBaseMap = () => { if (pendingPng && pendingVrt) { onAddBaseMapLayer(pendingPng, pendingVrt); setPendingPng(null); setPendingVrt(null); setIsOpen(false); }};
 
     useEffect(() => {
@@ -54,9 +61,16 @@ const AddLayerMenu: React.FC<{ onAddDataLayer: (f: File) => void; onAddBaseMapLa
             Add Layer
         </button>
         {isOpen && (
-            <div className="absolute top-full left-0 mt-2 w-full bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10 p-3 space-y-3">
-                <input type="file" ref={npyInputRef} onChange={handleNpySelect} accept=".npy" style={{ display: 'none' }} />
+            <div className="absolute top-full left-0 mt-2 w-full bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10 p-3 space-y-2">
+                <input type="file" ref={npyInputRef} onChange={(e) => handleNpySelect(e, onAddDataLayer)} accept=".npy" style={{ display: 'none' }} />
                 <button onClick={() => npyInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">Data Layer (.npy)</button>
+                
+                <input type="file" ref={dteInputRef} onChange={(e) => handleNpySelect(e, onAddDteCommsLayer)} accept=".npy" style={{ display: 'none' }} />
+                <button onClick={() => dteInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">DTE Comms Layer (.npy)</button>
+
+                <input type="file" ref={lpfInputRef} onChange={(e) => handleNpySelect(e, onAddLpfCommsLayer)} accept=".npy" style={{ display: 'none' }} />
+                <button onClick={() => lpfInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">LPF Comms Layer (.npy)</button>
+                
                 <div className="border-t border-gray-700 pt-2 space-y-2">
                     <p className="text-sm text-gray-400 px-3">Base Map Layer</p>
                     <div className="grid grid-cols-2 gap-2">
@@ -223,11 +237,22 @@ const FlickerIcon: React.FC = () => (
     </svg>
 );
 
+const formatLayerType = (type: Layer['type']): string => {
+    switch (type) {
+        case 'basemap': return 'Basemap Layer';
+        case 'data': return 'Data Layer';
+        case 'analysis': return 'Analysis Layer';
+        case 'dte_comms': return 'DTE Comms Layer';
+        case 'lpf_comms': return 'LPF Comms Layer';
+        default: return 'Layer';
+    }
+};
 
 const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => void; onUpdate: (id: string, updates: Partial<Layer>) => void; onRemove: (id: string) => void; onCalculateNightfallLayer: (id: string) => void; onCalculateDaylightFractionLayer: (id: string) => void; daylightFractionHoverData: DaylightFractionHoverData | null; flickeringLayerId: string | null; onToggleFlicker: (id: string) => void; }> = ({ layer, isActive, onSelect, onUpdate, onRemove, onCalculateNightfallLayer, onCalculateDaylightFractionLayer, daylightFractionHoverData, flickeringLayerId, onToggleFlicker }) => {
     
     const isNightfall = layer.type === 'analysis' && layer.analysisType === 'nightfall';
     const useDaysUnitForCustom = isNightfall && layer.colormap === 'Custom';
+    const hasColormap = layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms';
 
     return (
         <div className={`bg-gray-800/60 rounded-lg border ${isActive ? 'border-cyan-500/50' : 'border-gray-700/80'}`}>
@@ -240,7 +265,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                 </button>
                 <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-sm">
                     <p className="font-medium text-gray-200" title={layer.name}>{layer.name}</p>
-                    <p className="text-xs text-gray-400">{layer.type.charAt(0).toUpperCase() + layer.type.slice(1)} Layer</p>
+                    <p className="text-xs text-gray-400">{formatLayerType(layer.type)}</p>
                 </div>
                 <button onClick={onSelect} className="text-gray-400 hover:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform ${isActive ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
@@ -253,7 +278,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                         <label className="block text-sm font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
                         <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdate(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
-                    {(layer.type === 'data' || layer.type === 'analysis') && (
+                    {hasColormap && (
                         <>
                           <div>
                             <label className="block text-sm font-medium text-gray-400 mb-1">Colormap</label>
@@ -384,7 +409,13 @@ const LayersPanel: React.FC<any> = (props) => {
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold text-cyan-300">Layer Management</h2>
-            <AddLayerMenu onAddDataLayer={props.onAddDataLayer} onAddBaseMapLayer={props.onAddBaseMapLayer} isLoading={!!props.isLoading} />
+            <AddLayerMenu 
+                onAddDataLayer={props.onAddDataLayer} 
+                onAddDteCommsLayer={props.onAddDteCommsLayer}
+                onAddLpfCommsLayer={props.onAddLpfCommsLayer}
+                onAddBaseMapLayer={props.onAddBaseMapLayer} 
+                isLoading={!!props.isLoading} 
+            />
             {props.isLoading && <div className="text-sm text-cyan-300 text-center p-2 bg-gray-900/50 rounded-md">{props.isLoading}</div>}
             <div className="space-y-2">
                 {props.layers.length > 0 ? (
@@ -846,6 +877,8 @@ export const SidePanel: React.FC<{
   activeLayerId: string | null;
   onActiveLayerChange: (id: string | null) => void;
   onAddDataLayer: (file: File) => void;
+  onAddDteCommsLayer: (file: File) => void;
+  onAddLpfCommsLayer: (file: File) => void;
   onAddBaseMapLayer: (png: File, vrt: File) => void;
   onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
   onRemoveLayer: (id: string) => void;

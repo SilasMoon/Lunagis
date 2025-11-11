@@ -7,7 +7,7 @@ import { TimeSlider } from './components/TimeSlider';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { parseNpy } from './services/npyParser';
 import { parseVrt } from './services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop } from './types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer } from './types';
 import { indexToDate } from './utils/time';
 
 declare const proj4: any;
@@ -268,7 +268,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (selectedPixel) {
         const layer = layers.find(l => l.id === selectedPixel.layerId);
-        if (layer?.type === 'data' || (layer?.type === 'analysis')) {
+        if (layer?.type === 'data' || (layer?.type === 'analysis') || layer?.type === 'dte_comms' || layer?.type === 'lpf_comms') {
             const series = layer.dataset.map(slice => slice[selectedPixel.y][selectedPixel.x]);
             setTimeSeriesData({data: series, range: layer.range});
         } else {
@@ -347,8 +347,7 @@ const App: React.FC = () => {
     setDaylightFractionHoverData(null);
   }, [selectedPixel, activeLayerId, layers, timeRange]);
 
-
-  const handleAddDataLayer = useCallback(async (file: File) => {
+  const handleAddNpyLayer = useCallback(async (file: File, layerType: 'data' | 'dte_comms' | 'lpf_comms') => {
     if (!file) return;
     setIsLoading(`Parsing "${file.name}"...`);
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -370,8 +369,8 @@ const App: React.FC = () => {
         for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) { for (let t = 0; t < time; t++) { dataset[t][y][x] = float32Array[flatIndex++]; } } if (y % 10 === 0) await yieldToMain(); }
       }
       
-      const newLayer: DataLayer = {
-        id: `data-${Date.now()}`, name: file.name, type: 'data', visible: true, opacity: 1.0,
+      const newLayer: DataLayer | DteCommsLayer | LpfCommsLayer = {
+        id: `${layerType}-${Date.now()}`, name: file.name, type: layerType, visible: true, opacity: 1.0,
         fileName: file.name, dataset, range: { min, max }, colormap: 'Viridis',
         colormapInverted: false,
         customColormap: [{ value: min, color: '#000000' }, { value: max, color: '#ffffff' }],
@@ -381,7 +380,7 @@ const App: React.FC = () => {
       setLayers(prev => [...prev, newLayer]);
       setActiveLayerId(newLayer.id);
 
-      if (!primaryDataLayer) {
+      if (layerType === 'data' && !primaryDataLayer) {
         const initialTimeRange = { start: 0, end: time - 1 };
         setTimeRange(initialTimeRange);
         setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
@@ -393,6 +392,10 @@ const App: React.FC = () => {
       setIsLoading(null);
     }
   }, [primaryDataLayer]);
+
+  const handleAddDataLayer = useCallback((file: File) => handleAddNpyLayer(file, 'data'), [handleAddNpyLayer]);
+  const handleAddDteCommsLayer = useCallback((file: File) => handleAddNpyLayer(file, 'dte_comms'), [handleAddNpyLayer]);
+  const handleAddLpfCommsLayer = useCallback((file: File) => handleAddNpyLayer(file, 'lpf_comms'), [handleAddNpyLayer]);
   
   const handleAddBaseMapLayer = useCallback(async (pngFile: File, vrtFile: File) => {
     setIsLoading(`Loading basemap "${pngFile.name}"...`);
@@ -566,7 +569,7 @@ const App: React.FC = () => {
     if (!coords || !coordinateTransformer) { setSelectedPixel(null); return; }
     const pixel = coordinateTransformer(coords.lat, coords.lon);
     if (pixel) {
-        const topDataLayer = [...layers].reverse().find(l => l.visible && (l.type === 'data' || l.type === 'analysis'));
+        const topDataLayer = [...layers].reverse().find(l => l.visible && (l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms'));
         if (topDataLayer) setSelectedPixel({ ...pixel, layerId: topDataLayer.id }); else setSelectedPixel(null);
     } else {
         setSelectedPixel(null);
@@ -795,7 +798,7 @@ const App: React.FC = () => {
             if (l.type === 'basemap') {
                 const { image, ...rest } = l; // Omit non-serializable image element
                 return rest;
-            } else { // data or analysis
+            } else { // data, analysis, or comms
                 const { dataset, ...rest } = l; // Omit large dataset
                 return rest;
             }
@@ -848,7 +851,7 @@ const App: React.FC = () => {
             
             const requiredFiles: string[] = [];
             for (const l of config.layers) {
-                if (l.type === 'data') {
+                if (l.type === 'data' || l.type === 'dte_comms' || l.type === 'lpf_comms') {
                     requiredFiles.push(l.fileName);
                 } else if (l.type === 'basemap') {
                     requiredFiles.push(l.pngFileName);
@@ -904,7 +907,7 @@ const App: React.FC = () => {
                 const layer: BaseMapLayer = { ...sLayer, image, vrt: vrtData };
                 newLayers.push(layer);
 
-            } else if (sLayer.type === 'data') {
+            } else if (sLayer.type === 'data' || sLayer.type === 'dte_comms' || sLayer.type === 'lpf_comms') {
                 const file = fileMap.get(sLayer.fileName);
                 if (!file) throw new Error(`Required file "${sLayer.fileName}" was not provided.`);
                 
@@ -916,7 +919,7 @@ const App: React.FC = () => {
                 if (header.fortran_order) { for (let t = 0; t < time; t++) for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) dataset[t][y][x] = float32Array[flatIndex++]; }
                 else { for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let t = 0; t < time; t++) dataset[t][y][x] = float32Array[flatIndex++]; }
 
-                const layer: DataLayer = { ...sLayer, dataset };
+                const layer: DataLayer | DteCommsLayer | LpfCommsLayer = { ...sLayer, dataset };
                 newLayers.push(layer);
             }
         }
@@ -982,6 +985,8 @@ const App: React.FC = () => {
         activeLayerId={activeLayerId}
         onActiveLayerChange={setActiveLayerId}
         onAddDataLayer={handleAddDataLayer}
+        onAddDteCommsLayer={handleAddDteCommsLayer}
+        onAddLpfCommsLayer={handleAddLpfCommsLayer}
         onAddBaseMapLayer={handleAddBaseMapLayer}
         onUpdateLayer={handleUpdateLayer}
         onRemoveLayer={handleRemoveLayer}

@@ -76,6 +76,29 @@ export interface DataLayer extends LayerBase {
   dimensions: { time: number; height: number; width: number };
 }
 
+export interface DteCommsLayer extends LayerBase {
+  type: 'dte_comms';
+  dataset: DataSet;
+  fileName: string;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
+}
+
+export interface LpfCommsLayer extends LayerBase {
+  type: 'lpf_comms';
+  dataset: DataSet;
+  fileName: string;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
+}
+
+
 export type AnalysisType = 'nightfall' | 'daylight_fraction';
 
 export interface AnalysisLayer extends LayerBase {
@@ -93,7 +116,7 @@ export interface AnalysisLayer extends LayerBase {
   };
 }
 
-export type Layer = BaseMapLayer | DataLayer | AnalysisLayer;
+export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer;
 
 // --- Artifact Types ---
 
@@ -163,6 +186,26 @@ export interface SerializableDataLayer extends SerializableLayerBase {
   dimensions: { time: number; height: number; width: number };
 }
 
+export interface SerializableDteCommsLayer extends SerializableLayerBase {
+  type: 'dte_comms';
+  fileName: string;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
+}
+
+export interface SerializableLpfCommsLayer extends SerializableLayerBase {
+  type: 'lpf_comms';
+  fileName: string;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  dimensions: { time: number; height: number; width: number };
+}
+
 export interface SerializableAnalysisLayer extends SerializableLayerBase {
   type: 'analysis';
   analysisType: AnalysisType;
@@ -177,7 +220,7 @@ export interface SerializableAnalysisLayer extends SerializableLayerBase {
   };
 }
 
-export type SerializableLayer = SerializableBaseMapLayer | SerializableDataLayer | SerializableAnalysisLayer;
+export type SerializableLayer = SerializableBaseMapLayer | SerializableDataLayer | SerializableAnalysisLayer | SerializableDteCommsLayer | SerializableLpfCommsLayer;
 
 export interface AppStateConfig {
   version: number;

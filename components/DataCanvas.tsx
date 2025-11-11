@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 
@@ -202,7 +202,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         baseCtx.drawImage(layer.image, 0, 0);
         baseCtx.restore();
       } 
-      else if ((layer.type === 'data' || layer.type === 'analysis') && proj) {
+      else if ((layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms') && proj) {
         let cacheKey: string;
         const invertedStr = !!layer.colormapInverted;
         let baseKey: string;
