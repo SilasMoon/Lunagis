@@ -169,7 +169,6 @@ const App: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
-  const [debouncedTimeRange, setDebouncedTimeRange] = useState<TimeRange | null>(timeRange);
   const [hoveredCoords, setHoveredCoords] = useState<GeoCoordinates>(null);
   const [showGraticule, setShowGraticule] = useState<boolean>(true);
   const [viewState, setViewState] = useState<ViewState | null>(null);
@@ -281,13 +280,13 @@ const App: React.FC = () => {
   }, [selectedPixel, layers]);
 
   useEffect(() => {
-    if (activeLayerId && selectedPixel && debouncedTimeRange) {
+    if (activeLayerId && selectedPixel && timeRange) {
       const activeLayer = layers.find(l => l.id === activeLayerId);
       if (activeLayer?.type === 'analysis' && activeLayer.analysisType === 'daylight_fraction') {
         const sourceLayer = layers.find(l => l.id === activeLayer.sourceLayerId) as DataLayer | undefined;
         if (sourceLayer) {
           const { x, y } = selectedPixel;
-          const { start, end } = debouncedTimeRange;
+          const { start, end } = timeRange;
           const totalHours = end - start + 1;
           let dayHours = 0;
           
@@ -346,7 +345,7 @@ const App: React.FC = () => {
       }
     }
     setDaylightFractionHoverData(null);
-  }, [selectedPixel, activeLayerId, layers, debouncedTimeRange]);
+  }, [selectedPixel, activeLayerId, layers, timeRange]);
 
 
   const handleAddDataLayer = useCallback(async (file: File) => {
@@ -385,7 +384,6 @@ const App: React.FC = () => {
       if (!primaryDataLayer) {
         const initialTimeRange = { start: 0, end: time - 1 };
         setTimeRange(initialTimeRange);
-        setDebouncedTimeRange(initialTimeRange);
         setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
         setViewState(null);
       }
@@ -494,16 +492,7 @@ const App: React.FC = () => {
   }, [layers, timeRange]);
 
   useEffect(() => {
-    if (isPlaying) {
-        setDebouncedTimeRange(timeRange);
-        return;
-    }
-    const handler = setTimeout(() => { setDebouncedTimeRange(timeRange); }, 250);
-    return () => { clearTimeout(handler); };
-  }, [timeRange, isPlaying]);
-
-  useEffect(() => {
-    if (!debouncedTimeRange) return;
+    if (!timeRange) return;
     setLayers(currentLayers => {
         const fractionLayersToUpdate = currentLayers.filter(l => l.type === 'analysis' && l.analysisType === 'daylight_fraction');
         if (fractionLayersToUpdate.length === 0) return currentLayers;
@@ -513,7 +502,7 @@ const App: React.FC = () => {
             if (l.type === 'analysis' && l.analysisType === 'daylight_fraction') {
                 const sourceLayer = currentLayers.find(src => src.id === l.sourceLayerId) as DataLayer | undefined;
                 if (sourceLayer) {
-                    const { slice, range } = calculateDaylightFraction(sourceLayer.dataset, debouncedTimeRange, sourceLayer.dimensions);
+                    const { slice, range } = calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions);
                     const newDataset = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
                     hasChanged = true;
                     return { ...l, dataset: newDataset, range };
@@ -523,7 +512,7 @@ const App: React.FC = () => {
         });
         return hasChanged ? newLayers : currentLayers;
     });
-  }, [debouncedTimeRange]);
+  }, [timeRange]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -1047,8 +1036,8 @@ const App: React.FC = () => {
         <section className="flex-grow flex items-center justify-center bg-black/20 p-4 sm:p-6 lg:p-8 min-h-0">
           <DataCanvas
             layers={layers}
-            timeIndex={isPlaying ? (timeRange?.start ?? 0) : (debouncedTimeRange?.start ?? timeRange?.start ?? 0)}
-            debouncedTimeRange={debouncedTimeRange}
+            timeIndex={timeRange?.start ?? 0}
+            debouncedTimeRange={timeRange}
             onCellHover={handleCellHover}
             onMapClick={handleMapClick}
             onCellLeave={clearHoverState}
@@ -1085,6 +1074,7 @@ const App: React.FC = () => {
           fullTimeDomain={fullTimeDomain}
           timeZoomDomain={timeZoomDomain}
           onZoomToSelection={handleZoomToSelection}
+          // Fix: Corrected function name from handleResetZoom to handleResetTimeZoom.
           onResetZoom={handleResetTimeZoom}
           yAxisUnit={activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? 'days' : undefined}
           yAxisRange={activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? nightfallPlotYAxisRange : undefined}
