@@ -139,6 +139,31 @@ function evaluateRPN(rpnQueue: Token[], context: { [key: string]: number }): num
 }
 
 
+/**
+ * Pre-compiles an expression into RPN tokens for efficient repeated evaluation.
+ * This should be called once and the result reused for many evaluations.
+ */
+export function compileExpression(expression: string): Token[] {
+    if (!expression.trim()) throw new Error('Empty expression');
+    try {
+        const tokens = tokenize(expression);
+        return shuntingYard(tokens);
+    } catch (e) {
+        if (e instanceof Error) {
+            throw new Error(`Expression compilation failed: ${e.message}`);
+        }
+        throw new Error("An unknown error occurred during expression compilation.");
+    }
+}
+
+/**
+ * Evaluates pre-compiled RPN tokens with the given context.
+ * Much faster than evaluate() for repeated evaluations.
+ */
+export function evaluateCompiled(compiledRPN: Token[], context: { [key: string]: number }): number {
+    return evaluateRPN(compiledRPN, context);
+}
+
 export function evaluate(expression: string, context: { [key: string]: number }): number {
     if (!expression.trim()) return 0;
     try {

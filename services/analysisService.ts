@@ -1,11 +1,15 @@
 import type { DataSet, DataSlice, Layer, DataLayer, AnalysisLayer, DteCommsLayer, LpfCommsLayer, TimeRange } from '../types';
-import { evaluate as evaluateExpression, getVariables as getExpressionVariables } from './expressionEvaluator';
+import { evaluate as evaluateExpression, getVariables as getExpressionVariables, compileExpression, evaluateCompiled } from './expressionEvaluator';
 
 export const sanitizeLayerNameForExpression = (name: string): string => {
     return name.replace(/[^a-zA-Z0-9_]/g, '_');
 };
 
-export const calculateExpressionLayer = async (expression: string, availableLayers: Layer[]): Promise<{ dataset: DataSet; range: { min: number; max: number }; dimensions: { time: number; height: number; width: number; } }> => {
+export const calculateExpressionLayer = async (
+    expression: string,
+    availableLayers: Layer[],
+    onProgress?: (message: string) => void
+): Promise<{ dataset: DataSet; range: { min: number; max: number }; dimensions: { time: number; height: number; width: number; } }> => {
     const variables = getExpressionVariables(expression);
     const sourceLayers: (DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer)[] = [];
 
@@ -36,22 +40,49 @@ export const calculateExpressionLayer = async (expression: string, availableLaye
         throw new Error("All layers used in an expression must have the same dimensions.");
     }
 
+    // OPTIMIZATION 1: Pre-compile the expression once
+    const compiledExpression = compileExpression(expression);
+
+    // OPTIMIZATION 2: Pre-compute variable names to avoid repeated sanitization
+    const layerVarNames = sourceLayers.map(l => sanitizeLayerNameForExpression(l.name));
+
     const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(0)));
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // OPTIMIZATION 3: Reuse context object instead of creating new one each iteration
+    const context: { [key: string]: number } = {};
+
+    // OPTIMIZATION 4: Better yielding - yield more frequently for better UI responsiveness
+    // Process in chunks of ~50,000 pixels between yields
+    const pixelsPerYield = 50000;
+    let pixelCount = 0;
+    const totalPixels = time * height * width;
 
     for (let t = 0; t < time; t++) {
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
-                const context: { [key: string]: number } = {};
-                for (const layer of sourceLayers) {
-                    const varName = sanitizeLayerNameForExpression(layer.name);
-                    context[varName] = layer.dataset[t][y][x];
+                // Update context with current pixel values from all source layers
+                for (let i = 0; i < sourceLayers.length; i++) {
+                    context[layerVarNames[i]] = sourceLayers[i].dataset[t][y][x];
                 }
-                const result = evaluateExpression(expression, context);
+                // Use pre-compiled expression for much faster evaluation
+                const result = evaluateCompiled(compiledExpression, context);
                 resultDataset[t][y][x] = result;
+
+                // Yield to main thread periodically to keep UI responsive
+                pixelCount++;
+                if (pixelCount >= pixelsPerYield) {
+                    // Update progress if callback provided
+                    if (onProgress) {
+                        const totalProcessed = t * height * width + y * width + x + 1;
+                        const progress = Math.floor((totalProcessed / totalPixels) * 100);
+                        onProgress(`Calculating expression... ${progress}%`);
+                    }
+                    await yieldToMain();
+                    pixelCount = 0;
+                }
             }
         }
-        if (t % 100 === 0) await yieldToMain();
     }
 
     return { dataset: resultDataset, range: { min: 0, max: 1 }, dimensions: { time, height, width } };
