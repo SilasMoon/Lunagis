@@ -439,15 +439,20 @@ const ExpressionEditor: React.FC = () => {
             .map(l => sanitizeLayerNameForExpression(l.name));
     }, [layers]);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (name.trim() && expression.trim()) {
-            onCreateExpressionLayer(name, expression);
+            await onCreateExpressionLayer(name, expression);
         }
     };
 
     return (
         <div className="p-3 bg-gray-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-4">
             <h3 className="text-base font-medium text-cyan-300">Create Expression Layer</h3>
+            {availableVariables.length === 0 && (
+                <div className="p-2 bg-red-900/30 border border-red-600/50 rounded-md text-xs text-red-200">
+                    No data layers available. Please load data layers before creating expressions.
+                </div>
+            )}
             <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1">Layer Name</label>
                 <input
@@ -470,7 +475,7 @@ const ExpressionEditor: React.FC = () => {
             <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1">Available Variables</label>
                 <div className="bg-gray-800 p-2 rounded-md text-xs font-mono text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
-                    {availableVariables.length > 0 ? availableVariables.map(v => <span key={v}>{v}</span>) : <span>No data layers available.</span>}
+                    {availableVariables.length > 0 ? availableVariables.map(v => <span key={v}>{v}</span>) : <span className="text-gray-500">No data layers available.</span>}
                 </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -496,20 +501,30 @@ const LayersPanel: React.FC = () => {
         setIsCreatingExpression,
         isLoading,
     } = useAppContext();
-    
+
+    // Helper to check if there are layers with datasets
+    const hasDataLayers = useMemo(() => {
+        return layers.some((l: Layer) => l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms');
+    }, [layers]);
+
     if (isCreatingExpression) {
         return <ExpressionEditor />;
     }
-    
+
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold text-cyan-300">Layer Management</h2>
             <AddLayerMenu />
+            {!hasDataLayers && (
+                <div className="p-2 bg-yellow-900/30 border border-yellow-600/50 rounded-md text-xs text-yellow-200">
+                    Load a data layer before creating expression layers
+                </div>
+            )}
             <button
                 onClick={() => setIsCreatingExpression(true)}
-                disabled={!!isLoading || layers.filter((l: Layer) => 'dataset' in l).length === 0}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-all flex items-center justify-center gap-2"
-                title={layers.filter((l: Layer) => 'dataset' in l).length === 0 ? "Load a data layer first" : "Create a layer from an expression"}
+                disabled={!!isLoading || !hasDataLayers}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-md text-sm transition-all flex items-center justify-center gap-2"
+                title={!hasDataLayers ? "Load a data layer first" : "Create a layer from an expression"}
             >
                 Add Expression Layer
             </button>
