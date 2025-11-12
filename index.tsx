@@ -2,6 +2,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { GlobalProvider } from './context/GlobalContext';
+import { LayersProvider } from './context/LayersContext';
+import { TimeProvider } from './context/TimeContext';
+import { MapProvider } from './context/AppContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -11,6 +15,14 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <GlobalProvider>
+      <TimeProvider>
+        <LayersProvider>
+          <MapProvider>
+            <App />
+          </MapProvider>
+        </LayersProvider>
+      </TimeProvider>
+    </GlobalProvider>
   </React.StrictMode>
 );

@@ -99,7 +99,7 @@ export interface LpfCommsLayer extends LayerBase {
 }
 
 
-export type AnalysisType = 'nightfall' | 'daylight_fraction';
+export type AnalysisType = 'nightfall' | 'daylight_fraction' | 'expression';
 
 export interface AnalysisLayer extends LayerBase {
   type: 'analysis';
@@ -110,9 +110,10 @@ export interface AnalysisLayer extends LayerBase {
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
   dimensions: { time: number; height: number; width: number };
-  sourceLayerId: string;
+  sourceLayerId?: string;
   params: {
     clipValue?: number;
+    expression?: string;
   };
 }
 
@@ -214,9 +215,10 @@ export interface SerializableAnalysisLayer extends SerializableLayerBase {
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
   dimensions: { time: number; height: number; width: number };
-  sourceLayerId: string;
+  sourceLayerId?: string;
   params: {
     clipValue?: number;
+    expression?: string;
   };
 }
 

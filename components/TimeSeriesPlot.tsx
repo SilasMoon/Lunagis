@@ -1,39 +1,33 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import type { TimeRange, TimeDomain, ColorStop } from '../types';
+import type { TimeRange, TimeDomain, ColorStop, Layer } from '../types';
 import { indexToDate } from '../utils/time';
+import { useTimeContext } from '../context/TimeContext';
+import { useLayersContext } from '../context/LayersContext';
+import { useMapContext } from '../context/AppContext';
 
 declare const d3: any;
 
 interface TimeSeriesPlotProps {
-  isDataLoaded: boolean;
-  timeSeriesData: number[] | null;
-  timeRange: TimeRange | null;
-  fullTimeDomain: TimeDomain | null;
-  timeZoomDomain: TimeDomain | null;
-  onZoomToSelection: () => void;
-  onResetZoom: () => void;
-  dataRange: { min: number; max: number } | null;
   yAxisUnit?: 'days';
-  yAxisRange?: { min: number; max: number }; // In days if yAxisUnit is 'days'
   colormapThresholds?: ColorStop[];
 }
 
 export const MARGIN = { top: 10, right: 30, bottom: 20, left: 50 };
 
-export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
-  isDataLoaded,
-  timeSeriesData,
-  timeRange,
-  fullTimeDomain,
-  timeZoomDomain,
-  onZoomToSelection,
-  onResetZoom,
-  dataRange,
-  yAxisUnit,
-  yAxisRange,
-  colormapThresholds,
-}) => {
+export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
+  const { timeRange, fullTimeDomain, timeZoomDomain, onZoomToSelection, onResetZoom } = useTimeContext();
+  const { primaryDataLayer, activeLayer } = useLayersContext();
+  const { timeSeriesData, nightfallPlotYAxisRange } = useMapContext();
+  
+  const isDataLoaded = !!primaryDataLayer;
+  const dataRange = timeSeriesData?.range ?? null;
+  const yAxisUnit = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? 'days' : undefined;
+  const yAxisRange = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? nightfallPlotYAxisRange : undefined;
+  const colormapThresholds = (activeLayer?.type === 'analysis' || activeLayer?.type === 'data' || activeLayer?.type === 'dte_comms' || activeLayer?.type === 'lpf_comms') && activeLayer.colormap === 'Custom' 
+      ? activeLayer.customColormap 
+      : undefined;
+
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState({ width: 0, height: 0 });
@@ -55,9 +49,9 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
   const innerHeight = dims.height - MARGIN.top - MARGIN.bottom;
 
   const dataWithDates = useMemo(() => {
-    if (!timeSeriesData) return [];
+    if (!timeSeriesData?.data) return [];
     const isDays = yAxisUnit === 'days';
-    return timeSeriesData.map((value, i) => {
+    return timeSeriesData.data.map((value, i) => {
         const date = indexToDate(i);
         const finalValue = isDays ? value / 24 : value;
         return { date, value: finalValue };
@@ -90,14 +84,12 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
     const xScale = d3.scaleUtc().domain(timeZoomDomain).range([0, innerWidth]);
     const yScale = d3.scaleLinear().domain(yDomain).range([innerHeight, 0]).nice();
     
-    // Define clipping path
     g.append('clipPath')
      .attr('id', 'clip')
      .append('rect')
      .attr('width', innerWidth)
      .attr('height', innerHeight);
 
-    // Draw Highlighted Range
     if (timeRange) {
         const start = indexToDate(timeRange.start);
         const end = indexToDate(timeRange.end);
@@ -110,7 +102,6 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
          .attr('fill', 'rgba(79, 209, 197, 0.2)');
     }
     
-    // Draw threshold color bands
     if (colormapThresholds) {
         const bands = [];
         for (let i = 0; i < colormapThresholds.length; i++) {
@@ -152,8 +143,6 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
          .attr('opacity', 0.2);
     }
 
-
-    // Draw Line
     const line = d3.line()
       .x((d: any) => xScale(d.date))
       .y((d: any) => yScale(d.value));
@@ -166,7 +155,6 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
      .attr('stroke-width', 1.5)
      .attr('d', line);
      
-    // Draw Axes
     const xAxis = d3.axisBottom(xScale).ticks(innerWidth / 80).tickSizeOuter(0);
     const yAxis = d3.axisLeft(yScale).ticks(innerHeight / 30).tickSize(-innerWidth)
       .tickFormat(d => isDays ? `${d.valueOf().toFixed(1)} days` : d.valueOf().toString());
@@ -224,8 +212,8 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({
       {isDataLoaded && (
         <div className="absolute top-2 right-4 z-10 flex gap-2">
           <button
-            onClick={onZoomToSelection}
-            disabled={isZoomedToSelection}
+            onClick={() => onZoomToSelection(targetZoomDomain)}
+            disabled={isZoomedToSelection || !targetZoomDomain}
             className="text-xs bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-cyan-300 px-2 py-1 rounded-md transition-colors shadow-md"
             title="Fit selected time range to view"
           >

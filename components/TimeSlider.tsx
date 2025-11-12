@@ -1,22 +1,23 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { indexToDate, dateToIndex, START_DATE } from '../utils/time';
-import type { TimeRange, TimeDomain } from '../types';
+import { indexToDate, dateToIndex } from '../utils/time';
 import { MARGIN } from './TimeSeriesPlot';
+import { useTimeContext } from '../context/TimeContext';
+import { useLayersContext } from '../context/LayersContext';
 
 declare const d3: any;
 
-interface TimeSliderProps {
-  isDataLoaded: boolean;
-  timeRange: TimeRange | null;
-  maxTimeIndex: number;
-  onTimeRangeChange: (range: TimeRange) => void;
-  timeZoomDomain: TimeDomain | null;
-}
+export const TimeSlider: React.FC = () => {
+  const { 
+    timeRange, 
+    handleManualTimeRangeChange, 
+    timeZoomDomain 
+  } = useTimeContext();
+  const { primaryDataLayer } = useLayersContext();
+  
+  const isDataLoaded = !!primaryDataLayer;
+  const maxTimeIndex = primaryDataLayer ? primaryDataLayer.dimensions.time - 1 : 0;
 
-export const TimeSlider: React.FC<TimeSliderProps> = ({ 
-  isDataLoaded, timeRange, maxTimeIndex, onTimeRangeChange, timeZoomDomain
-}) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -92,12 +93,12 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       }
     } else if (draggingHandle) {
       if (draggingHandle === 'start') {
-        onTimeRangeChange({ ...timeRange, start: Math.min(newIndex, timeRange.end) });
+        handleManualTimeRangeChange({ ...timeRange, start: Math.min(newIndex, timeRange.end) });
       } else {
-        onTimeRangeChange({ ...timeRange, end: Math.max(newIndex, timeRange.start) });
+        handleManualTimeRangeChange({ ...timeRange, end: Math.max(newIndex, timeRange.start) });
       }
     }
-  }, [xScale, onTimeRangeChange, maxTimeIndex, isDataLoaded, timeRange, draggingHandle]);
+  }, [xScale, handleManualTimeRangeChange, maxTimeIndex, isDataLoaded, timeRange, draggingHandle]);
 
   useEffect(() => {
     const handleMouseUp = () => setDraggingHandle(null);
@@ -126,19 +127,19 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         e.preventDefault();
         const newStart = Math.max(0, timeRange.start - 1);
         if (newStart !== timeRange.start) {
-          onTimeRangeChange({ ...timeRange, start: newStart });
+          handleManualTimeRangeChange({ ...timeRange, start: newStart });
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         const newStart = Math.min(timeRange.end, timeRange.start + 1);
         if (newStart !== timeRange.start) {
-          onTimeRangeChange({ ...timeRange, start: newStart });
+          handleManualTimeRangeChange({ ...timeRange, start: newStart });
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.removeEventListener('keydown', handleKeyDown); };
-  }, [isDataLoaded, timeRange, onTimeRangeChange]);
+  }, [isDataLoaded, timeRange, handleManualTimeRangeChange]);
   
   const startX = timeRange ? xScale(indexToDate(timeRange.start)) : 0;
   const endX = timeRange ? xScale(indexToDate(timeRange.end)) : 0;

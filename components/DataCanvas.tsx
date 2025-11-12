@@ -1,42 +1,15 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
+import { useLayersContext } from '../context/LayersContext';
+import { useTimeContext } from '../context/TimeContext';
+import { useMapContext } from '../context/AppContext';
+import { useGlobalContext } from '../context/GlobalContext';
 
 declare const d3: any;
 declare const proj4: any;
-
-interface DataCanvasProps {
-  layers: Layer[];
-  timeIndex: number;
-  debouncedTimeRange: TimeRange | null;
-  onCellHover: (coords: GeoCoordinates) => void;
-  onMapClick: (coords: GeoCoordinates, projCoords: [number, number]) => void;
-  onCellLeave: () => void;
-  latRange: [number, number];
-  lonRange: [number, number];
-  showGraticule: boolean;
-  graticuleDensity: number;
-  proj: any | null;
-  viewState: ViewState | null;
-  onViewStateChange: (vs: ViewState | null) => void;
-  isDataLoaded: boolean;
-  showGrid: boolean;
-  gridSpacing: number;
-  gridColor: string;
-  activeTool: Tool;
-  selectedCells: {x: number, y: number}[];
-  selectionColor: string;
-  artifacts: Artifact[];
-  artifactCreationMode: Artifact['type'] | null;
-  onArtifactDragStart: (info: { artifactId: string, waypointId?: string }, projCoords: [number, number]) => void;
-  onArtifactDrag: (projCoords: [number, number]) => void;
-  onArtifactDragEnd: () => void;
-  isDragging: boolean;
-  artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
-  isAppendingWaypoints: boolean;
-}
 
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center text-gray-400">
@@ -66,13 +39,23 @@ function haversineDistance(coords1: [number, number], coords2: [number, number])
     return R * c; // in metres
 }
 
-export const DataCanvas: React.FC<DataCanvasProps> = ({ 
-  layers, timeIndex, onCellHover, onCellLeave, onMapClick, latRange, lonRange, 
-  showGraticule, graticuleDensity, proj, viewState, onViewStateChange, isDataLoaded,
-  debouncedTimeRange, showGrid, gridSpacing, gridColor, activeTool, selectedCells, selectionColor,
-  artifacts, artifactCreationMode, onArtifactDragStart, onArtifactDrag, onArtifactDragEnd, isDragging,
-  artifactDisplayOptions, isAppendingWaypoints
-}) => {
+export const DataCanvas: React.FC = () => {
+  const { layers, primaryDataLayer, baseMapLayer } = useLayersContext();
+  const { timeRange } = useTimeContext();
+  const {
+    setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
+    clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
+    setViewState, showGrid, gridSpacing, gridColor, selectedCells,
+    selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
+    isAppendingWaypoints, coordinateTransformer, activeArtifactId,
+    setActiveArtifactId, setArtifacts, setSelectedCells
+  } = useMapContext();
+  const { activeTool } = useGlobalContext();
+
+  const timeIndex = timeRange?.start ?? 0;
+  const debouncedTimeRange = timeRange;
+  const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
+
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const dataCanvasRef = useRef<HTMLCanvasElement>(null);
   const artifactCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,9 +71,6 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
   const [initialViewState, setInitialViewState] = useState<ViewState | null>(null);
   const [hoveredArtifactId, setHoveredArtifactId] = useState<string | null>(null);
   const [hoveredWaypointInfo, setHoveredWaypointInfo] = useState<{ artifactId: string; waypointId: string } | null>(null);
-
-  const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
-  const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
 
   const combinedBounds = useMemo(() => {
     if (!primaryDataLayer && !baseMapLayer) return null;
@@ -131,9 +111,9 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
 
     const newInitialViewState = { center, scale };
     setInitialViewState(newInitialViewState);
-    onViewStateChange(newInitialViewState);
+    setViewState(newInitialViewState);
     initialViewCalculated.current = true;
-  }, [combinedBounds, onViewStateChange, viewState]);
+  }, [combinedBounds, setViewState, viewState]);
   
   useEffect(() => { initialViewCalculated.current = false; }, [layers]);
 
@@ -235,8 +215,6 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
           const isThreshold = layer.colormap === 'Custom';
 
           if (layer.type === 'analysis' && layer.analysisType === 'nightfall') {
-             // For nightfall, the color scale needs to handle the full range of values.
-             // The custom threshold scale gets its domain from the stops, so this is mainly for non-custom scales.
              colorDomain = [layer.range.min, layer.params.clipValue ?? layer.range.max];
           } else {
             colorDomain = [layer.range.min, layer.range.max];
@@ -274,7 +252,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     
     const { clientWidth, clientHeight } = graticuleCanvas;
     const p_tl = canvasToProjCoords(0, 0);
-    const p_br = canvasToProjCoords(clientWidth, clientHeight);
+    const p_br = canvasToProjCoords(clientWidth * (window.devicePixelRatio || 1), clientHeight * (window.devicePixelRatio || 1));
 
     if (p_tl && p_br) {
         const [projXMin, projYMin] = [p_tl[0], p_br[1]];
@@ -304,7 +282,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         if (showGraticule && proj) {
             gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
             gratCtx.lineWidth = 1 / (scale * dpr);
-            const samplePoints = [ [0, 0], [clientWidth / 2, 0], [clientWidth, 0], [clientWidth, clientHeight / 2], [clientWidth, clientHeight], [clientWidth / 2, clientHeight], [0, clientHeight], [0, clientHeight / 2] ].map(p => canvasToProjCoords(p[0], p[1]));
+            const samplePoints = [ [0, 0], [clientWidth / 2, 0], [clientWidth, 0], [clientWidth, clientHeight / 2], [clientWidth, clientHeight], [clientWidth / 2, clientHeight], [0, clientHeight], [0, clientHeight / 2] ].map(p => canvasToProjCoords(p[0] * (window.devicePixelRatio || 1), p[1] * (window.devicePixelRatio || 1)));
             const geoPoints = samplePoints.filter(p => p !== null).map(p => { try { return proj4('EPSG:4326', proj).inverse(p!); } catch (e) { return null; } }).filter((p): p is [number, number] => p !== null);
             
             let lonSpan = 1, latSpan = 1;
@@ -312,6 +290,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
                 const viewLonMin = Math.min(...geoPoints.map(p => p[0])), viewLonMax = Math.max(...geoPoints.map(p => p[0]));
                 const viewLatMin = Math.min(...geoPoints.map(p => p[1])), viewLatMax = Math.max(...geoPoints.map(p => p[1]));
                 lonSpan = Math.abs(viewLonMax - viewLonMin); if (lonSpan > 180) lonSpan = 360 - lonSpan;
+                // Fix: Corrected typo from `viewMin` to `viewLatMin`.
                 latSpan = Math.abs(viewLatMax - viewLatMin);
             }
             
@@ -324,10 +303,10 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
             
             for (let lon = -180; lon <= 180; lon += lonStep) {
-                gratCtx.beginPath(); for (let i = 0; i <= 100; i++) { const lat = -90 + (i/100)*40, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
+                gratCtx.beginPath(); for (let i = 0; i <= 100; i++) { const lat = -90 + (i/100)*180, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
                 try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
             }
-            for (let lat = -90; lat <= -50; lat += latStep) {
+            for (let lat = -90; lat <= 90; lat += latStep) {
                 gratCtx.beginPath(); for (let i = 0; i <= 200; i++) { const lon = -180 + (i/200)*360, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
                 try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
@@ -440,18 +419,12 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
                     ctx.save();
                     ctx.translate(midPointProj[0], midPointProj[1]);
 
-                    // 1. Calculate angle in the original projected coordinate system (Y-up)
                     let angle = Math.atan2(pwp2.projPos![1] - pwp1.projPos![1], pwp2.projPos![0] - pwp1.projPos![0]);
-                    
-                    // 2. Adjust angle to keep text readable (not upside-down)
                     if (angle < -Math.PI / 2 || angle > Math.PI / 2) {
                         angle += Math.PI;
                     }
 
-                    // 3. Rotate the UN-SCALED context
                     ctx.rotate(angle);
-                    
-                    // 4. NOW scale the context to screen pixels and flip Y
                     ctx.scale(1 / effectiveScale, -1 / effectiveScale);
                     
                     ctx.font = `${artifactDisplayOptions.labelFontSize}px sans-serif`;
@@ -461,7 +434,6 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
                     const rectHeight = textHeight + padding;
                     const rectWidth = textMetrics.width + padding * 2;
                     
-                    // 5. In this new rotated & flipped system, a negative Y offset moves the text "up"
                     const verticalOffset = -(textHeight / 2 + 5); 
                     
                     ctx.fillStyle = 'rgba(26, 32, 44, 0.7)';
@@ -476,7 +448,6 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
             }
         }
         
-        // Draw main name label
         ctx.save();
         const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : artifact.center;
         if (centerPos) {
@@ -497,7 +468,6 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
   }, [artifacts, viewState, proj, getMetersPerProjectedUnit, artifactDisplayOptions]);
 
 
-  // Effect for drawing cell selections
   useEffect(() => {
     const canvas = selectionCanvasRef.current;
     if (!canvas || !viewState || !primaryDataLayer || !proj) return;
@@ -528,14 +498,13 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
     const e = c_tl[0]; const f = c_tl[1];
 
     ctx.strokeStyle = selectionColor;
-    ctx.lineWidth = 2 / (scale * dpr); // Keep line width consistent on screen
+    ctx.lineWidth = 2 / (scale * dpr); 
     ctx.beginPath();
     
     for (const cell of selectedCells) {
       const u = cell.x;
       const v = cell.y;
       
-      // Project the 4 corners of the cell
       const p0 = [a * u + c * v + e, b * u + d * v + f];
       const p1 = [a * (u + 1) + c * v + e, b * (u + 1) + d * v + f];
       const p2 = [a * (u + 1) + c * (v + 1) + e, b * (u + 1) + d * (v + 1) + f];
@@ -553,11 +522,155 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
 
   }, [selectedCells, selectionColor, viewState, primaryDataLayer, proj, lonRange, latRange]);
 
-  const handleInteractionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+  const onCellHover = useCallback((coords: GeoCoordinates) => {
+    setHoveredCoords(coords);
+    if (!coords || !coordinateTransformer) { setSelectedPixel(null); return; }
+    const pixel = coordinateTransformer(coords.lat, coords.lon);
+    if (pixel) {
+        const topDataLayer = [...layers].reverse().find(l => l.visible && (l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms'));
+        if (topDataLayer) setSelectedPixel({ ...pixel, layerId: topDataLayer.id }); else setSelectedPixel(null);
+    } else {
+        setSelectedPixel(null);
+    }
+  }, [coordinateTransformer, layers, setHoveredCoords, setSelectedPixel]);
+  
+  const onMapClick = useCallback((coords: GeoCoordinates, projCoords: [number, number]) => {
+    if (!coords) return;
+
+    if (artifactCreationMode === 'path') {
+        const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path');
+        if (pathBeingDrawn) {
+            // Add waypoint to existing path-in-progress
+            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: `WP${pathBeingDrawn.waypoints.length + 1}` };
+            onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
+        } else {
+            // First click: create the path
+            const newId = `path-${Date.now()}`;
+            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: 'WP1' };
+            const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
+            setArtifacts(prev => [...prev, newArtifact]);
+            setActiveArtifactId(newId);
+        }
+    } else if (artifactCreationMode) { // Circle or Rectangle
+      const newId = `${artifactCreationMode}-${Date.now()}`;
+      if (artifactCreationMode === 'circle') {
+        const newArtifact: CircleArtifact = { id: newId, type: 'circle', name: `Circle ${artifacts.length + 1}`, visible: true, color: '#00ffff', thickness: 2, center: projCoords, radius: 500 };
+        setArtifacts(prev => [...prev, newArtifact]);
+        setActiveArtifactId(newId);
+        onFinishArtifactCreation();
+      } else if (artifactCreationMode === 'rectangle') {
+        const newArtifact: RectangleArtifact = { id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`, visible: true, color: '#ff00ff', thickness: 2, center: projCoords, width: 1000, height: 1000, rotation: 0 };
+        setArtifacts(prev => [...prev, newArtifact]);
+        setActiveArtifactId(newId);
+        onFinishArtifactCreation();
+      }
+    } else if (isAppendingWaypoints) {
+      const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
+      if (activeArtifact && activeArtifact.type === 'path') {
+          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: `WP${activeArtifact.waypoints.length + 1}` };
+          onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
+      }
+    } else if (activeTool === 'measurement') {
+      const pixel = coordinateTransformer ? coordinateTransformer(coords.lat, coords.lon) : null;
+      if (pixel) {
+        setSelectedCells(prev => {
+          const index = prev.findIndex(p => p.x === pixel.x && p.y === pixel.y);
+          if (index > -1) {
+            return [...prev.slice(0, index), ...prev.slice(index + 1)]; // Deselect
+          } else {
+            return [...prev, pixel]; // Select
+          }
+        });
+      }
+    } else {
+      // Logic for selecting an artifact by clicking on it
+      if (hoveredArtifactId) {
+          setActiveArtifactId(hoveredArtifactId);
+      } else if (!hoveredWaypointInfo) { // Don't deselect if clicking a waypoint
+          setActiveArtifactId(null);
+      }
+    }
+  }, [
+      artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts, 
+      setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo
+  ]);
+
+  const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
+    if (isAppendingWaypoints) return;
+    const artifact = artifacts.find(a => a.id === info.artifactId);
+    if (!artifact || !proj) return;
     
-    if (isDragging && projCoords) {
+    if (info.waypointId) {
+        setDraggedInfo({
+            artifactId: info.artifactId,
+            waypointId: info.waypointId,
+            initialMousePos: projCoords,
+        });
+    } else {
+        if (artifact.type === 'circle' || artifact.type === 'rectangle') {
+            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.center });
+        } else if (artifact.type === 'path') {
+            const initialWaypointProjPositions = artifact.waypoints.map(wp => proj.forward(wp.geoPosition));
+            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
+        }
+    }
+    setActiveArtifactId(info.artifactId);
+  }, [artifacts, proj, isAppendingWaypoints, setDraggedInfo, setActiveArtifactId]);
+
+  const onArtifactDrag = useCallback((projCoords: [number, number]) => {
+    if (!draggedInfo || !proj) return;
+
+    if (draggedInfo.waypointId) {
+        setArtifacts(prev => prev.map(a => {
+            if (a.id === draggedInfo.artifactId && a.type === 'path') {
+                try {
+                    const newGeoPos = proj.inverse(projCoords);
+                    const newWaypoints = a.waypoints.map(wp =>
+                        wp.id === draggedInfo.waypointId ? { ...wp, geoPosition: newGeoPos as [number, number] } : wp
+                    );
+                    return { ...a, waypoints: newWaypoints };
+                } catch (e) {
+                    return a;
+                }
+            }
+            return a;
+        }));
+    } else {
+        const dx = projCoords[0] - draggedInfo.initialMousePos[0];
+        const dy = projCoords[1] - draggedInfo.initialMousePos[1];
+
+        setArtifacts(prev => prev.map(a => {
+            if (a.id === draggedInfo.artifactId) {
+                if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
+                    return { ...a, center: [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy] };
+                } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
+                    const newWaypoints = a.waypoints.map((wp, i) => {
+                        const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
+                        const newProjPos: [number, number] = [initialProjPos[0] + dx, initialProjPos[1] + dy];
+                        try {
+                            const newGeoPos = proj.inverse(newProjPos);
+                            return { ...wp, geoPosition: newGeoPos };
+                        } catch (e) {
+                            return wp;
+                        }
+                    });
+                    return { ...a, waypoints: newWaypoints };
+                }
+            }
+            return a;
+        }));
+    }
+  }, [draggedInfo, proj, setArtifacts]);
+
+  const onArtifactDragEnd = useCallback(() => {
+    setDraggedInfo(null);
+  }, [setDraggedInfo]);
+
+
+  const handleInteractionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    
+    if (!!draggedInfo && projCoords) {
         onArtifactDrag(projCoords);
         return;
     }
@@ -566,7 +679,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         const dx = e.clientX - lastMousePos.current.x; const dy = e.clientY - lastMousePos.current.y;
         const dpr = window.devicePixelRatio || 1;
         const newCenter: [number, number] = [ viewState.center[0] - dx / (viewState.scale * dpr), viewState.center[1] + dy / (viewState.scale * dpr) ];
-        onViewStateChange({ ...viewState, center: newCenter });
+        setViewState({ ...viewState, center: newCenter });
         lastMousePos.current = { x: e.clientX, y: e.clientY };
     }
     
@@ -612,9 +725,7 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
                     const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
                     const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
                     if (Math.abs(rotatedX) <= w / 2 && Math.abs(rotatedY) <= h / 2) artifactHit = true;
-                } else if (artifact.type === 'path') {
-                    // Simplified hit detection - can be improved to check distance to line segments
-                }
+                } else if (artifact.type === 'path') {}
                 if (artifactHit) {
                     newHoveredArtifactId = artifact.id;
                     break;
@@ -625,75 +736,74 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
         setHoveredWaypointInfo(newHoveredWaypointInfo);
         setHoveredArtifactId(newHoveredWaypointInfo ? null : newHoveredArtifactId);
         
-        try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch(e) { onCellLeave(); }
-    } else { onCellLeave(); setHoveredArtifactId(null); setHoveredWaypointInfo(null); }
-  }, [viewState, onViewStateChange, canvasToProjCoords, proj, onCellHover, onCellLeave, isDragging, onArtifactDrag, artifacts, getMetersPerProjectedUnit, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints]);
+        try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch(e) { clearHoverState(); }
+    } else { clearHoverState(); setHoveredArtifactId(null); setHoveredWaypointInfo(null); }
+  }, [viewState, setViewState, canvasToProjCoords, proj, onCellHover, clearHoverState, draggedInfo, onArtifactDrag, artifacts, getMetersPerProjectedUnit, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints]);
+  
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    lastMousePos.current = { x: e.clientX, y: e.clientY };
+    const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
 
-  const handleMapClickInternal = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isPanning.current && e.movementX === 0 && e.movementY === 0) { // It's a click, not a drag end
-        const rect = e.currentTarget.getBoundingClientRect();
-        const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
-        if (projCoords && proj) {
-          try {
-            const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords);
-            onMapClick({ lat, lon }, projCoords);
-          } catch (e) { /* Ignore */ }
+    if (!projCoords) return;
+
+    if (e.button === 0) { // Left mouse button
+        if (hoveredWaypointInfo) {
+            onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
+        } else if (hoveredArtifactId) {
+            onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
+        } else {
+            isPanning.current = true;
         }
     }
   };
   
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => { 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const projCoords = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
-
-    if (hoveredWaypointInfo && projCoords) {
-        onArtifactDragStart({
-            artifactId: hoveredWaypointInfo.artifactId,
-            waypointId: hoveredWaypointInfo.waypointId
-        }, projCoords);
-        return;
-    }
-    if (hoveredArtifactId && artifactCreationMode === null && projCoords) {
-        onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
-        return;
-    }
-    
-    isPanning.current = true;
-    lastMousePos.current = { x: e.clientX, y: e.clientY }; 
-  };
   const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => { 
-    handleMapClickInternal(e);
+    const wasClick = isPanning.current && (Math.abs(e.clientX - lastMousePos.current.x) < 2) && (Math.abs(e.clientY - lastMousePos.current.y) < 2);
+    
+    const wasPanning = isPanning.current;
     isPanning.current = false;
-    if (isDragging) onArtifactDragEnd();
+    
+    if (!!draggedInfo) {
+      onArtifactDragEnd();
+      return; 
+    }
+
+    if (wasPanning && wasClick) {
+        const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+        const geoCoords = proj && projCoords ? (() => { try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); return { lat, lon }; } catch(e) { return null; } })() : null;
+
+        if (projCoords && geoCoords) {
+            onMapClick(geoCoords, projCoords);
+        }
+    }
   };
-  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => { 
+  const handleMouseLeave = () => { 
     isPanning.current = false; 
-    onCellLeave(); 
-    if (isDragging) onArtifactDragEnd();
+    clearHoverState(); 
+    if (!!draggedInfo) onArtifactDragEnd();
   };
   
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!viewState) return; e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseProjBefore = canvasToProjCoords(e.clientX - rect.left, e.clientY - rect.top);
+    const mouseProjBefore = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
     if (!mouseProjBefore) return;
     const zoomFactor = 1 - e.deltaY * 0.001; const newScale = viewState.scale * zoomFactor;
     const dpr = window.devicePixelRatio || 1;
-    const newCenter: [number, number] = [ mouseProjBefore[0] - ( (e.clientX-rect.left) * dpr - e.currentTarget.offsetWidth * dpr / 2) / (newScale * dpr), mouseProjBefore[1] + ( (e.clientY-rect.top) * dpr - e.currentTarget.offsetHeight * dpr / 2) / (newScale * dpr) ];
-    onViewStateChange({ scale: newScale, center: newCenter });
+    const newCenter: [number, number] = [ mouseProjBefore[0] - ( (e.nativeEvent.offsetX) * dpr - e.currentTarget.offsetWidth * dpr / 2) / (newScale * dpr), mouseProjBefore[1] + ( (e.nativeEvent.offsetY) * dpr - e.currentTarget.offsetHeight * dpr / 2) / (newScale * dpr) ];
+    setViewState({ scale: newScale, center: newCenter });
   };
   
-  const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; onViewStateChange({ ...viewState, scale: viewState.scale * factor }); }, [viewState, onViewStateChange]);
-  const handleResetView = useCallback(() => { if(initialViewState) { onViewStateChange(initialViewState); } }, [initialViewState, onViewStateChange]);
+  const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; setViewState({ ...viewState, scale: viewState.scale * factor }); }, [viewState, setViewState]);
+  const handleResetView = useCallback(() => { if(initialViewState) { setViewState(initialViewState); } }, [initialViewState, setViewState]);
 
   const cursorStyle = useMemo(() => {
     if (artifactCreationMode || isAppendingWaypoints) return 'crosshair';
-    if (isDragging) return 'grabbing';
+    if (!!draggedInfo) return 'grabbing';
     if (hoveredWaypointInfo || hoveredArtifactId) return 'grab';
     if (activeTool === 'measurement') return 'copy';
     if (isPanning.current) return 'grabbing';
     return 'default';
-  }, [artifactCreationMode, isAppendingWaypoints, isDragging, hoveredWaypointInfo, hoveredArtifactId, activeTool, isPanning.current]);
+  }, [artifactCreationMode, isAppendingWaypoints, draggedInfo, hoveredWaypointInfo, hoveredArtifactId, activeTool, isPanning.current]);
 
   if (!isDataLoaded) {
     return (<div className="w-full h-full flex items-center justify-center text-center text-gray-400 bg-gray-900/50 rounded-lg"><div><h3 className="text-xl font-semibold">No Data Loaded</h3><p className="mt-2">Use the Layers panel to load a basemap or data file.</p></div></div>);
@@ -701,9 +811,9 @@ export const DataCanvas: React.FC<DataCanvasProps> = ({
 
   return (
     <div 
-      className="w-full h-full relative" 
+      className="w-full h-full relative"
+      onMouseDown={handleMouseDown}
       onMouseMove={handleInteractionMove} 
-      onMouseDown={handleMouseDown} 
       onMouseUp={handleMouseUp} 
       onMouseLeave={handleMouseLeave} 
       onWheel={handleWheel}

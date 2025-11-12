@@ -1,9 +1,14 @@
 // Fix: Removed invalid file header which was causing parsing errors.
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer } from '../types';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, AppStateConfig } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
+import { useLayersContext, sanitizeLayerNameForExpression } from '../context/LayersContext';
+import { useGlobalContext } from '../context/GlobalContext';
+import { useMapContext } from '../context/AppContext';
+import { useTimeContext } from '../context/TimeContext';
+
 
 declare const d3: any;
 
@@ -27,7 +32,9 @@ const Section: React.FC<{ title: string; children: React.ReactNode; defaultOpen?
   );
 };
 
-const AddLayerMenu: React.FC<{ onAddDataLayer: (f: File) => void; onAddDteCommsLayer: (f: File) => void; onAddLpfCommsLayer: (f: File) => void; onAddBaseMapLayer: (p: File, v: File) => void; isLoading: boolean; }> = ({ onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer, isLoading }) => {
+const AddLayerMenu: React.FC = () => {
+    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer } = useLayersContext();
+    const { isLoading } = useGlobalContext();
     const [isOpen, setIsOpen] = useState(false);
     const npyInputRef = useRef<HTMLInputElement>(null);
     const dteInputRef = useRef<HTMLInputElement>(null);
@@ -158,7 +165,7 @@ const CustomColormapEditor: React.FC<{
                     
                     const displayValue = isFirstStop
                         ? (units === 'days' ? (layerRange.min / 24).toFixed(1) : layerRange.min.toFixed(0))
-                        : stop.value.toFixed(units === 'days' ? 1 : 0);
+                        : (units === 'days' ? stop.value.toFixed(1) : stop.value.toFixed(0));
 
                     return (
                         <div key={index} className="grid grid-cols-[20px_1fr_auto_auto_auto] items-center gap-2 text-sm">
@@ -170,7 +177,11 @@ const CustomColormapEditor: React.FC<{
                                 defaultValue={displayValue}
                                 key={displayValue + stop.color} // Force re-render on sort
                                 readOnly={isFirstStop}
-                                onBlur={isFirstStop ? undefined : (e) => handleUpdateStop(index, { value: parseFloat(e.target.value) })}
+                                onBlur={isFirstStop ? undefined : (e) => {
+                                    let val = parseFloat(e.target.value);
+                                    if(isNaN(val)) return;
+                                    handleUpdateStop(index, { value: val });
+                                }}
                                 className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600 disabled:bg-gray-800 disabled:text-gray-500"
                                 disabled={isFirstStop}
                                 title={`Value${units === 'days' ? ' (days)' : ''}`}
@@ -248,7 +259,16 @@ const formatLayerType = (type: Layer['type']): string => {
     }
 };
 
-const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => void; onUpdate: (id: string, updates: Partial<Layer>) => void; onRemove: (id: string) => void; onCalculateNightfallLayer: (id: string) => void; onCalculateDaylightFractionLayer: (id: string) => void; daylightFractionHoverData: DaylightFractionHoverData | null; flickeringLayerId: string | null; onToggleFlicker: (id: string) => void; }> = ({ layer, isActive, onSelect, onUpdate, onRemove, onCalculateNightfallLayer, onCalculateDaylightFractionLayer, daylightFractionHoverData, flickeringLayerId, onToggleFlicker }) => {
+const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => void; }> = ({ layer, isActive, onSelect }) => {
+    const { 
+        onUpdateLayer, 
+        onRemoveLayer, 
+        onCalculateNightfallLayer, 
+        onCalculateDaylightFractionLayer, 
+        daylightFractionHoverData, 
+        flickeringLayerId, 
+        onToggleFlicker 
+    } = useLayersContext();
     
     const isNightfall = layer.type === 'analysis' && layer.analysisType === 'nightfall';
     const useDaysUnitForCustom = isNightfall && layer.colormap === 'Custom';
@@ -257,7 +277,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
     return (
         <div className={`bg-gray-800/60 rounded-lg border ${isActive ? 'border-cyan-500/50' : 'border-gray-700/80'}`}>
             <div className="flex items-center p-2 gap-2">
-                <button onClick={() => onUpdate(layer.id, { visible: !layer.visible })} title={layer.visible ? 'Hide Layer' : 'Show Layer'} className="text-gray-400 hover:text-white">
+                <button onClick={() => onUpdateLayer(layer.id, { visible: !layer.visible })} title={layer.visible ? 'Hide Layer' : 'Show Layer'} className="text-gray-400 hover:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" style={{ opacity: layer.visible ? 1 : 0.3 }} /></svg>
                 </button>
                 <button onClick={() => onToggleFlicker(layer.id)} title="Flicker Layer" className={`${layer.id === flickeringLayerId ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}>
@@ -266,31 +286,36 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                 <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-sm">
                     <p className="font-medium text-gray-200" title={layer.name}>{layer.name}</p>
                     <p className="text-xs text-gray-400">{formatLayerType(layer.type)}</p>
+                    {layer.type === 'analysis' && layer.analysisType === 'expression' && layer.params.expression && (
+                      <p className="text-xs text-gray-500 font-mono truncate mt-1" title={layer.params.expression}>
+                        Expr: {layer.params.expression}
+                      </p>
+                    )}
                 </div>
                 <button onClick={onSelect} className="text-gray-400 hover:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform ${isActive ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                 </button>
-                 <button onClick={() => onRemove(layer.id)} title="Remove Layer" className="text-gray-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
+                 <button onClick={() => onRemoveLayer(layer.id)} title="Remove Layer" className="text-gray-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
             </div>
             {isActive && (
                 <div className="p-3 border-t border-gray-700 space-y-4 animate-fade-in">
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
-                        <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdate(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                        <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdateLayer(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
                     {hasColormap && (
                         <>
                           <div>
                             <label className="block text-sm font-medium text-gray-400 mb-1">Colormap</label>
                             <div className="flex items-center gap-2">
-                                <select value={layer.colormap} onChange={(e) => onUpdate(layer.id, { colormap: e.target.value as ColorMapName })} className="flex-grow bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block p-2.5">
+                                <select value={layer.colormap} onChange={(e) => onUpdateLayer(layer.id, { colormap: e.target.value as ColorMapName })} className="flex-grow bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block p-2.5">
                                   {COLOR_MAPS.map(name => (<option key={name} value={name}>{name}</option>))}
                                 </select>
                                 <label className="flex items-center gap-1.5 text-sm text-gray-400 cursor-pointer whitespace-nowrap">
                                     <input 
                                         type="checkbox" 
                                         checked={!!layer.colormapInverted} 
-                                        onChange={(e) => onUpdate(layer.id, { colormapInverted: e.target.checked })} 
+                                        onChange={(e) => onUpdateLayer(layer.id, { colormapInverted: e.target.checked })} 
                                         className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500"
                                     />
                                     Invert
@@ -311,7 +336,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                                           ...s, 
                                           value: useDaysUnitForCustom ? s.value * 24 : s.value
                                         }));
-                                      onUpdate(layer.id, { customColormap: stopsInHours });
+                                      onUpdateLayer(layer.id, { customColormap: stopsInHours });
                                    }}
                                    units={useDaysUnitForCustom ? 'days' : undefined}
                                />
@@ -393,7 +418,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                                     max="1000" 
                                     step="1" 
                                     value={layer.params.clipValue} 
-                                    onChange={(e) => onUpdate(layer.id, { params: { ...layer.params, clipValue: Number(e.target.value) }})}
+                                    onChange={(e) => onUpdateLayer(layer.id, { params: { ...layer.params, clipValue: Number(e.target.value) }})}
                                     className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500 mt-1"
                                 />
                             </div>
@@ -405,33 +430,100 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
     );
 };
 
-const LayersPanel: React.FC<any> = (props) => {
+const ExpressionEditor: React.FC = () => {
+    const { layers, onCreateExpressionLayer, setIsCreatingExpression } = useLayersContext();
+    const [name, setName] = useState('Expression Layer');
+    const [expression, setExpression] = useState('');
+
+    const availableVariables = useMemo(() => {
+        return layers
+            .filter(l => l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms')
+            .map(l => sanitizeLayerNameForExpression(l.name));
+    }, [layers]);
+
+    const handleSubmit = () => {
+        if (name.trim() && expression.trim()) {
+            onCreateExpressionLayer(name, expression);
+        }
+    };
+
+    return (
+        <div className="p-3 bg-gray-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-4">
+            <h3 className="text-base font-medium text-cyan-300">Create Expression Layer</h3>
+            <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Layer Name</label>
+                <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600"
+                />
+            </div>
+            <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Expression</label>
+                <textarea
+                    value={expression}
+                    onChange={(e) => setExpression(e.target.value)}
+                    rows={4}
+                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600 font-mono"
+                    placeholder="(Nightfall_Forecast > 0) AND (DTE_Comms == 1)"
+                />
+            </div>
+            <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Available Variables</label>
+                <div className="bg-gray-800 p-2 rounded-md text-xs font-mono text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
+                    {availableVariables.length > 0 ? availableVariables.map(v => <span key={v}>{v}</span>) : <span>No data layers available.</span>}
+                </div>
+            </div>
+            <div className="flex justify-end gap-2">
+                <button onClick={() => setIsCreatingExpression(false)} className="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm">Cancel</button>
+                <button 
+                  onClick={handleSubmit} 
+                  disabled={!name.trim() || !expression.trim()}
+                  className="bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                >
+                  Create
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const LayersPanel: React.FC = () => {
+    const {
+        layers,
+        activeLayerId,
+        setActiveLayerId,
+        isCreatingExpression,
+        setIsCreatingExpression,
+    } = useLayersContext();
+    const { isLoading } = useGlobalContext();
+    
+    if (isCreatingExpression) {
+        return <ExpressionEditor />;
+    }
+    
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold text-cyan-300">Layer Management</h2>
-            <AddLayerMenu 
-                onAddDataLayer={props.onAddDataLayer} 
-                onAddDteCommsLayer={props.onAddDteCommsLayer}
-                onAddLpfCommsLayer={props.onAddLpfCommsLayer}
-                onAddBaseMapLayer={props.onAddBaseMapLayer} 
-                isLoading={!!props.isLoading} 
-            />
-            {props.isLoading && <div className="text-sm text-cyan-300 text-center p-2 bg-gray-900/50 rounded-md">{props.isLoading}</div>}
+            <AddLayerMenu />
+            <button
+                onClick={() => setIsCreatingExpression(true)}
+                disabled={!!isLoading || layers.filter((l: Layer) => 'dataset' in l).length === 0}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-all flex items-center justify-center gap-2"
+                title={layers.filter((l: Layer) => 'dataset' in l).length === 0 ? "Load a data layer first" : "Create a layer from an expression"}
+            >
+                Add Expression Layer
+            </button>
+            {isLoading && <div className="text-sm text-cyan-300 text-center p-2 bg-gray-900/50 rounded-md">{isLoading}</div>}
             <div className="space-y-2">
-                {props.layers.length > 0 ? (
-                    [...props.layers].reverse().map((layer: Layer) => (
+                {layers.length > 0 ? (
+                    [...layers].reverse().map((layer: Layer) => (
                         <LayerItem
                             key={layer.id}
                             layer={layer}
-                            isActive={layer.id === props.activeLayerId}
-                            onSelect={() => props.onActiveLayerChange(layer.id === props.activeLayerId ? null : layer.id)}
-                            onUpdate={props.onUpdateLayer}
-                            onRemove={props.onRemoveLayer}
-                            onCalculateNightfallLayer={props.onCalculateNightfallLayer}
-                            onCalculateDaylightFractionLayer={props.onCalculateDaylightFractionLayer}
-                            daylightFractionHoverData={props.daylightFractionHoverData}
-                            flickeringLayerId={props.flickeringLayerId}
-                            onToggleFlicker={props.onToggleFlicker}
+                            isActive={layer.id === activeLayerId}
+                            onSelect={() => setActiveLayerId(layer.id === activeLayerId ? null : layer.id)}
                         />
                     ))
                 ) : (
@@ -442,23 +534,17 @@ const LayersPanel: React.FC<any> = (props) => {
     );
 };
 
-const ArtifactItem: React.FC<{
-  artifact: Artifact;
-  isActive: boolean;
-  onSelect: () => void;
-  onUpdate: (id: string, updates: Partial<Artifact>) => void;
-  onRemove: (id: string) => void;
-  onStartAppendWaypoints: () => void;
-}> = ({ artifact, isActive, onSelect, onUpdate, onRemove, onStartAppendWaypoints }) => {
+const ArtifactItem: React.FC<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }> = ({ artifact, isActive, onSelect }) => {
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useMapContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
-        onUpdate(artifact.id, { [prop]: value });
+        onUpdateArtifact(artifact.id, { [prop]: value });
     };
 
     const handleWaypointUpdate = (path: PathArtifact, wpIndex: number, newProps: Partial<Waypoint>) => {
         const newWaypoints = [...path.waypoints];
         newWaypoints[wpIndex] = { ...newWaypoints[wpIndex], ...newProps };
-        onUpdate(path.id, { waypoints: newWaypoints });
+        onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
 
     const handleWaypointGeoChange = (path: PathArtifact, wpIndex: number, coord: 'lon' | 'lat', value: string) => {
@@ -472,12 +558,12 @@ const ArtifactItem: React.FC<{
             coord === 'lat' ? numericValue : oldPos[1]
         ];
         newWaypoints[wpIndex] = { ...newWaypoints[wpIndex], geoPosition: newPos };
-        onUpdate(path.id, { waypoints: newWaypoints });
+        onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
     
     const handleRemoveWaypoint = (path: PathArtifact, wpIndex: number) => {
         const newWaypoints = path.waypoints.filter((_, i) => i !== wpIndex);
-        onUpdate(path.id, { waypoints: newWaypoints });
+        onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
 
     return (
@@ -493,7 +579,7 @@ const ArtifactItem: React.FC<{
                 <button onClick={onSelect} className="text-gray-400 hover:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform ${isActive ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                 </button>
-                <button onClick={() => onRemove(artifact.id)} title="Remove" className="text-gray-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
+                <button onClick={() => onRemoveArtifact(artifact.id)} title="Remove" className="text-gray-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
             </div>
             {isActive && (
                 <div className="p-3 border-t border-gray-700 space-y-4 text-sm animate-fade-in">
@@ -516,7 +602,7 @@ const ArtifactItem: React.FC<{
                         <Section title="Circle Properties" defaultOpen={true}>
                             <div className="flex items-center justify-between">
                                 <label className="font-medium text-gray-300">Radius (m)</label>
-                                <input type="number" min="0" value={artifact.radius} onChange={e => onUpdate(artifact.id, { radius: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                                <input type="number" min="0" value={(artifact as CircleArtifact).radius} onChange={e => onUpdateArtifact(artifact.id, { radius: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
                             </div>
                         </Section>
                     )}
@@ -525,15 +611,15 @@ const ArtifactItem: React.FC<{
                         <Section title="Rectangle Properties" defaultOpen={true}>
                             <div className="flex items-center justify-between">
                                 <label className="font-medium text-gray-300">Width (m)</label>
-                                <input type="number" min="0" value={artifact.width} onChange={e => onUpdate(artifact.id, { width: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                                <input type="number" min="0" value={(artifact as RectangleArtifact).width} onChange={e => onUpdateArtifact(artifact.id, { width: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
                             </div>
                             <div className="flex items-center justify-between">
                                 <label className="font-medium text-gray-300">Height (m)</label>
-                                <input type="number" min="0" value={artifact.height} onChange={e => onUpdate(artifact.id, { height: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
+                                <input type="number" min="0" value={(artifact as RectangleArtifact).height} onChange={e => onUpdateArtifact(artifact.id, { height: Number(e.target.value) })} className="w-24 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-right" />
                             </div>
                             <div>
-                                <label className="block font-medium text-gray-300 mb-1">Rotation: {artifact.rotation}°</label>
-                                <input type="range" min="0" max="360" step="1" value={artifact.rotation} onChange={e => onUpdate(artifact.id, { rotation: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                                <label className="block font-medium text-gray-300 mb-1">Rotation: {(artifact as RectangleArtifact).rotation}°</label>
+                                <input type="range" min="0" max="360" step="1" value={(artifact as RectangleArtifact).rotation} onChange={e => onUpdateArtifact(artifact.id, { rotation: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                             </div>
                         </Section>
                     )}
@@ -545,20 +631,20 @@ const ArtifactItem: React.FC<{
                             </Section>
                             <Section title="Path Waypoints" defaultOpen={true}>
                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                                    {artifact.waypoints.map((wp, i) => (
+                                    {(artifact as PathArtifact).waypoints.map((wp, i) => (
                                         <div key={wp.id} className="bg-gray-900/40 p-1.5 rounded-md space-y-1.5">
                                             <div className="flex items-center gap-2">
                                                 <span className="font-mono text-gray-400">{i + 1}.</span>
                                                 <input type="text" value={wp.label} 
-                                                    onChange={e => handleWaypointUpdate(artifact, i, { label: e.target.value })}
+                                                    onChange={e => handleWaypointUpdate(artifact as PathArtifact, i, { label: e.target.value })}
                                                     className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-sm" placeholder="Label" />
-                                                <button onClick={() => handleRemoveWaypoint(artifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
+                                                <button onClick={() => handleRemoveWaypoint(artifact as PathArtifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
                                                 </button>
                                             </div>
                                             <div className="flex items-center gap-2 pl-6">
-                                                <input type="number" step="any" value={wp.geoPosition[0]} onChange={e => handleWaypointGeoChange(artifact, i, 'lon', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lon" title="Longitude" />
-                                                <input type="number" step="any" value={wp.geoPosition[1]} onChange={e => handleWaypointGeoChange(artifact, i, 'lat', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lat" title="Latitude" />
+                                                <input type="number" step="any" value={wp.geoPosition[0]} onChange={e => handleWaypointGeoChange(artifact as PathArtifact, i, 'lon', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lon" title="Longitude" />
+                                                <input type="number" step="any" value={wp.geoPosition[1]} onChange={e => handleWaypointGeoChange(artifact as PathArtifact, i, 'lat', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lat" title="Latitude" />
                                             </div>
                                         </div>
                                     ))}
@@ -573,374 +659,309 @@ const ArtifactItem: React.FC<{
 };
 
 
-const ArtifactsPanel: React.FC<{
-  artifacts: Artifact[];
-  activeArtifactId: string | null;
-  onActiveArtifactChange: (id: string | null) => void;
-  onUpdateArtifact: (id: string, updates: Partial<Artifact>) => void;
-  onRemoveArtifact: (id: string) => void;
-  artifactCreationMode: Artifact['type'] | null;
-  onSetArtifactCreationMode: (type: Artifact['type'] | null) => void;
-  onFinishArtifactCreation: () => void;
-  isDataLoaded: boolean;
-  isAppendingWaypoints: boolean;
-  onStartAppendWaypoints: () => void;
-}> = ({ artifacts, activeArtifactId, onActiveArtifactChange, onUpdateArtifact, onRemoveArtifact, artifactCreationMode, onSetArtifactCreationMode, onFinishArtifactCreation, isDataLoaded, isAppendingWaypoints, onStartAppendWaypoints }) => {
-  if (!isDataLoaded) {
-    return (
-      <div>
-        <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
-        <p className="text-sm text-gray-400 mt-2">Load a basemap or data layer to add artifacts.</p>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
-      {artifactCreationMode === 'path' ? (
-        <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-3">
-            <p><strong>Drawing Path:</strong> Click on the map to add waypoints. Press 'Esc' or click finish when done.</p>
-            <button onClick={onFinishArtifactCreation} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Drawing</button>
-        </div>
-      ) : isAppendingWaypoints ? (
-        <div className="p-3 bg-teal-900/50 border border-teal-700 rounded-md text-sm text-teal-200 space-y-3">
-            <p><strong>Appending to Path:</strong> Click on the map to add new waypoints. Press 'Esc' or click finish to stop.</p>
-            <button onClick={onFinishArtifactCreation} className="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Appending</button>
-        </div>
-      ) : (
-        <>
-            <p className="text-sm text-gray-400">Add and manage annotations on the map. Click a button below, then click on the map to place an artifact.</p>
-            <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => onSetArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Circle</button>
-                <button onClick={() => onSetArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Rect</button>
-                <button onClick={() => onSetArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Path</button>
-            </div>
-        </>
-      )}
+const ArtifactsPanel: React.FC = () => {
+    const {
+        artifacts,
+        activeArtifactId,
+        setActiveArtifactId,
+        artifactCreationMode,
+        setArtifactCreationMode,
+        onFinishArtifactCreation,
+        isAppendingWaypoints
+    } = useMapContext();
+    const { primaryDataLayer, baseMapLayer } = useLayersContext();
+    const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 
-      <div className="space-y-2">
-        {artifacts.length > 0 ? (
-          [...artifacts].reverse().map(artifact => (
-            <ArtifactItem 
-                key={artifact.id} 
-                artifact={artifact}
-                isActive={artifact.id === activeArtifactId}
-                onSelect={() => onActiveArtifactChange(artifact.id === activeArtifactId ? null : artifact.id)}
-                onUpdate={onUpdateArtifact}
-                onRemove={onRemoveArtifact}
-                onStartAppendWaypoints={onStartAppendWaypoints}
-            />
-          ))
-        ) : (
-          <p className="text-sm text-gray-500 text-center p-4">No artifacts created.</p>
-        )}
-      </div>
-    </div>
-  );
+    if (!isDataLoaded) {
+        return (
+          <div>
+            <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
+            <p className="text-sm text-gray-400 mt-2">Load a basemap or data layer to add artifacts.</p>
+          </div>
+        );
+    }
+  
+    return (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
+          {artifactCreationMode === 'path' ? (
+            <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-3">
+                <p><strong>Drawing Path:</strong> Click on the map to add waypoints. Press 'Esc' or click finish when done.</p>
+                <button onClick={onFinishArtifactCreation} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Drawing</button>
+            </div>
+          ) : isAppendingWaypoints ? (
+            <div className="p-3 bg-teal-900/50 border border-teal-700 rounded-md text-sm text-teal-200 space-y-3">
+                <p><strong>Appending to Path:</strong> Click on the map to add new waypoints. Press 'Esc' or click finish to stop.</p>
+                <button onClick={onFinishArtifactCreation} className="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Appending</button>
+            </div>
+          ) : (
+            <>
+                <p className="text-sm text-gray-400">Add and manage annotations on the map. Click a button below, then click on the map to place an artifact.</p>
+                <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Circle</button>
+                    <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Rect</button>
+                    <button onClick={() => setArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Path</button>
+                </div>
+            </>
+          )}
+
+          <div className="space-y-2">
+            {artifacts.length > 0 ? (
+              [...artifacts].reverse().map(artifact => (
+                <ArtifactItem 
+                    key={artifact.id} 
+                    artifact={artifact}
+                    isActive={artifact.id === activeArtifactId}
+                    onSelect={() => setActiveArtifactId(artifact.id === activeArtifactId ? null : artifact.id)}
+                />
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 text-center p-4">No artifacts created.</p>
+            )}
+          </div>
+        </div>
+    );
 };
 
 
-const MeasurementPanel: React.FC<{
-  isDataLoaded: boolean;
-  selectedCells: {x: number, y: number}[];
-  selectionColor: string;
-  onSelectionColorChange: (color: string) => void;
-  onClearSelection: () => void;
-}> = ({ isDataLoaded, selectedCells, selectionColor, onSelectionColorChange, onClearSelection }) => {
-  if (!isDataLoaded) {
-    return (
-      <div>
-        <h2 className="text-lg font-semibold text-cyan-300">Measurement</h2>
-        <p className="text-sm text-gray-400 mt-2">Load a data layer to select cells.</p>
-      </div>
-    );
-  }
+const MeasurementPanel: React.FC = () => {
+    const { primaryDataLayer } = useLayersContext();
+    const { selectedCells, selectionColor, setSelectionColor, onClearSelection } = useMapContext();
+    const isDataLoaded = !!primaryDataLayer;
+    
+    if (!isDataLoaded) {
+        return (
+          <div>
+            <h2 className="text-lg font-semibold text-cyan-300">Measurement</h2>
+            <p className="text-sm text-gray-400 mt-2">Load a data layer to select cells.</p>
+          </div>
+        );
+    }
 
-  return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-cyan-300">Cell Selection</h2>
-      <p className="text-sm text-gray-400">Click on the map to select or deselect individual cells.</p>
-      <Section title="Selection Tools" defaultOpen={true}>
-        <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-300">Selected cells:</span>
-            <span className="font-mono text-cyan-300">{selectedCells.length}</span>
+    return (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-cyan-300">Cell Selection</h2>
+          <p className="text-sm text-gray-400">Click on the map to select or deselect individual cells.</p>
+          <Section title="Selection Tools" defaultOpen={true}>
+            <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-300">Selected cells:</span>
+                <span className="font-mono text-cyan-300">{selectedCells.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-300">Highlight Color</label>
+                <input 
+                    type="color" 
+                    value={selectionColor} 
+                    onChange={(e) => setSelectionColor(e.target.value)} 
+                    className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" 
+                />
+            </div>
+            <button 
+                onClick={onClearSelection} 
+                disabled={selectedCells.length === 0}
+                className="w-full bg-red-600 hover:bg-red-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+            >
+                Clear Selection
+            </button>
+          </Section>
         </div>
-        <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-300">Highlight Color</label>
-            <input 
-                type="color" 
-                value={selectionColor} 
-                onChange={(e) => onSelectionColorChange(e.target.value)} 
-                className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" 
-            />
-        </div>
-        <button 
-            onClick={onClearSelection} 
-            disabled={selectedCells.length === 0}
-            className="w-full bg-red-600 hover:bg-red-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
-        >
-            Clear Selection
-        </button>
-      </Section>
-    </div>
-  );
+    );
 };
 
 const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>;
 const StopIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" /></svg>;
 
-const ConfigurationPanel: React.FC<{ 
-    isDataLoaded: boolean;
-    activeLayer: Layer | undefined;
-    timeRange: TimeRange | null; 
-    showGraticule: boolean; 
-    onShowGraticuleChange: (v: boolean) => void; 
-    graticuleDensity: number;
-    onGraticuleDensityChange: (v: number) => void; 
-    hoveredCoords: GeoCoordinates;
-    selectedPixel: PixelCoords;
-    showGrid: boolean;
-    onShowGridChange: (v: boolean) => void;
-    gridSpacing: number;
-    onGridSpacingChange: (v: number) => void;
-    gridColor: string;
-    onGridColorChange: (v: string) => void;
-    isPlaying: boolean;
-    isPaused: boolean;
-    playbackSpeed: number;
-    onTogglePlay: () => void;
-    onPlaybackSpeedChange: (speed: number) => void;
-    onImportConfig: (file: File) => void;
-    onExportConfig: () => void;
-    artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
-    onSetArtifactDisplayOptions: (opts: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }) => void;
-    nightfallPlotYAxisRange: { min: number; max: number; };
-    onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
-}> = ({ 
-    isDataLoaded, activeLayer, timeRange, 
-    showGraticule, onShowGraticuleChange, 
-    graticuleDensity, onGraticuleDensityChange, 
-    hoveredCoords, selectedPixel,
-    showGrid, onShowGridChange,
-    gridSpacing, onGridSpacingChange,
-    gridColor, onGridColorChange,
-    isPlaying, isPaused, playbackSpeed,
-    onTogglePlay, onPlaybackSpeedChange,
-    onImportConfig, onExportConfig,
-    artifactDisplayOptions, onSetArtifactDisplayOptions,
-    nightfallPlotYAxisRange, onNightfallPlotYAxisRangeChange,
-}) => {
-  const importInputRef = useRef<HTMLInputElement>(null);
+const ConfigurationPanel: React.FC = () => {
+    const { onImportConfig, onExportConfig } = useGlobalContext();
+    const { timeRange, isPlaying, isPaused, playbackSpeed, onTogglePlay, onPlaybackSpeedChange } = useTimeContext();
+    const { layers, activeLayer, primaryDataLayer, baseMapLayer } = useLayersContext();
+    const {
+        viewState, showGraticule, setShowGraticule,
+        graticuleDensity, setGraticuleDensity,
+        hoveredCoords, selectedPixel,
+        showGrid, setShowGrid,
+        gridSpacing, setGridSpacing,
+        gridColor, setGridColor,
+        artifactDisplayOptions, setArtifactDisplayOptions,
+        nightfallPlotYAxisRange, onNightfallPlotYAxisRangeChange,
+        artifacts, timeZoomDomain,
+        selectedCells, selectionColor
+    } = useMapContext();
+    const { activeTool } = useGlobalContext();
+    const { activeLayerId } = useLayersContext();
+    
+    const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
+    const importInputRef = useRef<HTMLInputElement>(null);
 
-  const handleImportClick = () => importInputRef.current?.click();
+    const handleImportClick = () => importInputRef.current?.click();
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files?.[0]) {
           onImportConfig(e.target.files[0]);
           e.target.value = ''; // Reset input to allow selecting the same file again
       }
-  };
-  
-  const isNightfallActive = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall';
+    };
 
-  return (
-    <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-cyan-300">Configuration</h2>
-        
-        <Section title="Session Management" defaultOpen={true}>
-          <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
-          <div className="flex items-center gap-2">
-              <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Import Config</button>
-              <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Export Config</button>
-          </div>
-        </Section>
-        
-        {!isDataLoaded ? <p className="text-sm text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
-            <>
-              {isNightfallActive && (
-                  <Section title="Plot Options" defaultOpen={true}>
-                      <h4 className="text-sm font-medium text-gray-300 mb-2">Nightfall Plot Y-Axis Range</h4>
-                      <div className="flex items-center gap-2">
-                          <label className="text-xs text-gray-400">Min (days)</label>
-                          <input type="number" step="1" value={nightfallPlotYAxisRange.min}
-                              onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, min: Number(e.target.value) })}
-                              className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
-                          <label className="text-xs text-gray-400">Max (days)</label>
-                          <input type="number" step="1" value={nightfallPlotYAxisRange.max}
-                              onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, max: Number(e.target.value) })}
-                              className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+    const handleExport = () => {
+      if (!isDataLoaded) return;
+      const serializableState: Partial<AppStateConfig> = {
+        layers: layers.map(l => {
+          const { dataset, image, ...rest } = l as any;
+          return rest;
+        }),
+        activeLayerId, timeRange,
+        timeZoomDomain: timeZoomDomain ? [timeZoomDomain[0].toISOString(), timeZoomDomain[1].toISOString()] : null,
+        viewState, showGraticule, graticuleDensity,
+        showGrid, gridSpacing, gridColor,
+        selectedCells, selectionColor, activeTool,
+        artifacts, artifactDisplayOptions, nightfallPlotYAxisRange
+      };
+      onExportConfig(serializableState as AppStateConfig);
+    };
+  
+    const isNightfallActive = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall';
+
+    return (
+        <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-cyan-300">Configuration</h2>
+            
+            <Section title="Session Management" defaultOpen={true}>
+              <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
+              <div className="flex items-center gap-2">
+                  <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Import Config</button>
+                  <button onClick={handleExport} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Export Config</button>
+              </div>
+            </Section>
+            
+            {!isDataLoaded ? <p className="text-sm text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
+                <>
+                  {isNightfallActive && (
+                      <Section title="Plot Options" defaultOpen={true}>
+                          <h4 className="text-sm font-medium text-gray-300 mb-2">Nightfall Plot Y-Axis Range</h4>
+                          <div className="flex items-center gap-2">
+                              <label className="text-xs text-gray-400">Min (days)</label>
+                              <input type="number" step="1" value={nightfallPlotYAxisRange.min}
+                                  onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, min: Number(e.target.value) })}
+                                  className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                              <label className="text-xs text-gray-400">Max (days)</label>
+                              <input type="number" step="1" value={nightfallPlotYAxisRange.max}
+                                  onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, max: Number(e.target.value) })}
+                                  className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                          </div>
+                      </Section>
+                  )}
+                  <Section title="Time Animation">
+                      <div className="flex items-center gap-4">
+                          <button
+                              onClick={onTogglePlay}
+                              disabled={!isPlaying && !isPaused && (!timeRange || timeRange.start >= timeRange.end)}
+                              className="flex items-center justify-center gap-2 w-28 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                              title={isPlaying ? "Stop" : isPaused ? "Resume Playback" : (!timeRange || timeRange.start >= timeRange.end ? "Select a time range on the slider to enable playback" : "Play")}
+                          >
+                              {isPlaying ? <StopIcon /> : <PlayIcon />}
+                              <span>{isPlaying ? 'Stop' : isPaused ? 'Resume' : 'Play'}</span>
+                          </button>
+                          <div className="flex-grow">
+                              <label className="block text-xs text-gray-400 mb-1">Speed: {playbackSpeed} FPS</label>
+                              <input
+                                  type="range"
+                                  min="1"
+                                  max="30"
+                                  step="1"
+                                  value={playbackSpeed}
+                                  onChange={(e) => onPlaybackSpeedChange(Number(e.target.value))}
+                                  disabled={isPlaying}
+                                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 disabled:opacity-50"
+                              />
+                          </div>
                       </div>
                   </Section>
-              )}
-              <Section title="Time Animation">
-                  <div className="flex items-center gap-4">
-                      <button
-                          onClick={onTogglePlay}
-                          disabled={!isPlaying && !isPaused && (!timeRange || timeRange.start >= timeRange.end)}
-                          className="flex items-center justify-center gap-2 w-28 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
-                          title={isPlaying ? "Stop" : isPaused ? "Resume Playback" : (!timeRange || timeRange.start >= timeRange.end ? "Select a time range on the slider to enable playback" : "Play")}
-                      >
-                          {isPlaying ? <StopIcon /> : <PlayIcon />}
-                          <span>{isPlaying ? 'Stop' : isPaused ? 'Resume' : 'Play'}</span>
-                      </button>
-                      <div className="flex-grow">
-                          <label className="block text-xs text-gray-400 mb-1">Speed: {playbackSpeed} FPS</label>
-                          <input
-                              type="range"
-                              min="1"
-                              max="30"
-                              step="1"
-                              value={playbackSpeed}
-                              onChange={(e) => onPlaybackSpeedChange(Number(e.target.value))}
-                              disabled={isPlaying}
-                              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 disabled:opacity-50"
+                  <Section title="Time Range Details" defaultOpen={true}>
+                    {timeRange && (
+                      <div className="text-sm space-y-2 font-mono">
+                        <div><span className="text-gray-400">Start:</span><span className="block text-cyan-300">{indexToDateString(timeRange.start)}</span></div>
+                        <div><span className="text-gray-400">End:</span><span className="block text-cyan-300">{indexToDateString(timeRange.end)}</span></div>
+                        <div className="pt-2 border-t border-gray-700/50 flex justify-between"><span className="text-gray-400">Duration:</span><span className="text-green-400">{timeRange.end - timeRange.start + 1} hours</span></div>
+                      </div>
+                    )}
+                  </Section>
+                  <Section title="View Options" defaultOpen={true}>
+                    <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGraticule} onChange={(e) => setShowGraticule(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Graticule</span></label>
+                    {showGraticule && (
+                      <div className="pt-3">
+                        <label className="block text-sm font-medium text-gray-400">Density: {graticuleDensity.toFixed(1)}x</label>
+                        <input type="range" min="0.2" max="5" step="0.1" value={graticuleDensity} onChange={(e) => setGraticuleDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                      </div>
+                    )}
+                  </Section>
+                  <Section title="Artifact Display Options">
+                      <div>
+                          <label className="block text-sm font-medium text-gray-400">Waypoint Dot Size: {artifactDisplayOptions.waypointDotSize}px</label>
+                          <input type="range" min="2" max="20" step="1" 
+                              value={artifactDisplayOptions.waypointDotSize}
+                              onChange={(e) => setArtifactDisplayOptions({ ...artifactDisplayOptions, waypointDotSize: Number(e.target.value) })}
+                              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
                           />
                       </div>
-                  </div>
-              </Section>
-              <Section title="Time Range Details" defaultOpen={true}>
-                {timeRange && (
-                  <div className="text-sm space-y-2 font-mono">
-                    <div><span className="text-gray-400">Start:</span><span className="block text-cyan-300">{indexToDateString(timeRange.start)}</span></div>
-                    <div><span className="text-gray-400">End:</span><span className="block text-cyan-300">{indexToDateString(timeRange.end)}</span></div>
-                    <div className="pt-2 border-t border-gray-700/50 flex justify-between"><span className="text-gray-400">Duration:</span><span className="text-green-400">{timeRange.end - timeRange.start + 1} hours</span></div>
-                  </div>
-                )}
-              </Section>
-              <Section title="View Options" defaultOpen={true}>
-                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGraticule} onChange={(e) => onShowGraticuleChange(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Graticule</span></label>
-                {showGraticule && (
-                  <div className="pt-3">
-                    <label className="block text-sm font-medium text-gray-400">Density: {graticuleDensity.toFixed(1)}x</label>
-                    <input type="range" min="0.2" max="5" step="0.1" value={graticuleDensity} onChange={(e) => onGraticuleDensityChange(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
-                  </div>
-                )}
-              </Section>
-              <Section title="Artifact Display Options">
-                  <div>
-                      <label className="block text-sm font-medium text-gray-400">Waypoint Dot Size: {artifactDisplayOptions.waypointDotSize}px</label>
-                      <input type="range" min="2" max="20" step="1" 
-                          value={artifactDisplayOptions.waypointDotSize}
-                          onChange={(e) => onSetArtifactDisplayOptions({ ...artifactDisplayOptions, waypointDotSize: Number(e.target.value) })}
-                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
-                      />
-                  </div>
-                   <div>
-                      <label className="block text-sm font-medium text-gray-400">Label Font Size: {artifactDisplayOptions.labelFontSize}px</label>
-                      <input type="range" min="8" max="24" step="1" 
-                          value={artifactDisplayOptions.labelFontSize}
-                          onChange={(e) => onSetArtifactDisplayOptions({ ...artifactDisplayOptions, labelFontSize: Number(e.target.value) })}
-                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
-                      />
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
-                      <input type="checkbox" 
-                          checked={artifactDisplayOptions.showSegmentLengths}
-                          onChange={(e) => onSetArtifactDisplayOptions({ ...artifactDisplayOptions, showSegmentLengths: e.target.checked })}
-                          className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" />
-                      <span>Show Segment Lengths</span>
-                  </label>
-              </Section>
-              <Section title="Grid Overlay">
-                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGrid} onChange={(e) => onShowGridChange(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Grid Overlay</span></label>
-                {showGrid && (
-                    <div className="pt-3 space-y-3 border-t border-gray-700/50 mt-3">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400">Spacing: {gridSpacing}m</label>
-                            <input type="range" min="10" max="1000" step="10" value={gridSpacing} onChange={(e) => onGridSpacingChange(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                       <div>
+                          <label className="block text-sm font-medium text-gray-400">Label Font Size: {artifactDisplayOptions.labelFontSize}px</label>
+                          <input type="range" min="8" max="24" step="1" 
+                              value={artifactDisplayOptions.labelFontSize}
+                              onChange={(e) => setArtifactDisplayOptions({ ...artifactDisplayOptions, labelFontSize: Number(e.target.value) })}
+                              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
+                          />
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
+                          <input type="checkbox" 
+                              checked={artifactDisplayOptions.showSegmentLengths}
+                              onChange={(e) => setArtifactDisplayOptions({ ...artifactDisplayOptions, showSegmentLengths: e.target.checked })}
+                              className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" />
+                          <span>Show Segment Lengths</span>
+                      </label>
+                  </Section>
+                  <Section title="Grid Overlay">
+                    <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Grid Overlay</span></label>
+                    {showGrid && (
+                        <div className="pt-3 space-y-3 border-t border-gray-700/50 mt-3">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400">Spacing: {gridSpacing}m</label>
+                                <input type="range" min="10" max="1000" step="10" value={gridSpacing} onChange={(e) => setGridSpacing(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <label className="text-sm font-medium text-gray-400">Color</label>
+                                <input type="color" value={gridColor.slice(0, 7)} onChange={(e) => setGridColor(e.target.value + '80')} className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" />
+                            </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium text-gray-400">Color</label>
-                            <input type="color" value={gridColor.slice(0, 7)} onChange={(e) => onGridColorChange(e.target.value + '80')} className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" />
-                        </div>
+                    )}
+                  </Section>
+                  <Section title="Cursor Coordinates" defaultOpen={true}>
+                    <div className="text-sm space-y-2">
+                      <div className="flex justify-between"><span className="text-gray-400">Lat:</span><span className="font-mono text-green-400">{hoveredCoords ? hoveredCoords.lat.toFixed(6) : '---'}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-400">Lon:</span><span className="font-mono text-green-400">{hoveredCoords ? hoveredCoords.lon.toFixed(6) : '---'}</span></div>
+                       <div className="pt-2 border-t border-gray-700/50 flex justify-between"><span className="text-gray-400">Pixel (X, Y):</span><span className="font-mono text-green-400">{selectedPixel ? `${selectedPixel.x}, ${selectedPixel.y}`: '---'}</span></div>
                     </div>
-                )}
-              </Section>
-              <Section title="Cursor Coordinates" defaultOpen={true}>
-                <div className="text-sm space-y-2">
-                  <div className="flex justify-between"><span className="text-gray-400">Lat:</span><span className="font-mono text-green-400">{hoveredCoords ? hoveredCoords.lat.toFixed(6) : '---'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-400">Lon:</span><span className="font-mono text-green-400">{hoveredCoords ? hoveredCoords.lon.toFixed(6) : '---'}</span></div>
-                   <div className="pt-2 border-t border-gray-700/50 flex justify-between"><span className="text-gray-400">Pixel (X, Y):</span><span className="font-mono text-green-400">{selectedPixel ? `${selectedPixel.x}, ${selectedPixel.y}`: '---'}</span></div>
-                </div>
-              </Section>
-            </>
-        )}
-    </div>
-  );
+                  </Section>
+                </>
+            )}
+        </div>
+    );
 }
 
-export const SidePanel: React.FC<{
-  activeTool: Tool;
-  layers: Layer[];
-  activeLayer: Layer | undefined;
-  activeLayerId: string | null;
-  onActiveLayerChange: (id: string | null) => void;
-  onAddDataLayer: (file: File) => void;
-  onAddDteCommsLayer: (file: File) => void;
-  onAddLpfCommsLayer: (file: File) => void;
-  onAddBaseMapLayer: (png: File, vrt: File) => void;
-  onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
-  onRemoveLayer: (id: string) => void;
-  onCalculateNightfallLayer: (id: string) => void;
-  onCalculateDaylightFractionLayer: (id: string) => void;
-  isLoading: string | null;
-  isDataLoaded: boolean;
-  hoveredCoords: GeoCoordinates;
-  selectedPixel: PixelCoords & { layerId: string } | null;
-  timeRange: TimeRange | null;
-  showGraticule: boolean;
-  onShowGraticuleChange: (v: boolean) => void;
-  graticuleDensity: number;
-  onGraticuleDensityChange: (v: number) => void;
-  daylightFractionHoverData: DaylightFractionHoverData | null;
-  flickeringLayerId: string | null;
-  onToggleFlicker: (id: string) => void;
-  showGrid: boolean;
-  onShowGridChange: (v: boolean) => void;
-  gridSpacing: number;
-  onGridSpacingChange: (v: number) => void;
-  gridColor: string;
-  onGridColorChange: (v: string) => void;
-  selectedCells: {x: number, y: number}[];
-  selectionColor: string;
-  onSelectionColorChange: (color: string) => void;
-  onClearSelection: () => void;
-  isPlaying: boolean;
-  isPaused: boolean;
-  playbackSpeed: number;
-  onTogglePlay: () => void;
-  onPlaybackSpeedChange: (speed: number) => void;
-  onImportConfig: (file: File) => void;
-  onExportConfig: () => void;
-  artifacts: Artifact[];
-  activeArtifactId: string | null;
-  onActiveArtifactChange: (id: string | null) => void;
-  onUpdateArtifact: (id: string, updates: Partial<Artifact>) => void;
-  onRemoveArtifact: (id: string) => void;
-  artifactCreationMode: Artifact['type'] | null;
-  onSetArtifactCreationMode: (type: Artifact['type'] | null) => void;
-  onFinishArtifactCreation: () => void;
-  artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
-  onSetArtifactDisplayOptions: (opts: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }) => void;
-  isAppendingWaypoints: boolean;
-  onStartAppendWaypoints: () => void;
-  nightfallPlotYAxisRange: { min: number; max: number; };
-  onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
-}> = ({ activeTool, ...props }) => {
-  const renderPanel = () => {
-    switch (activeTool) {
-      case 'layers': return <LayersPanel {...props} />;
-      case 'artifacts': return <ArtifactsPanel {...props} />;
-      case 'measurement': return <MeasurementPanel {...props} />;
-      case 'config': return <ConfigurationPanel {...props} />;
-      default: return null;
-    }
-  };
+export const SidePanel: React.FC = () => {
+    const { activeTool } = useGlobalContext();
+    const renderPanel = () => {
+        switch (activeTool) {
+            case 'layers': return <LayersPanel />;
+            case 'artifacts': return <ArtifactsPanel />;
+            case 'measurement': return <MeasurementPanel />;
+            case 'config': return <ConfigurationPanel />;
+            default: return null;
+        }
+    };
 
-  return (
-    <aside className="bg-gray-800/50 border-r border-gray-700 p-4 w-80 flex-shrink-0 flex flex-col gap-6 overflow-y-auto">
-      {renderPanel()}
-    </aside>
-  );
+    return (
+        <aside className="bg-gray-800/50 border-r border-gray-700 p-4 w-80 flex-shrink-0 flex flex-col gap-6 overflow-y-auto">
+            {renderPanel()}
+        </aside>
+    );
 };
