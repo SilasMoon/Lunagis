@@ -2,18 +2,17 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { indexToDate, dateToIndex } from '../utils/time';
 import { MARGIN } from './TimeSeriesPlot';
-import { useTimeContext } from '../context/TimeContext';
-import { useLayersContext } from '../context/LayersContext';
+import { useAppContext } from '../context/AppContext';
 
 declare const d3: any;
 
 export const TimeSlider: React.FC = () => {
   const { 
+    primaryDataLayer,
     timeRange, 
     handleManualTimeRangeChange, 
     timeZoomDomain 
-  } = useTimeContext();
-  const { primaryDataLayer } = useLayersContext();
+  } = useAppContext();
   
   const isDataLoaded = !!primaryDataLayer;
   const maxTimeIndex = primaryDataLayer ? primaryDataLayer.dimensions.time - 1 : 0;

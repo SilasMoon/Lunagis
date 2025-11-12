@@ -14,13 +14,14 @@ export const dateToIndex = (date: Date): number => {
 
 export const indexToDateString = (index: number): string => {
   const date = indexToDate(index);
+  // Format to a more compact string, e.g., "Jan 01 2030 00:00"
   return date.toLocaleString('en-US', {
+    month: 'short',
+    day: '2-digit',
     year: 'numeric',
-    month: 'long',
-    day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
     timeZone: 'UTC',
-  });
+  }).replace(',', '');
 };

@@ -1,13 +1,12 @@
 // Fix: Removed invalid file header which was causing parsing errors.
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, AppStateConfig } from '../types';
+// Fix: Import useState, useRef, useEffect, and useMemo from React to resolve hook-related errors.
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
-import { useLayersContext, sanitizeLayerNameForExpression } from '../context/LayersContext';
-import { useGlobalContext } from '../context/GlobalContext';
-import { useMapContext } from '../context/AppContext';
-import { useTimeContext } from '../context/TimeContext';
+import { sanitizeLayerNameForExpression } from '../services/analysisService';
+import { useAppContext } from '../context/AppContext';
 
 
 declare const d3: any;
@@ -33,8 +32,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode; defaultOpen?
 };
 
 const AddLayerMenu: React.FC = () => {
-    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer } = useLayersContext();
-    const { isLoading } = useGlobalContext();
+    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer, isLoading } = useAppContext();
     const [isOpen, setIsOpen] = useState(false);
     const npyInputRef = useRef<HTMLInputElement>(null);
     const dteInputRef = useRef<HTMLInputElement>(null);
@@ -268,7 +266,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
         daylightFractionHoverData, 
         flickeringLayerId, 
         onToggleFlicker 
-    } = useLayersContext();
+    } = useAppContext();
     
     const isNightfall = layer.type === 'analysis' && layer.analysisType === 'nightfall';
     const useDaysUnitForCustom = isNightfall && layer.colormap === 'Custom';
@@ -431,7 +429,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
 };
 
 const ExpressionEditor: React.FC = () => {
-    const { layers, onCreateExpressionLayer, setIsCreatingExpression } = useLayersContext();
+    const { layers, onCreateExpressionLayer, setIsCreatingExpression } = useAppContext();
     const [name, setName] = useState('Expression Layer');
     const [expression, setExpression] = useState('');
 
@@ -496,8 +494,8 @@ const LayersPanel: React.FC = () => {
         setActiveLayerId,
         isCreatingExpression,
         setIsCreatingExpression,
-    } = useLayersContext();
-    const { isLoading } = useGlobalContext();
+        isLoading,
+    } = useAppContext();
     
     if (isCreatingExpression) {
         return <ExpressionEditor />;
@@ -535,7 +533,7 @@ const LayersPanel: React.FC = () => {
 };
 
 const ArtifactItem: React.FC<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }> = ({ artifact, isActive, onSelect }) => {
-    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useMapContext();
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
@@ -667,9 +665,10 @@ const ArtifactsPanel: React.FC = () => {
         artifactCreationMode,
         setArtifactCreationMode,
         onFinishArtifactCreation,
+        primaryDataLayer,
+        baseMapLayer,
         isAppendingWaypoints
-    } = useMapContext();
-    const { primaryDataLayer, baseMapLayer } = useLayersContext();
+    } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 
     if (!isDataLoaded) {
@@ -725,8 +724,13 @@ const ArtifactsPanel: React.FC = () => {
 
 
 const MeasurementPanel: React.FC = () => {
-    const { primaryDataLayer } = useLayersContext();
-    const { selectedCells, selectionColor, setSelectionColor, onClearSelection } = useMapContext();
+    const {
+        primaryDataLayer,
+        selectedCells,
+        selectionColor,
+        setSelectionColor,
+        onClearSelection
+    } = useAppContext();
     const isDataLoaded = !!primaryDataLayer;
     
     if (!isDataLoaded) {
@@ -772,24 +776,20 @@ const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-
 const StopIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" /></svg>;
 
 const ConfigurationPanel: React.FC = () => {
-    const { onImportConfig, onExportConfig } = useGlobalContext();
-    const { timeRange, isPlaying, isPaused, playbackSpeed, onTogglePlay, onPlaybackSpeedChange } = useTimeContext();
-    const { layers, activeLayer, primaryDataLayer, baseMapLayer } = useLayersContext();
     const {
-        viewState, showGraticule, setShowGraticule,
+        primaryDataLayer, baseMapLayer, activeLayer, timeRange,
+        showGraticule, setShowGraticule,
         graticuleDensity, setGraticuleDensity,
-        hoveredCoords, selectedPixel,
+        selectedPixel,
         showGrid, setShowGrid,
         gridSpacing, setGridSpacing,
         gridColor, setGridColor,
+        isPlaying, isPaused, playbackSpeed,
+        onTogglePlay, onPlaybackSpeedChange,
+        onImportConfig, onExportConfig,
         artifactDisplayOptions, setArtifactDisplayOptions,
         nightfallPlotYAxisRange, onNightfallPlotYAxisRangeChange,
-        artifacts, timeZoomDomain,
-        selectedCells, selectionColor
-    } = useMapContext();
-    const { activeTool } = useGlobalContext();
-    const { activeLayerId } = useLayersContext();
-    
+    } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
     const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -800,23 +800,6 @@ const ConfigurationPanel: React.FC = () => {
           onImportConfig(e.target.files[0]);
           e.target.value = ''; // Reset input to allow selecting the same file again
       }
-    };
-
-    const handleExport = () => {
-      if (!isDataLoaded) return;
-      const serializableState: Partial<AppStateConfig> = {
-        layers: layers.map(l => {
-          const { dataset, image, ...rest } = l as any;
-          return rest;
-        }),
-        activeLayerId, timeRange,
-        timeZoomDomain: timeZoomDomain ? [timeZoomDomain[0].toISOString(), timeZoomDomain[1].toISOString()] : null,
-        viewState, showGraticule, graticuleDensity,
-        showGrid, gridSpacing, gridColor,
-        selectedCells, selectionColor, activeTool,
-        artifacts, artifactDisplayOptions, nightfallPlotYAxisRange
-      };
-      onExportConfig(serializableState as AppStateConfig);
     };
   
     const isNightfallActive = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall';
@@ -829,7 +812,7 @@ const ConfigurationPanel: React.FC = () => {
               <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
               <div className="flex items-center gap-2">
                   <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Import Config</button>
-                  <button onClick={handleExport} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Export Config</button>
+                  <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Export Config</button>
               </div>
             </Section>
             
@@ -875,15 +858,6 @@ const ConfigurationPanel: React.FC = () => {
                               />
                           </div>
                       </div>
-                  </Section>
-                  <Section title="Time Range Details" defaultOpen={true}>
-                    {timeRange && (
-                      <div className="text-sm space-y-2 font-mono">
-                        <div><span className="text-gray-400">Start:</span><span className="block text-cyan-300">{indexToDateString(timeRange.start)}</span></div>
-                        <div><span className="text-gray-400">End:</span><span className="block text-cyan-300">{indexToDateString(timeRange.end)}</span></div>
-                        <div className="pt-2 border-t border-gray-700/50 flex justify-between"><span className="text-gray-400">Duration:</span><span className="text-green-400">{timeRange.end - timeRange.start + 1} hours</span></div>
-                      </div>
-                    )}
                   </Section>
                   <Section title="View Options" defaultOpen={true}>
                     <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGraticule} onChange={(e) => setShowGraticule(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Graticule</span></label>
@@ -934,11 +908,9 @@ const ConfigurationPanel: React.FC = () => {
                         </div>
                     )}
                   </Section>
-                  <Section title="Cursor Coordinates" defaultOpen={true}>
+                  <Section title="Selected Pixel" defaultOpen={true}>
                     <div className="text-sm space-y-2">
-                      <div className="flex justify-between"><span className="text-gray-400">Lat:</span><span className="font-mono text-green-400">{hoveredCoords ? hoveredCoords.lat.toFixed(6) : '---'}</span></div>
-                      <div className="flex justify-between"><span className="text-gray-400">Lon:</span><span className="font-mono text-green-400">{hoveredCoords ? hoveredCoords.lon.toFixed(6) : '---'}</span></div>
-                       <div className="pt-2 border-t border-gray-700/50 flex justify-between"><span className="text-gray-400">Pixel (X, Y):</span><span className="font-mono text-green-400">{selectedPixel ? `${selectedPixel.x}, ${selectedPixel.y}`: '---'}</span></div>
+                       <div className="flex justify-between"><span className="text-gray-400">Pixel (X, Y):</span><span className="font-mono text-green-400">{selectedPixel ? `${selectedPixel.x}, ${selectedPixel.y}`: '---'}</span></div>
                     </div>
                   </Section>
                 </>
@@ -948,7 +920,7 @@ const ConfigurationPanel: React.FC = () => {
 }
 
 export const SidePanel: React.FC = () => {
-    const { activeTool } = useGlobalContext();
+    const { activeTool } = useAppContext();
     const renderPanel = () => {
         switch (activeTool) {
             case 'layers': return <LayersPanel />;

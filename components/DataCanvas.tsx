@@ -3,10 +3,7 @@ import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
-import { useLayersContext } from '../context/LayersContext';
-import { useTimeContext } from '../context/TimeContext';
-import { useMapContext } from '../context/AppContext';
-import { useGlobalContext } from '../context/GlobalContext';
+import { useAppContext } from '../context/AppContext';
 
 declare const d3: any;
 declare const proj4: any;
@@ -21,36 +18,15 @@ const LoadingSpinner: React.FC = () => (
     </div>
 );
 
-function haversineDistance(coords1: [number, number], coords2: [number, number]): number {
-    const R = 6371e3; // metres
-    const [lon1, lat1] = coords1;
-    const [lon2, lat2] = coords2;
-
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c; // in metres
-}
-
 export const DataCanvas: React.FC = () => {
-  const { layers, primaryDataLayer, baseMapLayer } = useLayersContext();
-  const { timeRange } = useTimeContext();
   const {
-    setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
+    layers, timeRange, setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
     clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
-    setViewState, showGrid, gridSpacing, gridColor, selectedCells,
+    setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
-    isAppendingWaypoints, coordinateTransformer, activeArtifactId,
+    isAppendingWaypoints, coordinateTransformer,
     setActiveArtifactId, setArtifacts, setSelectedCells
-  } = useMapContext();
-  const { activeTool } = useGlobalContext();
+  } = useAppContext();
 
   const timeIndex = timeRange?.start ?? 0;
   const debouncedTimeRange = timeRange;
@@ -126,21 +102,6 @@ export const DataCanvas: React.FC = () => {
     const projY = -(canvasY * dpr - canvas.height / 2) / (scale * dpr) + center[1];
     return [projX, projY];
   }, [viewState]);
-
-  const getMetersPerProjectedUnit = useCallback(() => {
-    if (!proj || !viewState) return 1;
-    try {
-        const { center } = viewState;
-        const g1 = proj.inverse(center);
-        const g2 = proj.inverse([center[0] + 1, center[1]]);
-        const R = 6371e3; // metres
-        const φ1 = g1[1] * Math.PI/180; const φ2 = g2[1] * Math.PI/180;
-        const Δλ = (g2[0]-g1[0]) * Math.PI/180;
-        const d = Math.acos( Math.sin(φ1)*Math.sin(φ2) + Math.cos(φ1)*Math.cos(φ2) * Math.cos(Δλ) ) * R;
-        if (!isNaN(d) && d > 0) return d;
-    } catch (e) { /* ignore */ }
-    return 1;
-  }, [proj, viewState]);
 
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
@@ -338,8 +299,6 @@ export const DataCanvas: React.FC = () => {
     ctx.scale(effectiveScale, -effectiveScale);
     ctx.translate(-center[0], -center[1]);
 
-    const metersPerProjectedUnit = getMetersPerProjectedUnit();
-
     artifacts.forEach(artifact => {
         if (!artifact.visible) return;
 
@@ -347,14 +306,14 @@ export const DataCanvas: React.FC = () => {
         ctx.fillStyle = artifact.color;
 
         if (artifact.type === 'circle') {
-            const radiusInProjUnits = artifact.radius / metersPerProjectedUnit;
+            const radiusInProjUnits = artifact.radius;
             ctx.lineWidth = artifact.thickness / effectiveScale;
             ctx.beginPath();
             ctx.arc(artifact.center[0], artifact.center[1], radiusInProjUnits, 0, 2 * Math.PI);
             ctx.stroke();
         } else if (artifact.type === 'rectangle') {
-            const w = artifact.width / metersPerProjectedUnit;
-            const h = artifact.height / metersPerProjectedUnit;
+            const w = artifact.width;
+            const h = artifact.height;
             ctx.save();
             ctx.translate(artifact.center[0], artifact.center[1]);
             ctx.rotate(artifact.rotation * Math.PI / 180);
@@ -412,7 +371,10 @@ export const DataCanvas: React.FC = () => {
                     const pwp1 = projectedWaypoints[i];
                     const pwp2 = projectedWaypoints[i+1];
                     
-                    const distance = haversineDistance(pwp1.geoPosition, pwp2.geoPosition);
+                    const dx = pwp2.projPos![0] - pwp1.projPos![0];
+                    const dy = pwp2.projPos![1] - pwp1.projPos![1];
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
                     const midPointProj: [number, number] = [(pwp1.projPos![0] + pwp2.projPos![0]) / 2, (pwp1.projPos![1] + pwp2.projPos![1]) / 2];
                     const label = `${distance.toFixed(0)} m`;
 
@@ -465,7 +427,7 @@ export const DataCanvas: React.FC = () => {
         ctx.restore();
     });
     ctx.restore();
-  }, [artifacts, viewState, proj, getMetersPerProjectedUnit, artifactDisplayOptions]);
+  }, [artifacts, viewState, proj, artifactDisplayOptions]);
 
 
   useEffect(() => {
@@ -533,6 +495,8 @@ export const DataCanvas: React.FC = () => {
         setSelectedPixel(null);
     }
   }, [coordinateTransformer, layers, setHoveredCoords, setSelectedPixel]);
+  
+  const { activeArtifactId } = useAppContext();
   
   const onMapClick = useCallback((coords: GeoCoordinates, projCoords: [number, number]) => {
     if (!coords) return;
@@ -714,12 +678,11 @@ export const DataCanvas: React.FC = () => {
                 if (waypointHit) break;
 
                 let artifactHit = false;
-                const metersPerUnit = getMetersPerProjectedUnit();
                 if (artifact.type === 'circle') {
                     const dist = Math.sqrt(Math.pow(projCoords[0] - artifact.center[0], 2) + Math.pow(projCoords[1] - artifact.center[1], 2));
-                    if (dist <= artifact.radius / metersPerUnit) artifactHit = true;
+                    if (dist <= artifact.radius) artifactHit = true;
                 } else if (artifact.type === 'rectangle') {
-                    const w = artifact.width / metersPerUnit; const h = artifact.height / metersPerUnit;
+                    const w = artifact.width; const h = artifact.height;
                     const angle = -artifact.rotation * Math.PI / 180;
                     const dx = projCoords[0] - artifact.center[0]; const dy = projCoords[1] - artifact.center[1];
                     const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
@@ -738,7 +701,7 @@ export const DataCanvas: React.FC = () => {
         
         try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch(e) { clearHoverState(); }
     } else { clearHoverState(); setHoveredArtifactId(null); setHoveredWaypointInfo(null); }
-  }, [viewState, setViewState, canvasToProjCoords, proj, onCellHover, clearHoverState, draggedInfo, onArtifactDrag, artifacts, getMetersPerProjectedUnit, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints]);
+  }, [viewState, setViewState, canvasToProjCoords, proj, onCellHover, clearHoverState, draggedInfo, onArtifactDrag, artifacts, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints]);
   
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     lastMousePos.current = { x: e.clientX, y: e.clientY };

@@ -2,9 +2,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { TimeRange, TimeDomain, ColorStop, Layer } from '../types';
 import { indexToDate } from '../utils/time';
-import { useTimeContext } from '../context/TimeContext';
-import { useLayersContext } from '../context/LayersContext';
-import { useMapContext } from '../context/AppContext';
+import { useAppContext } from '../context/AppContext';
 
 declare const d3: any;
 
@@ -16,9 +14,17 @@ interface TimeSeriesPlotProps {
 export const MARGIN = { top: 10, right: 30, bottom: 20, left: 50 };
 
 export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
-  const { timeRange, fullTimeDomain, timeZoomDomain, onZoomToSelection, onResetZoom } = useTimeContext();
-  const { primaryDataLayer, activeLayer } = useLayersContext();
-  const { timeSeriesData, nightfallPlotYAxisRange } = useMapContext();
+  const {
+    primaryDataLayer,
+    timeSeriesData,
+    timeRange,
+    fullTimeDomain,
+    timeZoomDomain,
+    onZoomToSelection,
+    onResetZoom,
+    activeLayer,
+    nightfallPlotYAxisRange
+  } = useAppContext();
   
   const isDataLoaded = !!primaryDataLayer;
   const dataRange = timeSeriesData?.range ?? null;
@@ -212,8 +218,8 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
       {isDataLoaded && (
         <div className="absolute top-2 right-4 z-10 flex gap-2">
           <button
-            onClick={() => onZoomToSelection(targetZoomDomain)}
-            disabled={isZoomedToSelection || !targetZoomDomain}
+            onClick={onZoomToSelection}
+            disabled={isZoomedToSelection}
             className="text-xs bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-cyan-300 px-2 py-1 rounded-md transition-colors shadow-md"
             title="Fit selected time range to view"
           >

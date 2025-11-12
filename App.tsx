@@ -6,8 +6,8 @@ import { DataCanvas } from './components/DataCanvas';
 import { TimeSlider } from './components/TimeSlider';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { ImportFilesModal } from './components/ImportFilesModal';
-import { useGlobalContext } from './context/GlobalContext';
-import { useLayersContext } from './context/LayersContext';
+import { useAppContext } from './context/AppContext';
+import { StatusBar } from './components/StatusBar';
 
 const App: React.FC = () => {
   const { 
@@ -16,9 +16,8 @@ const App: React.FC = () => {
     setImportRequest,
     activeTool, 
     onToolSelect,
-  } = useGlobalContext();
-  
-  const { primaryDataLayer } = useLayersContext();
+    primaryDataLayer
+  } = useAppContext();
 
   return (
     <div className="h-screen bg-gray-900 text-gray-200 flex flex-row font-sans overflow-hidden">
@@ -34,6 +33,7 @@ const App: React.FC = () => {
 
         {primaryDataLayer && (
             <>
+              <StatusBar />
               <TimeSeriesPlot />
               <TimeSlider />
             </>
