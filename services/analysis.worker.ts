@@ -235,17 +235,42 @@ async function calculateNightfallDataset(sourceLayer: DataLayer): Promise<{datas
     const { dataset, dimensions } = sourceLayer;
     const { time, height, width } = dimensions;
 
+    // Input validation
+    if (!dataset || !Array.isArray(dataset)) {
+        throw new Error('Invalid dataset: must be a non-empty array');
+    }
+    if (!Number.isFinite(time) || !Number.isFinite(height) || !Number.isFinite(width)) {
+        throw new Error('Invalid dimensions: must be finite numbers');
+    }
+    if (time <= 0 || height <= 0 || width <= 0) {
+        throw new Error('Invalid dimensions: must be positive integers');
+    }
+    if (time > 100000 || height > 10000 || width > 10000) {
+        throw new Error('Dataset too large: dimensions exceed maximum allowed values');
+    }
+
     const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(0)));
     let maxDuration = 0;
     let minDuration = 0;
 
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-            const pixelTimeSeries = dataset.map(slice => slice[y][x]);
+            // Safely extract pixel time series with bounds checking
+            const pixelTimeSeries: number[] = [];
+            for (let t = 0; t < time; t++) {
+                if (!dataset[t] || !dataset[t][y] || dataset[t][y][x] === undefined) {
+                    throw new Error(`Missing data at position [${t}][${y}][${x}]`);
+                }
+                const value = dataset[t][y][x];
+                // Normalize values - treat anything close to 0 as night, close to 1 as day
+                pixelTimeSeries.push(value < 0.5 ? 0 : 1);
+            }
+
             const nightPeriods: { start: number; end: number; duration: number }[] = [];
             let inNight = false;
             let nightStart = -1;
 
+            // Detect night periods
             for (let t = 0; t < time; t++) {
                 const isCurrentlyNight = pixelTimeSeries[t] === 0;
                 if (isCurrentlyNight && !inNight) {
@@ -256,15 +281,17 @@ async function calculateNightfallDataset(sourceLayer: DataLayer): Promise<{datas
                     nightPeriods.push({ start: nightStart, end: t, duration: t - nightStart });
                 }
             }
+            // Handle case where night extends to end of time series
             if (inNight) {
                 nightPeriods.push({ start: nightStart, end: time, duration: time - nightStart });
             }
-            
+
+            // Calculate forecast values
             let nextNightIndex = 0;
             let currentNightIndex = 0;
             for (let t = 0; t < time; t++) {
                 if (pixelTimeSeries[t] === 1) { // DAY
-                    // Find the *next* night period. This logic is already efficient.
+                    // Find the next upcoming night period
                     while (nextNightIndex < nightPeriods.length && nightPeriods[nextNightIndex].start <= t) {
                         nextNightIndex++;
                     }
@@ -275,9 +302,9 @@ async function calculateNightfallDataset(sourceLayer: DataLayer): Promise<{datas
                     } else {
                         resultDataset[t][y][x] = 0;
                     }
-                } else { // NIGHT
-                    // Find the *current* night period efficiently.
-                    // Advance the index past any night periods that have already ended.
+                } else { // NIGHT (pixelTimeSeries[t] === 0)
+                    // Find the current night period
+                    // Skip past night periods that have already ended
                     while (currentNightIndex < nightPeriods.length && nightPeriods[currentNightIndex].end <= t) {
                         currentNightIndex++;
                     }
@@ -285,8 +312,8 @@ async function calculateNightfallDataset(sourceLayer: DataLayer): Promise<{datas
                     let currentNight = null;
                     if (currentNightIndex < nightPeriods.length) {
                         const candidate = nightPeriods[currentNightIndex];
-                        // Check if the current time t falls within this candidate period.
-                        if (t >= candidate.start) {
+                        // Verify that current time falls within this period
+                        if (t >= candidate.start && t < candidate.end) {
                             currentNight = candidate;
                         }
                     }
@@ -296,8 +323,10 @@ async function calculateNightfallDataset(sourceLayer: DataLayer): Promise<{datas
                         resultDataset[t][y][x] = forecastValue;
                         if (forecastValue < minDuration) minDuration = forecastValue;
                     } else {
-                        // This case should not be reached with correct logic but is a safe fallback.
+                        // Edge case: we're in night but no period found (data inconsistency)
+                        // Use -1 as a fallback
                         resultDataset[t][y][x] = -1;
+                        if (-1 < minDuration) minDuration = -1;
                     }
                 }
             }
