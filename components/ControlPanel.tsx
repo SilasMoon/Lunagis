@@ -429,7 +429,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
 };
 
 const ExpressionEditor: React.FC = () => {
-    const { layers, onCreateExpressionLayer, setIsCreatingExpression } = useAppContext();
+    const { layers, onCreateExpressionLayer, setIsCreatingExpression, isLoading } = useAppContext();
     const [name, setName] = useState('Expression Layer');
     const [expression, setExpression] = useState('');
 
@@ -445,10 +445,27 @@ const ExpressionEditor: React.FC = () => {
         }
     };
 
+    // Show progress overlay when computing
+    const isComputing = !!isLoading && isLoading.includes('expression');
+
     return (
         <div className="p-3 bg-gray-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-4">
             <h3 className="text-base font-medium text-cyan-300">Create Expression Layer</h3>
-            {availableVariables.length === 0 && (
+
+            {isComputing && (
+                <div className="p-4 bg-cyan-900/50 border border-cyan-500 rounded-md text-center space-y-3 animate-pulse">
+                    <div className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span className="text-cyan-300 font-semibold">{isLoading}</span>
+                    </div>
+                    <p className="text-xs text-cyan-400">Please wait, this may take a while for large datasets...</p>
+                </div>
+            )}
+
+            {availableVariables.length === 0 && !isComputing && (
                 <div className="p-2 bg-red-900/30 border border-red-600/50 rounded-md text-xs text-red-200">
                     No data layers available. Please load data layers before creating expressions.
                 </div>
@@ -459,7 +476,8 @@ const ExpressionEditor: React.FC = () => {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600"
+                    disabled={isComputing}
+                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
             </div>
             <div>
@@ -468,7 +486,8 @@ const ExpressionEditor: React.FC = () => {
                     value={expression}
                     onChange={(e) => setExpression(e.target.value)}
                     rows={4}
-                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600 font-mono"
+                    disabled={isComputing}
+                    className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600 font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                     placeholder="(Nightfall_Forecast > 0) AND (DTE_Comms == 1)"
                 />
             </div>
@@ -479,13 +498,19 @@ const ExpressionEditor: React.FC = () => {
                 </div>
             </div>
             <div className="flex justify-end gap-2">
-                <button onClick={() => setIsCreatingExpression(false)} className="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm">Cancel</button>
-                <button 
-                  onClick={handleSubmit} 
-                  disabled={!name.trim() || !expression.trim()}
+                <button
+                    onClick={() => setIsCreatingExpression(false)}
+                    disabled={isComputing}
+                    className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-800 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                >
+                    Cancel
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!name.trim() || !expression.trim() || isComputing}
                   className="bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
                 >
-                  Create
+                  {isComputing ? 'Computing...' : 'Create'}
                 </button>
             </div>
         </div>
