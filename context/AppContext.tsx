@@ -467,7 +467,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsLoading(`Calculating expression "${name}"...`);
       await new Promise(r => setTimeout(r, 50));
       try {
-          const { dataset, range, dimensions } = await analysisService.calculateExpressionLayer(expression, layers);
+          const { dataset, range, dimensions } = await analysisService.calculateExpressionLayer(
+              expression,
+              layers,
+              (progressMsg) => setIsLoading(progressMsg) // Pass progress callback
+          );
 
           const newLayer: AnalysisLayer = {
               id: `analysis-expr-${Date.now()}`,
@@ -772,7 +776,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   let finalAnalysisLayer: AnalysisLayer;
                   
                   if (sLayer.analysisType === 'expression' && sLayer.params.expression) {
-                      const { dataset } = await analysisService.calculateExpressionLayer(sLayer.params.expression, finalLayers);
+                      const { dataset } = await analysisService.calculateExpressionLayer(
+                          sLayer.params.expression,
+                          finalLayers,
+                          (progressMsg) => setIsLoading(progressMsg)
+                      );
                       calculatedDataset = dataset;
                       finalAnalysisLayer = { ...sLayer, dataset: calculatedDataset };
                   } else {
