@@ -8,6 +8,7 @@ import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { ImportFilesModal } from './components/ImportFilesModal';
 import { useAppContext } from './context/AppContext';
 import { StatusBar } from './components/StatusBar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const { 
@@ -28,14 +29,29 @@ const App: React.FC = () => {
       
       <main className="flex-grow flex flex-col min-w-0">
         <section className="flex-grow flex items-center justify-center bg-black/20 p-4 sm:p-6 lg:p-8 relative">
-          <DataCanvas />
+          <ErrorBoundary
+            fallback={
+              <div className="text-center p-8">
+                <p className="text-red-500 text-xl mb-4">Canvas Error</p>
+                <p className="text-gray-400">The map canvas encountered an error. Try reloading the page.</p>
+              </div>
+            }
+          >
+            <DataCanvas />
+          </ErrorBoundary>
         </section>
 
         {primaryDataLayer && (
             <>
-              <StatusBar />
-              <TimeSeriesPlot />
-              <TimeSlider />
+              <ErrorBoundary fallback={<div className="h-8 bg-gray-800"></div>}>
+                <StatusBar />
+              </ErrorBoundary>
+              <ErrorBoundary fallback={<div className="h-48 bg-gray-800"></div>}>
+                <TimeSeriesPlot />
+              </ErrorBoundary>
+              <ErrorBoundary fallback={<div className="h-20 bg-gray-800"></div>}>
+                <TimeSlider />
+              </ErrorBoundary>
             </>
         )}
       </main>
