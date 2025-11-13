@@ -57,6 +57,13 @@ export const calculateExpressionLayer = async (
     const pixelsPerYield = 50000;
     let pixelCount = 0;
     const totalPixels = time * height * width;
+    let lastReportedProgress = -1;
+
+    // Report initial progress
+    if (onProgress) {
+        onProgress('Calculating expression... 0%');
+        await yieldToMain();
+    }
 
     for (let t = 0; t < time; t++) {
         for (let y = 0; y < height; y++) {
@@ -76,13 +83,22 @@ export const calculateExpressionLayer = async (
                     if (onProgress) {
                         const totalProcessed = t * height * width + y * width + x + 1;
                         const progress = Math.floor((totalProcessed / totalPixels) * 100);
-                        onProgress(`Calculating expression... ${progress}%`);
+                        // Only report if progress has changed to avoid excessive updates
+                        if (progress !== lastReportedProgress) {
+                            onProgress(`Calculating expression... ${progress}%`);
+                            lastReportedProgress = progress;
+                        }
                     }
                     await yieldToMain();
                     pixelCount = 0;
                 }
             }
         }
+    }
+
+    // Report completion
+    if (onProgress) {
+        onProgress('Calculating expression... 100%');
     }
 
     return { dataset: resultDataset, range: { min: 0, max: 1 }, dimensions: { time, height, width } };
