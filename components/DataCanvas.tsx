@@ -4,6 +4,8 @@ import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLay
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
+import { CanvasLRUCache } from '../utils/LRUCache';
+import { useDebounce } from '../hooks/useDebounce';
 
 declare const d3: any;
 declare const proj4: any;
@@ -32,6 +34,12 @@ export const DataCanvas: React.FC = () => {
   const debouncedTimeRange = timeRange;
   const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 
+  // Debounce non-critical rendering dependencies to reduce re-render frequency
+  // Use short delay for pan/zoom (smooth interaction), longer for less critical changes
+  const debouncedGraticuleDensity = useDebounce(graticuleDensity, 100);
+  const debouncedShowGrid = useDebounce(showGrid, 50);
+  const debouncedGridSpacing = useDebounce(gridSpacing, 100);
+
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const dataCanvasRef = useRef<HTMLCanvasElement>(null);
   const artifactCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -39,7 +47,8 @@ export const DataCanvas: React.FC = () => {
   const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isRendering, setIsRendering] = useState(false);
-  const offscreenCanvasCache = useRef(new Map<string, HTMLCanvasElement>()).current;
+  // LRU cache: max 50 canvases or 500MB, whichever is hit first
+  const offscreenCanvasCache = useRef(new CanvasLRUCache(50, 500)).current;
   const initialViewCalculated = useRef(false);
   
   const isPanning = useRef(false);
@@ -220,19 +229,19 @@ export const DataCanvas: React.FC = () => {
         const [projXMax, projYMax] = [p_br[0], p_tl[1]];
 
         // --- Render Grid Overlay ---
-        if (showGrid) {
+        if (debouncedShowGrid) {
             gratCtx.strokeStyle = gridColor;
             gratCtx.lineWidth = 0.8 / (scale * dpr);
 
-            const startX = Math.ceil(projXMin / gridSpacing) * gridSpacing;
-            const startY = Math.ceil(projYMin / gridSpacing) * gridSpacing;
-            
+            const startX = Math.ceil(projXMin / debouncedGridSpacing) * debouncedGridSpacing;
+            const startY = Math.ceil(projYMin / debouncedGridSpacing) * debouncedGridSpacing;
+
             gratCtx.beginPath();
-            for (let x = startX; x <= projXMax; x += gridSpacing) {
+            for (let x = startX; x <= projXMax; x += debouncedGridSpacing) {
                 gratCtx.moveTo(x, projYMin);
                 gratCtx.lineTo(x, projYMax);
             }
-            for (let y = startY; y <= projYMax; y += gridSpacing) {
+            for (let y = startY; y <= projYMax; y += debouncedGridSpacing) {
                 gratCtx.moveTo(projXMin, y);
                 gratCtx.lineTo(projXMax, y);
             }
@@ -255,7 +264,7 @@ export const DataCanvas: React.FC = () => {
                 latSpan = Math.abs(viewLatMax - viewLatMin);
             }
             
-            const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * graticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
+            const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
             const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
             
             const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
@@ -275,7 +284,7 @@ export const DataCanvas: React.FC = () => {
     }
     contexts.forEach(ctx => ctx.restore());
     if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
-  }, [layers, timeIndex, showGraticule, graticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, showGrid, gridSpacing, gridColor]);
+  }, [layers, timeIndex, showGraticule, debouncedGraticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor]);
   
   // Effect for drawing artifacts
   useEffect(() => {
