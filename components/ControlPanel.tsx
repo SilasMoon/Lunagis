@@ -258,19 +258,47 @@ const formatLayerType = (type: Layer['type']): string => {
 };
 
 const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => void; }> = ({ layer, isActive, onSelect }) => {
-    const { 
-        onUpdateLayer, 
-        onRemoveLayer, 
-        onCalculateNightfallLayer, 
-        onCalculateDaylightFractionLayer, 
-        daylightFractionHoverData, 
-        flickeringLayerId, 
-        onToggleFlicker 
+    const {
+        onUpdateLayer,
+        onRemoveLayer,
+        onCalculateNightfallLayer,
+        onCalculateDaylightFractionLayer,
+        daylightFractionHoverData,
+        flickeringLayerId,
+        onToggleFlicker,
+        layers,
+        onRecalculateExpressionLayer,
+        isLoading
     } = useAppContext();
-    
+
+    const [editingExpression, setEditingExpression] = useState(false);
+    const [newExpression, setNewExpression] = useState('');
+
     const isNightfall = layer.type === 'analysis' && layer.analysisType === 'nightfall';
+    const isExpression = layer.type === 'analysis' && layer.analysisType === 'expression';
     const useDaysUnitForCustom = isNightfall && layer.colormap === 'Custom';
     const hasColormap = layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms';
+
+    const availableExpressionVariables = useMemo(() => {
+        return layers
+            .filter(l => l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms')
+            .filter(l => l.id !== layer.id) // Exclude self
+            .map(l => sanitizeLayerNameForExpression(l.name));
+    }, [layers, layer.id]);
+
+    const handleStartEditExpression = () => {
+        if (layer.type === 'analysis' && layer.params.expression) {
+            setNewExpression(layer.params.expression);
+            setEditingExpression(true);
+        }
+    };
+
+    const handleSaveExpression = async () => {
+        if (newExpression.trim() && onRecalculateExpressionLayer) {
+            await onRecalculateExpressionLayer(layer.id, newExpression);
+            setEditingExpression(false);
+        }
+    };
 
     return (
         <div className={`bg-gray-800/60 rounded-lg border ${isActive ? 'border-cyan-500/50' : 'border-gray-700/80'}`}>
@@ -410,16 +438,71 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
                                         `${((layer.params.clipValue ?? 0) / 24).toFixed(1)} days`
                                     }
                                 </label>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="1000" 
-                                    step="1" 
-                                    value={layer.params.clipValue} 
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1000"
+                                    step="1"
+                                    value={layer.params.clipValue}
                                     onChange={(e) => onUpdateLayer(layer.id, { params: { ...layer.params, clipValue: Number(e.target.value) }})}
                                     className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500 mt-1"
                                 />
                             </div>
+                        </div>
+                    )}
+                    {isExpression && (
+                        <div className="border-t border-gray-700 pt-3 space-y-3">
+                            <h4 className="text-sm font-medium text-gray-300">Expression</h4>
+                            {!editingExpression ? (
+                                <>
+                                    <div className="bg-gray-900/40 p-2 rounded-md">
+                                        <p className="text-xs font-mono text-gray-300 break-words">
+                                            {layer.params.expression || 'No expression defined'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleStartEditExpression}
+                                        disabled={!!isLoading}
+                                        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                                    >
+                                        Edit Expression
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-1">New Expression</label>
+                                        <textarea
+                                            value={newExpression}
+                                            onChange={(e) => setNewExpression(e.target.value)}
+                                            rows={3}
+                                            className="w-full bg-gray-700 text-white text-xs rounded-md p-1.5 border border-gray-600 font-mono"
+                                            placeholder="Enter expression..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-1">Available Variables</label>
+                                        <div className="bg-gray-800 p-2 rounded-md text-xs font-mono text-gray-400 flex flex-wrap gap-x-2 gap-y-1">
+                                            {availableExpressionVariables.length > 0 ? availableExpressionVariables.map(v => <span key={v}>{v}</span>) : <span className="text-gray-500">No variables available</span>}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setEditingExpression(false)}
+                                            className="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleSaveExpression}
+                                            disabled={!newExpression.trim() || !!isLoading}
+                                            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                                        >
+                                            {isLoading && isLoading.toLowerCase().includes('expression') ? 'Calculating...' : 'Apply'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
@@ -446,7 +529,7 @@ const ExpressionEditor: React.FC = () => {
     };
 
     // Show progress overlay when computing
-    const isComputing = !!isLoading && isLoading.includes('expression');
+    const isComputing = !!isLoading && isLoading.toLowerCase().includes('expression');
 
     return (
         <div className="p-3 bg-gray-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-4">

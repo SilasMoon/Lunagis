@@ -103,6 +103,7 @@ interface AppContextType {
     onCalculateNightfallLayer: (sourceLayerId: string) => void;
     onCalculateDaylightFractionLayer: (sourceLayerId: string) => void;
     onCreateExpressionLayer: (name: string, expression: string) => Promise<void>;
+    onRecalculateExpressionLayer: (layerId: string, newExpression: string) => Promise<void>;
     handleManualTimeRangeChange: (newRange: TimeRange) => void;
     onTogglePlay: () => void;
     onUpdateArtifact: (id: string, updates: Partial<Artifact>) => void;
@@ -492,6 +493,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setLayers(prev => [...prev, newLayer]);
           setActiveLayerId(newLayer.id);
           setIsCreatingExpression(false);
+      } catch (e) {
+          alert(`Expression Error: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+          setIsLoading(null);
+      }
+    }, [layers]);
+
+    const onRecalculateExpressionLayer = useCallback(async (layerId: string, newExpression: string) => {
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer || layer.type !== 'analysis' || layer.analysisType !== 'expression') {
+          alert('Invalid layer for expression recalculation');
+          return;
+      }
+
+      setIsLoading(`Recalculating expression "${layer.name}"...`);
+      await new Promise(r => setTimeout(r, 50));
+      try {
+          const { dataset, range, dimensions } = await analysisService.calculateExpressionLayer(
+              newExpression,
+              layers,
+              (progressMsg) => setIsLoading(progressMsg)
+          );
+
+          // Update the existing layer with new dataset and expression
+          setLayers(prev => prev.map(l => {
+              if (l.id === layerId) {
+                  return {
+                      ...l,
+                      dataset,
+                      range,
+                      dimensions,
+                      params: { ...l.params, expression: newExpression }
+                  } as AnalysisLayer;
+              }
+              return l;
+          }));
       } catch (e) {
           alert(`Expression Error: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
@@ -906,6 +943,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onCalculateNightfallLayer,
         onCalculateDaylightFractionLayer,
         onCreateExpressionLayer,
+        onRecalculateExpressionLayer,
         handleManualTimeRangeChange,
         onTogglePlay,
         onUpdateArtifact,
