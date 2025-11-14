@@ -477,6 +477,8 @@ export const DataCanvas: React.FC = () => {
             const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
             const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
 
+            console.log('[GRATICULE DEBUG] lonSpan:', lonSpan, 'latSpan:', latSpan, 'lonStep:', lonStep, 'latStep:', latStep);
+
             let anchorLon = 0, anchorLat = 0;
             try {
                 const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
@@ -491,9 +493,12 @@ export const DataCanvas: React.FC = () => {
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
 
             // Draw longitude lines (meridians)
+            let lonLinesDrawn = 0;
+            let lonPointsDrawn = 0;
             for (let lon = -180; lon <= 180; lon += lonStep) {
                 gratCtx.beginPath();
                 let hasValidPoint = false;
+                let validPointsInLine = 0;
                 for (let i = 0; i <= 100; i++) {
                     const lat = -90 + (i/100)*180;
                     try {
@@ -505,19 +510,28 @@ export const DataCanvas: React.FC = () => {
                             } else {
                                 gratCtx.lineTo(pt[0], pt[1]);
                             }
+                            validPointsInLine++;
                         }
                     } catch(e) {
                         // Skip invalid points but continue drawing the line
                     }
                 }
-                if (hasValidPoint) gratCtx.stroke();
+                if (hasValidPoint) {
+                    gratCtx.stroke();
+                    lonLinesDrawn++;
+                    lonPointsDrawn += validPointsInLine;
+                }
                 try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
             }
+            console.log('[GRATICULE DEBUG] Longitude lines drawn:', lonLinesDrawn, 'Total points:', lonPointsDrawn);
 
             // Draw latitude lines (parallels)
+            let latLinesDrawn = 0;
+            let latPointsDrawn = 0;
             for (let lat = -90; lat <= 90; lat += latStep) {
                 gratCtx.beginPath();
                 let hasValidPoint = false;
+                let validPointsInLine = 0;
                 for (let i = 0; i <= 200; i++) {
                     const lon = -180 + (i/200)*360;
                     try {
@@ -529,14 +543,20 @@ export const DataCanvas: React.FC = () => {
                             } else {
                                 gratCtx.lineTo(pt[0], pt[1]);
                             }
+                            validPointsInLine++;
                         }
                     } catch(e) {
                         // Skip invalid points but continue drawing the line
                     }
                 }
-                if (hasValidPoint) gratCtx.stroke();
+                if (hasValidPoint) {
+                    gratCtx.stroke();
+                    latLinesDrawn++;
+                    latPointsDrawn += validPointsInLine;
+                }
                 try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
+            console.log('[GRATICULE DEBUG] Latitude lines drawn:', latLinesDrawn, 'Total points:', latPointsDrawn);
         }
     }
     contexts.forEach(ctx => ctx.restore());
