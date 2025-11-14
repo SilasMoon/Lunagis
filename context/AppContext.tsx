@@ -241,8 +241,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (selectedPixel) {
           const layer = layers.find(l => l.id === selectedPixel.layerId);
           if (layer?.type === 'data' || (layer?.type === 'analysis') || layer?.type === 'dte_comms' || layer?.type === 'lpf_comms') {
-              const series = layer.dataset.map(slice => slice[selectedPixel.y][selectedPixel.x]);
-              setTimeSeriesData({data: series, range: layer.range});
+              // Check if selected pixel coordinates are within bounds for this layer
+              if (selectedPixel.y < layer.dimensions.height && selectedPixel.x < layer.dimensions.width) {
+                  const series = layer.dataset.map(slice => slice?.[selectedPixel.y]?.[selectedPixel.x] ?? 0);
+                  setTimeSeriesData({data: series, range: layer.range});
+              } else {
+                  setTimeSeriesData(null);
+              }
           } else {
               setTimeSeriesData(null);
           }
@@ -258,17 +263,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const sourceLayer = layers.find(l => l.id === activeLayer.sourceLayerId) as DataLayer | undefined;
           if (sourceLayer) {
             const { x, y } = selectedPixel;
+            // Check if coordinates are within bounds for source layer
+            if (y >= sourceLayer.dimensions.height || x >= sourceLayer.dimensions.width) {
+              setDaylightFractionHoverData(null);
+              return;
+            }
+
             const { start, end } = timeRange;
             const totalHours = end - start + 1;
             let dayHours = 0;
-            
+
             let longestDay = 0, shortestDay = Infinity, dayPeriods = 0;
             let longestNight = 0, shortestNight = Infinity, nightPeriods = 0;
             let currentPeriodType: 'day' | 'night' | null = null;
             let currentPeriodLength = 0;
 
             for (let t = start; t <= end; t++) {
-              if (t >= sourceLayer.dataset.length) continue;
+              if (t >= sourceLayer.dataset.length || !sourceLayer.dataset[t]) continue;
               const value = sourceLayer.dataset[t][y][x];
               if (value === 1) dayHours++;
 
