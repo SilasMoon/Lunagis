@@ -7,11 +7,13 @@ import { useAppContext } from '../context/AppContext';
 declare const d3: any;
 
 export const TimeSlider: React.FC = () => {
-  const { 
+  const {
     primaryDataLayer,
-    timeRange, 
-    handleManualTimeRangeChange, 
-    timeZoomDomain 
+    timeRange,
+    currentDateIndex,
+    setCurrentDateIndex,
+    handleManualTimeRangeChange,
+    timeZoomDomain
   } = useAppContext();
   
   const isDataLoaded = !!primaryDataLayer;
@@ -21,7 +23,7 @@ export const TimeSlider: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const [width, setWidth] = useState(0);
-  const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
+  const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | 'current' | null>(null);
   
   useEffect(() => {
     const container = containerRef.current;
@@ -68,7 +70,7 @@ export const TimeSlider: React.FC = () => {
   }, [width, timeZoomDomain, isDataLoaded, xScale]);
 
   const handleInteraction = useCallback((e: React.MouseEvent | MouseEvent, isDragStart: boolean = false) => {
-    if (!isDataLoaded || !timeRange) return;
+    if (!isDataLoaded || !timeRange || currentDateIndex === null) return;
     const svg = svgRef.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
@@ -80,16 +82,30 @@ export const TimeSlider: React.FC = () => {
     if (isDragStart) {
       const startPos = xScale(indexToDate(timeRange.start));
       const endPos = xScale(indexToDate(timeRange.end));
+      const currentPos = xScale(indexToDate(currentDateIndex));
       const distToStart = Math.abs(x - startPos);
       const distToEnd = Math.abs(x - endPos);
+      const distToCurrent = Math.abs(x - currentPos);
 
       const grabThreshold = 20;
-      if (distToStart < distToEnd && distToStart < grabThreshold) {
+
+      // Prioritize current cursor if it's closest and within threshold
+      if (distToCurrent < grabThreshold && distToCurrent < distToStart && distToCurrent < distToEnd) {
+        setDraggingHandle('current');
+      } else if (distToStart < distToEnd && distToStart < grabThreshold) {
         setDraggingHandle('start');
       } else if (distToEnd < grabThreshold) {
         setDraggingHandle('end');
       } else {
-        if (distToStart < distToEnd) setDraggingHandle('start'); else setDraggingHandle('end');
+        // Default to closest handle
+        const minDist = Math.min(distToStart, distToEnd, distToCurrent);
+        if (minDist === distToCurrent) {
+          setDraggingHandle('current');
+        } else if (minDist === distToStart) {
+          setDraggingHandle('start');
+        } else {
+          setDraggingHandle('end');
+        }
       }
     } else if (draggingHandle) {
       // Throttle updates with requestAnimationFrame
@@ -100,13 +116,15 @@ export const TimeSlider: React.FC = () => {
       rafRef.current = requestAnimationFrame(() => {
         if (draggingHandle === 'start') {
           handleManualTimeRangeChange({ ...timeRange, start: Math.min(newIndex, timeRange.end) });
-        } else {
+        } else if (draggingHandle === 'end') {
           handleManualTimeRangeChange({ ...timeRange, end: Math.max(newIndex, timeRange.start) });
+        } else if (draggingHandle === 'current') {
+          setCurrentDateIndex(newIndex);
         }
         rafRef.current = null;
       });
     }
-  }, [xScale, handleManualTimeRangeChange, maxTimeIndex, isDataLoaded, timeRange, draggingHandle]);
+  }, [xScale, handleManualTimeRangeChange, setCurrentDateIndex, maxTimeIndex, isDataLoaded, timeRange, currentDateIndex, draggingHandle]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -141,28 +159,29 @@ export const TimeSlider: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isDataLoaded || !timeRange) return;
+      if (!isDataLoaded || !timeRange || currentDateIndex === null) return;
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        const newStart = Math.max(0, timeRange.start - 1);
-        if (newStart !== timeRange.start) {
-          handleManualTimeRangeChange({ ...timeRange, start: newStart });
+        const newCurrent = Math.max(0, currentDateIndex - 1);
+        if (newCurrent !== currentDateIndex) {
+          setCurrentDateIndex(newCurrent);
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        const newStart = Math.min(timeRange.end, timeRange.start + 1);
-        if (newStart !== timeRange.start) {
-          handleManualTimeRangeChange({ ...timeRange, start: newStart });
+        const newCurrent = Math.min(maxTimeIndex, currentDateIndex + 1);
+        if (newCurrent !== currentDateIndex) {
+          setCurrentDateIndex(newCurrent);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.removeEventListener('keydown', handleKeyDown); };
-  }, [isDataLoaded, timeRange, handleManualTimeRangeChange]);
+  }, [isDataLoaded, timeRange, currentDateIndex, maxTimeIndex, setCurrentDateIndex]);
   
   const startX = timeRange ? xScale(indexToDate(timeRange.start)) : 0;
   const endX = timeRange ? xScale(indexToDate(timeRange.end)) : 0;
+  const currentX = currentDateIndex !== null ? xScale(indexToDate(currentDateIndex)) : 0;
 
   return (
     <section className="bg-gray-800/70 backdrop-blur-sm border-t border-gray-700 w-full flex-shrink-0 z-40 h-[50px]">
@@ -174,7 +193,7 @@ export const TimeSlider: React.FC = () => {
               className={`absolute inset-0 ${isDataLoaded ? 'cursor-ew-resize' : 'opacity-50'}`}
               onMouseDown={(e) => handleInteraction(e, true)}>
                 <line x1={MARGIN.left} y1={25} x2={width - MARGIN.right} y2={25} stroke="#4A5568" strokeWidth="2" />
-                
+
                 {isDataLoaded && ticks.map(({ date, label, isMajor }) => {
                 const x = xScale(date);
                 return (
@@ -184,7 +203,7 @@ export const TimeSlider: React.FC = () => {
                     </g>
                 )
                 })}
-                
+
                 {isDataLoaded && timeRange && width > 0 && (
                     <g>
                         <rect x={startX} y="21" width={endX - startX} height="8" fill="rgba(79, 209, 197, 0.5)" />
@@ -192,6 +211,13 @@ export const TimeSlider: React.FC = () => {
                         <circle cx={startX} cy={25} r="6" fill="#4FD1C5" stroke="#1A202C" strokeWidth="2" />
                         <line x1={endX} y1={10} x2={endX} y2={40} stroke="#4FD1C5" strokeWidth="2" />
                         <circle cx={endX} cy={25} r="6" fill="#4FD1C5" stroke="#1A202C" strokeWidth="2" />
+                    </g>
+                )}
+
+                {isDataLoaded && currentDateIndex !== null && width > 0 && (
+                    <g>
+                        <line x1={currentX} y1={10} x2={currentX} y2={40} stroke="#EF4444" strokeWidth="2" />
+                        <circle cx={currentX} cy={25} r="6" fill="#EF4444" stroke="#1A202C" strokeWidth="2" />
                     </g>
                 )}
             </svg>

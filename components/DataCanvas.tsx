@@ -91,7 +91,7 @@ const LoadingSpinner: React.FC = () => (
 
 export const DataCanvas: React.FC = () => {
   const {
-    layers, timeRange, setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
+    layers, timeRange, currentDateIndex, setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
     clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
@@ -100,7 +100,7 @@ export const DataCanvas: React.FC = () => {
     activeArtifactId
   } = useAppContext();
 
-  const timeIndex = timeRange?.start ?? 0;
+  const timeIndex = currentDateIndex ?? 0;
   const debouncedTimeRange = timeRange;
   const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 

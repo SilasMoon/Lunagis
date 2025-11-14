@@ -10,10 +10,10 @@ const InfoItem: React.FC<{ label: string; value: string | number; }> = ({ label,
 );
 
 export const StatusBar: React.FC = () => {
-    const { hoveredCoords, timeRange, primaryDataLayer } = useAppContext();
+    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer } = useAppContext();
 
     if (!primaryDataLayer) {
-        return null; 
+        return null;
     }
 
     return (
@@ -22,15 +22,17 @@ export const StatusBar: React.FC = () => {
                 <InfoItem label="Lat" value={hoveredCoords ? hoveredCoords.lat.toFixed(4) : '---'} />
                 <InfoItem label="Lon" value={hoveredCoords ? hoveredCoords.lon.toFixed(4) : '---'} />
             </div>
-            
+
             {timeRange ? (
                 <div className="flex items-center gap-x-4">
+                    <InfoItem label="Current" value={currentDateIndex !== null ? indexToDateString(currentDateIndex) : '---'} />
                     <InfoItem label="Start" value={indexToDateString(timeRange.start)} />
                     <InfoItem label="End" value={indexToDateString(timeRange.end)} />
                     <InfoItem label="Duration" value={`${timeRange.end - timeRange.start + 1} hrs`} />
                 </div>
             ) : (
                  <div className="flex items-center gap-x-4">
+                    <InfoItem label="Current" value={'---'} />
                     <InfoItem label="Start" value={'---'} />
                     <InfoItem label="End" value={'---'} />
                     <InfoItem label="Duration" value={'---'} />

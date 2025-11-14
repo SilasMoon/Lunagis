@@ -18,6 +18,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
     primaryDataLayer,
     timeSeriesData,
     timeRange,
+    currentDateIndex,
     fullTimeDomain,
     timeZoomDomain,
     onZoomToSelection,
@@ -99,7 +100,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
     if (timeRange) {
         const start = indexToDate(timeRange.start);
         const end = indexToDate(timeRange.end);
-        
+
         g.append('rect')
          .attr('x', xScale(start))
          .attr('y', 0)
@@ -107,7 +108,19 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
          .attr('height', innerHeight)
          .attr('fill', 'rgba(79, 209, 197, 0.2)');
     }
-    
+
+    if (currentDateIndex !== null) {
+        const currentDate = indexToDate(currentDateIndex);
+
+        g.append('line')
+         .attr('x1', xScale(currentDate))
+         .attr('y1', 0)
+         .attr('x2', xScale(currentDate))
+         .attr('y2', innerHeight)
+         .attr('stroke', '#EF4444')
+         .attr('stroke-width', 2);
+    }
+
     if (colormapThresholds) {
         const bands = [];
         for (let i = 0; i < colormapThresholds.length; i++) {
@@ -184,7 +197,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
         .attr('fill', '#90CDF4')
         .style('font-size', '10px'));
 
-  }, [isDataLoaded, timeSeriesData, timeRange, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, yAxisUnit, yAxisRange, colormapThresholds]);
+  }, [isDataLoaded, timeSeriesData, timeRange, currentDateIndex, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, yAxisUnit, yAxisRange, colormapThresholds]);
   
   const isAtFullZoom = useMemo(() => (
     timeZoomDomain && fullTimeDomain &&
