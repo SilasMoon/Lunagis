@@ -464,31 +464,74 @@ export const DataCanvas: React.FC = () => {
             gratCtx.lineWidth = 1 / (scale * dpr);
             const samplePoints = [ [0, 0], [clientWidth / 2, 0], [clientWidth, 0], [clientWidth, clientHeight / 2], [clientWidth, clientHeight], [clientWidth / 2, clientHeight], [0, clientHeight], [0, clientHeight / 2] ].map(p => canvasToProjCoords(p[0] * (window.devicePixelRatio || 1), p[1] * (window.devicePixelRatio || 1)));
             const geoPoints = samplePoints.filter(p => p !== null).map(p => { try { return proj4('EPSG:4326', proj).inverse(p!); } catch (e) { return null; } }).filter((p): p is [number, number] => p !== null);
-            
-            let lonSpan = 1, latSpan = 1;
+
+            // Only render if we have valid geographic points
             if (geoPoints.length > 0) {
                 const viewLonMin = Math.min(...geoPoints.map(p => p[0])), viewLonMax = Math.max(...geoPoints.map(p => p[0]));
                 const viewLatMin = Math.min(...geoPoints.map(p => p[1])), viewLatMax = Math.max(...geoPoints.map(p => p[1]));
-                lonSpan = Math.abs(viewLonMax - viewLonMin); if (lonSpan > 180) lonSpan = 360 - lonSpan;
+                let lonSpan = Math.abs(viewLonMax - viewLonMin); if (lonSpan > 180) lonSpan = 360 - lonSpan;
                 // Fix: Corrected typo from `viewMin` to `viewLatMin`.
-                latSpan = Math.abs(viewLatMax - viewLatMin);
-            }
-            
-            const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
-            const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
-            
-            const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
-            const anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep; const anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
+                let latSpan = Math.abs(viewLatMax - viewLatMin);
 
-            const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
-            
-            for (let lon = -180; lon <= 180; lon += lonStep) {
-                gratCtx.beginPath(); for (let i = 0; i <= 100; i++) { const lat = -90 + (i/100)*180, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
-                try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
-            }
-            for (let lat = -90; lat <= 90; lat += latStep) {
-                gratCtx.beginPath(); for (let i = 0; i <= 200; i++) { const lon = -180 + (i/200)*360, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
-                try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
+                const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
+                const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
+
+                // Safety check: ensure valid step sizes
+                if (!isFinite(lonStep) || lonStep <= 0) return;
+                if (!isFinite(latStep) || latStep <= 0) return;
+
+                const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
+                const anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep; const anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
+
+                const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
+
+                // Calculate rendering bounds with padding
+                const lonPadding = lonStep * 2;
+                const latPadding = latStep * 2;
+                const renderLonMin = Math.max(-180, Math.floor((viewLonMin - lonPadding) / lonStep) * lonStep);
+                const renderLonMax = Math.min(180, Math.ceil((viewLonMax + lonPadding) / lonStep) * lonStep);
+                const renderLatMin = Math.max(-90, Math.floor((viewLatMin - latPadding) / latStep) * latStep);
+                const renderLatMax = Math.min(90, Math.ceil((viewLatMax + latPadding) / latStep) * latStep);
+
+                // Safety check: limit maximum iterations
+                const MAX_LINES = 500;
+                if ((renderLonMax - renderLonMin) / lonStep > MAX_LINES || (renderLatMax - renderLatMin) / latStep > MAX_LINES) {
+                    return; // Skip rendering if too many lines
+                }
+
+                // Draw longitude lines (only in visible area)
+                for (let lon = renderLonMin; lon <= renderLonMax; lon += lonStep) {
+                    try {
+                        gratCtx.beginPath();
+                        for (let i = 0; i <= 100; i++) {
+                            const lat = -90 + (i/100)*180;
+                            const pt = proj.forward([lon, lat]);
+                            if (i === 0) gratCtx.moveTo(pt[0], pt[1]);
+                            else gratCtx.lineTo(pt[0], pt[1]);
+                        }
+                        gratCtx.stroke();
+                    } catch(e) {
+                        // Skip this line if projection fails
+                    }
+                    try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
+                }
+
+                // Draw latitude lines (only in visible area)
+                for (let lat = renderLatMin; lat <= renderLatMax; lat += latStep) {
+                    try {
+                        gratCtx.beginPath();
+                        for (let i = 0; i <= 200; i++) {
+                            const lon = -180 + (i/200)*360;
+                            const pt = proj.forward([lon, lat]);
+                            if (i === 0) gratCtx.moveTo(pt[0], pt[1]);
+                            else gratCtx.lineTo(pt[0], pt[1]);
+                        }
+                        gratCtx.stroke();
+                    } catch(e) {
+                        // Skip this line if projection fails
+                    }
+                    try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
+                }
             }
         }
     }
