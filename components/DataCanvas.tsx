@@ -389,26 +389,26 @@ export const DataCanvas: React.FC = () => {
       const centerCellX = (d * (artifact.center[0] - e) - c * (artifact.center[1] - f)) / determinant;
       const centerCellY = (a * (artifact.center[1] - f) - b * (artifact.center[0] - e)) / determinant;
 
-      // Calculate half-dimensions in cell units
-      const rotRad = artifact.rotation * Math.PI / 180;
-      const cosR = Math.cos(rotRad);
-      const sinR = Math.sin(rotRad);
-
-      // Width and height in cell units
-      const cellWidthVec = [a * cosR + c * sinR, b * cosR + d * sinR];
-      const cellHeightVec = [-a * sinR + c * cosR, -b * sinR + d * cosR];
-      const cellWidth = artifact.width / Math.sqrt(cellWidthVec[0] * cellWidthVec[0] + cellWidthVec[1] * cellWidthVec[1]);
-      const cellHeight = artifact.height / Math.sqrt(cellHeightVec[0] * cellHeightVec[0] + cellHeightVec[1] * cellHeightVec[1]);
+      // Calculate dimensions in cell units
+      // The stored width/height are in projected units, convert to cell units
+      const cellWidth = artifact.width / Math.sqrt(a * a + b * b);
+      const cellHeight = artifact.height / Math.sqrt(c * c + d * d);
 
       // Calculate 4 corners in cell coordinates
       const halfCellWidth = cellWidth / 2;
       const halfCellHeight = cellHeight / 2;
 
+      // Round to integer cell coordinates to align with actual cell corners
+      const minCellX = Math.round(centerCellX - halfCellWidth);
+      const maxCellX = Math.round(centerCellX + halfCellWidth);
+      const minCellY = Math.round(centerCellY - halfCellHeight);
+      const maxCellY = Math.round(centerCellY + halfCellHeight);
+
       const corners: [number, number][] = [
-        [centerCellX - halfCellWidth, centerCellY - halfCellHeight], // bottom-left
-        [centerCellX + halfCellWidth, centerCellY - halfCellHeight], // bottom-right
-        [centerCellX + halfCellWidth, centerCellY + halfCellHeight], // top-right
-        [centerCellX - halfCellWidth, centerCellY + halfCellHeight], // top-left
+        [minCellX, minCellY], // bottom-left
+        [maxCellX, minCellY], // bottom-right
+        [maxCellX, maxCellY], // top-right
+        [minCellX, maxCellY], // top-left
       ];
 
       // Convert corners to projected coordinates
