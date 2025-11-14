@@ -192,7 +192,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       labelFontSize: 14,
     });
     const [pathCreationOptions, setPathCreationOptions] = useState({
-      defaultMaxSegmentLength: null as number | null, // in meters, null means no limit
+      defaultMaxSegmentLength: 200 as number | null, // in meters, null means no limit
     });
     const [nightfallPlotYAxisRange, setNightfallPlotYAxisRange] = useState<{ min: number; max: number; }>({ min: -15, max: 15 });
 
@@ -1061,7 +1061,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
           }
           setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14 });
-          setPathCreationOptions(config.pathCreationOptions || { defaultMaxSegmentLength: null });
+          setPathCreationOptions(config.pathCreationOptions || { defaultMaxSegmentLength: 200 });
           setNightfallPlotYAxisRange(config.nightfallPlotYAxisRange || { min: -15, max: 15 });
 
       } catch (e) {
