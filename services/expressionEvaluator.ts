@@ -18,8 +18,8 @@ const OPERATORS: { [key: string]: { precedence: number; associativity: 'Left' | 
 
 function tokenize(expression: string): Token[] {
   const tokens: Token[] = [];
-  // Regex to capture operators, parentheses, identifiers (variables), and numbers
-  const regex = /\s*(>=|<=|==|>|<|\(|\)|[a-zA-Z_][a-zA-Z0-9_]*|\d+(\.\d+)?|\S)\s*/g;
+  // Regex to capture operators, parentheses, identifiers (variables), and numbers (including negative)
+  const regex = /\s*(>=|<=|==|>|<|\(|\)|[a-zA-Z_][a-zA-Z0-9_]*|-?\d+(\.\d+)?|\S)\s*/g;
   let match;
 
   while ((match = regex.exec(expression)) !== null) {
