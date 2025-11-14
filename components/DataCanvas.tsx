@@ -69,7 +69,7 @@ export const DataCanvas: React.FC = () => {
     clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
-    isAppendingWaypoints, coordinateTransformer, snapToCellCorner,
+    isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
     setActiveArtifactId, setArtifacts, setSelectedCells
   } = useAppContext();
 
@@ -648,25 +648,24 @@ export const DataCanvas: React.FC = () => {
         } else {
           // Second click: Create rectangle from first corner to snapped second corner
           const snappedSecondCorner = snapToCellCorner ? snapToCellCorner(projCoords) : projCoords;
-          const x1 = rectangleFirstCorner[0];
-          const y1 = rectangleFirstCorner[1];
-          const x2 = snappedSecondCorner[0];
-          const y2 = snappedSecondCorner[1];
 
-          // Calculate center, width, and height
-          const center: [number, number] = [(x1 + x2) / 2, (y1 + y2) / 2];
-          const width = Math.abs(x2 - x1);
-          const height = Math.abs(y2 - y1);
+          // Calculate rectangle dimensions following cell grid orientation
+          if (calculateRectangleFromCellCorners) {
+            const rectParams = calculateRectangleFromCellCorners(rectangleFirstCorner, snappedSecondCorner);
 
-          // Only create rectangle if it has non-zero dimensions
-          if (width > 0 && height > 0) {
-            const newArtifact: RectangleArtifact = {
-              id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`,
-              visible: true, color: '#ff00ff', thickness: 2,
-              center, width, height, rotation: 0
-            };
-            setArtifacts(prev => [...prev, newArtifact]);
-            setActiveArtifactId(newId);
+            // Only create rectangle if it has non-zero dimensions
+            if (rectParams && rectParams.width > 0 && rectParams.height > 0) {
+              const newArtifact: RectangleArtifact = {
+                id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`,
+                visible: true, color: '#ff00ff', thickness: 2,
+                center: rectParams.center,
+                width: rectParams.width,
+                height: rectParams.height,
+                rotation: rectParams.rotation
+              };
+              setArtifacts(prev => [...prev, newArtifact]);
+              setActiveArtifactId(newId);
+            }
           }
 
           setRectangleFirstCorner(null);
@@ -702,7 +701,7 @@ export const DataCanvas: React.FC = () => {
   }, [
       artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
       setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
-      rectangleFirstCorner, snapToCellCorner
+      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners
   ]);
 
   const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
@@ -754,21 +753,48 @@ export const DataCanvas: React.FC = () => {
                 if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
                     const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
 
-                    // Apply snapping for rectangles
-                    if (a.type === 'rectangle' && snapToCellCorner) {
-                        // Calculate the top-left corner of the rectangle
-                        const topLeft: [number, number] = [newCenter[0] - a.width / 2, newCenter[1] - a.height / 2];
+                    // Apply snapping for rectangles to maintain cell grid alignment
+                    if (a.type === 'rectangle' && snapToCellCorner && calculateRectangleFromCellCorners) {
+                        // Calculate the corners based on current center, width, height, and rotation
+                        const rotRad = a.rotation * Math.PI / 180;
+                        const cosR = Math.cos(rotRad);
+                        const sinR = Math.sin(rotRad);
 
-                        // Snap the top-left corner to nearest cell corner
-                        const snappedTopLeft = snapToCellCorner(topLeft);
+                        // Top-left corner in local coordinates
+                        const localTL = [-a.width / 2, -a.height / 2];
+                        // Rotate and translate to get projected coordinates
+                        const topLeftProj: [number, number] = [
+                            newCenter[0] + localTL[0] * cosR - localTL[1] * sinR,
+                            newCenter[1] + localTL[0] * sinR + localTL[1] * cosR
+                        ];
+
+                        // Snap top-left corner
+                        const snappedTopLeft = snapToCellCorner(topLeftProj);
 
                         if (snappedTopLeft) {
-                            // Recalculate center from snapped top-left corner
-                            const snappedCenter: [number, number] = [
-                                snappedTopLeft[0] + a.width / 2,
-                                snappedTopLeft[1] + a.height / 2
+                            // Calculate bottom-right corner from the dimensions
+                            const localBR = [a.width / 2, a.height / 2];
+                            const bottomRightProj: [number, number] = [
+                                newCenter[0] + localBR[0] * cosR - localBR[1] * sinR,
+                                newCenter[1] + localBR[0] * sinR + localBR[1] * cosR
                             ];
-                            return { ...a, center: snappedCenter };
+
+                            // Snap bottom-right corner
+                            const snappedBottomRight = snapToCellCorner(bottomRightProj);
+
+                            if (snappedBottomRight) {
+                                // Recalculate rectangle with both corners snapped
+                                const rectParams = calculateRectangleFromCellCorners(snappedTopLeft, snappedBottomRight);
+                                if (rectParams) {
+                                    return {
+                                        ...a,
+                                        center: rectParams.center,
+                                        width: rectParams.width,
+                                        height: rectParams.height,
+                                        rotation: rectParams.rotation
+                                    };
+                                }
+                            }
                         }
                     }
 
@@ -790,7 +816,7 @@ export const DataCanvas: React.FC = () => {
             return a;
         }));
     }
-  }, [draggedInfo, proj, setArtifacts, snapToCellCorner]);
+  }, [draggedInfo, proj, setArtifacts, snapToCellCorner, calculateRectangleFromCellCorners]);
 
   const onArtifactDragEnd = useCallback(() => {
     setDraggedInfo(null);
