@@ -1,7 +1,7 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 // Fix: Import useState, useRef, useEffect, and useMemo from React to resolve hook-related errors.
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer } from '../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
@@ -32,20 +32,27 @@ const Section: React.FC<{ title: string; children: React.ReactNode; defaultOpen?
 };
 
 const AddLayerMenu: React.FC = () => {
-    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer, isLoading } = useAppContext();
+    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer, onAddImageLayer, isLoading } = useAppContext();
     const [isOpen, setIsOpen] = useState(false);
     const npyInputRef = useRef<HTMLInputElement>(null);
     const dteInputRef = useRef<HTMLInputElement>(null);
     const lpfInputRef = useRef<HTMLInputElement>(null);
     const pngInputRef = useRef<HTMLInputElement>(null);
     const vrtInputRef = useRef<HTMLInputElement>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
     const [pendingPng, setPendingPng] = useState<File | null>(null);
     const [pendingVrt, setPendingVrt] = useState<File | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const handleNpySelect = (e: React.ChangeEvent<HTMLInputElement>, handler: (f: File) => void) => { 
+    const handleNpySelect = (e: React.ChangeEvent<HTMLInputElement>, handler: (f: File) => void) => {
         if (e.target.files?.[0]) {
             handler(e.target.files[0]);
+        }
+        setIsOpen(false);
+    };
+    const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files?.[0]) {
+            await onAddImageLayer(e.target.files[0]);
         }
         setIsOpen(false);
     };
@@ -75,7 +82,10 @@ const AddLayerMenu: React.FC = () => {
 
                 <input type="file" ref={lpfInputRef} onChange={(e) => handleNpySelect(e, onAddLpfCommsLayer)} accept=".npy" style={{ display: 'none' }} />
                 <button onClick={() => lpfInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">LPF Comms Layer (.npy)</button>
-                
+
+                <input type="file" ref={imageInputRef} onChange={handleImageSelect} accept=".png,.jpg,.jpeg" style={{ display: 'none' }} />
+                <button onClick={() => imageInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">Image Layer (.png, .jpg)</button>
+
                 <div className="border-t border-gray-700 pt-2 space-y-2">
                     <p className="text-sm text-gray-400 px-3">Base Map Layer</p>
                     <div className="grid grid-cols-2 gap-2">
@@ -253,6 +263,7 @@ const formatLayerType = (type: Layer['type']): string => {
         case 'analysis': return 'Analysis Layer';
         case 'dte_comms': return 'DTE Comms Layer';
         case 'lpf_comms': return 'LPF Comms Layer';
+        case 'image': return 'Image Layer';
         default: return 'Layer';
     }
 };
@@ -339,6 +350,135 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                         <label className="block text-sm font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
                         <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdateLayer(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
+                    {layer.type === 'image' && (
+                        <div className="space-y-3 border-t border-gray-700 pt-3">
+                            <h4 className="text-sm font-medium text-gray-300">Transformation</h4>
+                            <div className="space-y-2">
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">
+                                        Scale X: {layer.scaleX.toFixed(2)}x
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0.1"
+                                        max="5"
+                                        step="0.01"
+                                        value={layer.scaleX}
+                                        onChange={(e) => onUpdateLayer(layer.id, { scaleX: Number(e.target.value) })}
+                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">
+                                        Scale Y: {layer.scaleY.toFixed(2)}x
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0.1"
+                                        max="5"
+                                        step="0.01"
+                                        value={layer.scaleY}
+                                        onChange={(e) => onUpdateLayer(layer.id, { scaleY: Number(e.target.value) })}
+                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">
+                                        Rotation: {layer.rotation.toFixed(0)}°
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="-180"
+                                        max="180"
+                                        step="1"
+                                        value={layer.rotation}
+                                        onChange={(e) => onUpdateLayer(layer.id, { rotation: Number(e.target.value) })}
+                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Position X</label>
+                                        <input
+                                            type="number"
+                                            step="100"
+                                            value={layer.position[0].toFixed(0)}
+                                            onChange={(e) => {
+                                                const newPos: [number, number] = [Number(e.target.value), layer.position[1]];
+                                                onUpdateLayer(layer.id, { position: newPos });
+                                            }}
+                                            className="w-full bg-gray-700 text-white text-sm rounded-md px-2 py-1.5 border border-gray-600"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Position Y</label>
+                                        <input
+                                            type="number"
+                                            step="100"
+                                            value={layer.position[1].toFixed(0)}
+                                            onChange={(e) => {
+                                                const newPos: [number, number] = [layer.position[0], Number(e.target.value)];
+                                                onUpdateLayer(layer.id, { position: newPos });
+                                            }}
+                                            className="w-full bg-gray-700 text-white text-sm rounded-md px-2 py-1.5 border border-gray-600"
+                                        />
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        onUpdateLayer(layer.id, {
+                                            scaleX: 1.0,
+                                            scaleY: 1.0,
+                                            rotation: 0
+                                        });
+                                    }}
+                                    className="w-full bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md text-xs transition-all"
+                                >
+                                    Reset Transformation
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        // Export transformed image
+                                        const canvas = document.createElement('canvas');
+                                        const displayWidth = layer.originalWidth * layer.scaleX;
+                                        const displayHeight = layer.originalHeight * layer.scaleY;
+
+                                        // Use larger canvas for better quality
+                                        canvas.width = displayWidth;
+                                        canvas.height = displayHeight;
+
+                                        const ctx = canvas.getContext('2d')!;
+                                        ctx.translate(canvas.width / 2, canvas.height / 2);
+                                        ctx.rotate((layer.rotation * Math.PI) / 180);
+                                        ctx.scale(layer.scaleX, layer.scaleY);
+                                        ctx.drawImage(
+                                            layer.image,
+                                            -layer.originalWidth / 2,
+                                            -layer.originalHeight / 2,
+                                            layer.originalWidth,
+                                            layer.originalHeight
+                                        );
+
+                                        canvas.toBlob((blob) => {
+                                            if (blob) {
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement('a');
+                                                a.href = url;
+                                                a.download = `transformed_${layer.fileName}`;
+                                                document.body.appendChild(a);
+                                                a.click();
+                                                document.body.removeChild(a);
+                                                URL.revokeObjectURL(url);
+                                            }
+                                        }, 'image/png');
+                                    }}
+                                    className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                                >
+                                    Export Transformed Image
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {hasColormap && (
                         <>
                           <div>

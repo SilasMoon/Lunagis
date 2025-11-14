@@ -104,6 +104,19 @@ export interface LpfCommsLayer extends LayerBase {
   dimensions: { time: number; height: number; width: number };
 }
 
+export interface ImageLayer extends LayerBase {
+  type: 'image';
+  image: HTMLImageElement;
+  fileName: string;
+  // Transformation properties (all in projected coordinate space)
+  position: [number, number]; // Center position [x, y] in projected coordinates
+  scaleX: number; // Horizontal scale factor (1.0 = original size)
+  scaleY: number; // Vertical scale factor (1.0 = original size)
+  rotation: number; // Rotation angle in degrees
+  // Original image dimensions
+  originalWidth: number;
+  originalHeight: number;
+}
 
 export type AnalysisType = 'nightfall' | 'daylight_fraction' | 'expression';
 
@@ -125,7 +138,7 @@ export interface AnalysisLayer extends LayerBase {
   };
 }
 
-export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer;
+export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer | ImageLayer;
 
 // --- Artifact Types ---
 
@@ -221,6 +234,18 @@ export interface SerializableLpfCommsLayer extends SerializableLayerBase {
   dimensions: { time: number; height: number; width: number };
 }
 
+export interface SerializableImageLayer extends SerializableLayerBase {
+  type: 'image';
+  fileName: string;
+  imageDataUrl: string; // Base64-encoded image data for export/import
+  position: [number, number];
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+  originalWidth: number;
+  originalHeight: number;
+}
+
 export interface SerializableAnalysisLayer extends SerializableLayerBase {
   type: 'analysis';
   analysisType: AnalysisType;
@@ -238,7 +263,7 @@ export interface SerializableAnalysisLayer extends SerializableLayerBase {
   };
 }
 
-export type SerializableLayer = SerializableBaseMapLayer | SerializableDataLayer | SerializableAnalysisLayer | SerializableDteCommsLayer | SerializableLpfCommsLayer;
+export type SerializableLayer = SerializableBaseMapLayer | SerializableDataLayer | SerializableAnalysisLayer | SerializableDteCommsLayer | SerializableLpfCommsLayer | SerializableImageLayer;
 
 export interface AppStateConfig {
   version: number;

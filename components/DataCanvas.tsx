@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, ImageLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
@@ -102,6 +102,18 @@ export const DataCanvas: React.FC = () => {
   const [rectangleFirstCorner, setRectangleFirstCorner] = useState<[number, number] | null>(null);
   const [currentMouseProjCoords, setCurrentMouseProjCoords] = useState<[number, number] | null>(null);
 
+  // Image layer transformation state
+  const [imageLayerDragInfo, setImageLayerDragInfo] = useState<{
+    layerId: string;
+    handleType: 'center' | 'corner' | 'edge';
+    handleIndex?: number; // 0-3 for corners or edges
+    initialMouseProj: [number, number];
+    initialPosition: [number, number];
+    initialScaleX: number;
+    initialScaleY: number;
+    initialRotation: number;
+  } | null>(null);
+
   // Clear rectangle first corner when exiting rectangle creation mode
   useEffect(() => {
     if (artifactCreationMode !== 'rectangle') {
@@ -164,6 +176,62 @@ export const DataCanvas: React.FC = () => {
     return [projX, projY];
   }, [viewState]);
 
+  // Helper function to check if clicking on an image layer handle
+  const getImageLayerHandle = useCallback((projCoords: [number, number]): { layerId: string; handleType: 'center' | 'corner' | 'edge'; handleIndex?: number } | null => {
+    if (!viewState) return null;
+    const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image');
+    if (!activeImageLayer || activeImageLayer.type !== 'image') return null;
+
+    const layer = activeImageLayer;
+    const displayWidth = layer.originalWidth * layer.scaleX;
+    const displayHeight = layer.originalHeight * layer.scaleY;
+    const handleSize = 12 / viewState.scale;
+
+    // Transform point to layer's local coordinates
+    const dx = projCoords[0] - layer.position[0];
+    const dy = projCoords[1] - layer.position[1];
+    const rotationRad = (layer.rotation * Math.PI) / 180;
+    const cosR = Math.cos(-rotationRad);
+    const sinR = Math.sin(-rotationRad);
+    const localX = dx * cosR - dy * sinR;
+    const localY = dx * sinR + dy * cosR;
+
+    // Check center handle
+    if (Math.abs(localX) < handleSize && Math.abs(localY) < handleSize) {
+      return { layerId: layer.id, handleType: 'center' };
+    }
+
+    // Check corner handles
+    const corners = [
+      [-displayWidth / 2, -displayHeight / 2],
+      [displayWidth / 2, -displayHeight / 2],
+      [displayWidth / 2, displayHeight / 2],
+      [-displayWidth / 2, displayHeight / 2]
+    ];
+    for (let i = 0; i < corners.length; i++) {
+      const [cx, cy] = corners[i];
+      if (Math.abs(localX - cx) < handleSize && Math.abs(localY - cy) < handleSize) {
+        return { layerId: layer.id, handleType: 'corner', handleIndex: i };
+      }
+    }
+
+    // Check edge handles
+    const edges = [
+      [0, -displayHeight / 2],
+      [displayWidth / 2, 0],
+      [0, displayHeight / 2],
+      [-displayWidth / 2, 0]
+    ];
+    for (let i = 0; i < edges.length; i++) {
+      const [ex, ey] = edges[i];
+      if (Math.abs(localX - ex) < handleSize && Math.abs(localY - ey) < handleSize) {
+        return { layerId: layer.id, handleType: 'edge', handleIndex: i };
+      }
+    }
+
+    return null;
+  }, [viewState, layers, activeLayerId]);
+
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
     if (canvases.some(c => !c) || !viewState) return;
@@ -196,14 +264,44 @@ export const DataCanvas: React.FC = () => {
     // --- Render Layers ---
     layers.forEach(layer => {
       if (!layer.visible) return;
-      
+
       if (layer.type === 'basemap') {
         const gt = layer.vrt.geoTransform;
         baseCtx.save(); baseCtx.globalAlpha = layer.opacity;
         baseCtx.transform(gt[1], gt[4], gt[2], gt[5], gt[0], gt[3]);
         baseCtx.drawImage(layer.image, 0, 0);
         baseCtx.restore();
-      } 
+      }
+      else if (layer.type === 'image') {
+        // Render image layer with transformation
+        baseCtx.save();
+        baseCtx.globalAlpha = layer.opacity;
+
+        // Move to the image position
+        baseCtx.translate(layer.position[0], layer.position[1]);
+
+        // Apply rotation
+        const rotationRad = (layer.rotation * Math.PI) / 180;
+        baseCtx.rotate(rotationRad);
+
+        // Flip Y-axis back since the global context has inverted Y
+        baseCtx.scale(1, -1);
+
+        // Apply scaling
+        const displayWidth = layer.originalWidth * layer.scaleX;
+        const displayHeight = layer.originalHeight * layer.scaleY;
+
+        // Draw image centered at position
+        baseCtx.drawImage(
+          layer.image,
+          -displayWidth / 2,
+          -displayHeight / 2,
+          displayWidth,
+          displayHeight
+        );
+
+        baseCtx.restore();
+      }
       else if ((layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms') && proj) {
         let cacheKey: string;
         const invertedStr = !!layer.colormapInverted;
@@ -627,8 +725,63 @@ export const DataCanvas: React.FC = () => {
         }
     }
 
+    // Draw interactive handles for active image layer
+    if (activeLayerId) {
+      const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image');
+      if (activeImageLayer && activeImageLayer.type === 'image') {
+        const layer = activeImageLayer;
+        const displayWidth = layer.originalWidth * layer.scaleX;
+        const displayHeight = layer.originalHeight * layer.scaleY;
+
+        ctx.save();
+        ctx.translate(layer.position[0], layer.position[1]);
+        const rotationRad = (layer.rotation * Math.PI) / 180;
+        ctx.rotate(rotationRad);
+
+        // Draw bounding box
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 2 / effectiveScale;
+        ctx.strokeRect(-displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
+
+        // Draw corner handles for scaling
+        const handleSize = 12 / effectiveScale;
+        ctx.fillStyle = '#00ffff';
+        const corners = [
+          [-displayWidth / 2, -displayHeight / 2], // Top-left
+          [displayWidth / 2, -displayHeight / 2],  // Top-right
+          [displayWidth / 2, displayHeight / 2],   // Bottom-right
+          [-displayWidth / 2, displayHeight / 2]   // Bottom-left
+        ];
+        corners.forEach(corner => {
+          ctx.fillRect(corner[0] - handleSize / 2, corner[1] - handleSize / 2, handleSize, handleSize);
+        });
+
+        // Draw edge handles for rotation
+        ctx.fillStyle = '#ffff00';
+        const edges = [
+          [0, -displayHeight / 2],  // Top
+          [displayWidth / 2, 0],    // Right
+          [0, displayHeight / 2],   // Bottom
+          [-displayWidth / 2, 0]    // Left
+        ];
+        edges.forEach(edge => {
+          ctx.beginPath();
+          ctx.arc(edge[0], edge[1], handleSize / 2, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        // Draw center handle for moving
+        ctx.fillStyle = '#ff00ff';
+        ctx.beginPath();
+        ctx.arc(0, 0, handleSize / 2, 0, 2 * Math.PI);
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
     ctx.restore();
-  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner, calculateRectangleFromCellCorners, getRectangleCorners, primaryDataLayer]);
+  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner, calculateRectangleFromCellCorners, getRectangleCorners, primaryDataLayer, layers, activeLayerId]);
 
 
   useEffect(() => {
@@ -910,6 +1063,80 @@ export const DataCanvas: React.FC = () => {
     const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
     setCurrentMouseProjCoords(projCoords);
 
+    // Handle image layer transformation
+    if (imageLayerDragInfo && projCoords) {
+        const dragInfo = imageLayerDragInfo;
+        const layer = layers.find(l => l.id === dragInfo.layerId && l.type === 'image');
+        if (layer && layer.type === 'image') {
+            if (dragInfo.handleType === 'center') {
+                // Move the image
+                const dx = projCoords[0] - dragInfo.initialMouseProj[0];
+                const dy = projCoords[1] - dragInfo.initialMouseProj[1];
+                onUpdateLayer(dragInfo.layerId, {
+                    position: [dragInfo.initialPosition[0] + dx, dragInfo.initialPosition[1] + dy]
+                });
+            } else if (dragInfo.handleType === 'corner' && dragInfo.handleIndex !== undefined) {
+                // Scale the image
+                const rotationRad = (dragInfo.initialRotation * Math.PI) / 180;
+                const cosR = Math.cos(-rotationRad);
+                const sinR = Math.sin(-rotationRad);
+
+                // Transform current and initial mouse positions to local coordinates
+                const dx0 = dragInfo.initialMouseProj[0] - dragInfo.initialPosition[0];
+                const dy0 = dragInfo.initialMouseProj[1] - dragInfo.initialPosition[1];
+                const initialLocal = [dx0 * cosR - dy0 * sinR, dx0 * sinR + dy0 * cosR];
+
+                const dx1 = projCoords[0] - dragInfo.initialPosition[0];
+                const dy1 = projCoords[1] - dragInfo.initialPosition[1];
+                const currentLocal = [dx1 * cosR - dy1 * sinR, dx1 * sinR + dy1 * cosR];
+
+                // Calculate scale change
+                const cornerIndex = dragInfo.handleIndex;
+                const initialDisplayWidth = layer.originalWidth * dragInfo.initialScaleX;
+                const initialDisplayHeight = layer.originalHeight * dragInfo.initialScaleY;
+
+                // Determine which dimension(s) to scale based on corner
+                let newScaleX = dragInfo.initialScaleX;
+                let newScaleY = dragInfo.initialScaleY;
+
+                if (cornerIndex === 0 || cornerIndex === 3) { // Left corners
+                    newScaleX = dragInfo.initialScaleX * (1 - 2 * (currentLocal[0] - initialLocal[0]) / initialDisplayWidth);
+                } else { // Right corners
+                    newScaleX = dragInfo.initialScaleX * (1 + 2 * (currentLocal[0] - initialLocal[0]) / initialDisplayWidth);
+                }
+
+                if (cornerIndex === 0 || cornerIndex === 1) { // Top corners
+                    newScaleY = dragInfo.initialScaleY * (1 - 2 * (currentLocal[1] - initialLocal[1]) / initialDisplayHeight);
+                } else { // Bottom corners
+                    newScaleY = dragInfo.initialScaleY * (1 + 2 * (currentLocal[1] - initialLocal[1]) / initialDisplayHeight);
+                }
+
+                // Clamp scales to reasonable values
+                newScaleX = Math.max(0.1, Math.min(10, newScaleX));
+                newScaleY = Math.max(0.1, Math.min(10, newScaleY));
+
+                onUpdateLayer(dragInfo.layerId, { scaleX: newScaleX, scaleY: newScaleY });
+            } else if (dragInfo.handleType === 'edge' && dragInfo.handleIndex !== undefined) {
+                // Rotate the image
+                const dx = projCoords[0] - dragInfo.initialPosition[0];
+                const dy = projCoords[1] - dragInfo.initialPosition[1];
+                const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                const dx0 = dragInfo.initialMouseProj[0] - dragInfo.initialPosition[0];
+                const dy0 = dragInfo.initialMouseProj[1] - dragInfo.initialPosition[1];
+                const initialAngle = Math.atan2(dy0, dx0) * 180 / Math.PI;
+
+                let newRotation = dragInfo.initialRotation + (currentAngle - initialAngle);
+                // Normalize to [-180, 180]
+                while (newRotation > 180) newRotation -= 360;
+                while (newRotation < -180) newRotation += 360;
+
+                onUpdateLayer(dragInfo.layerId, { rotation: newRotation });
+            }
+        }
+        return;
+    }
+
     if (!!draggedInfo && projCoords) {
         onArtifactDrag(projCoords);
         return;
@@ -977,7 +1204,7 @@ export const DataCanvas: React.FC = () => {
         
         try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch(e) { clearHoverState(); }
     } else { clearHoverState(); setHoveredArtifactId(null); setHoveredWaypointInfo(null); }
-  }, [viewState, setViewState, canvasToProjCoords, proj, onCellHover, clearHoverState, draggedInfo, onArtifactDrag, artifacts, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints]);
+  }, [viewState, setViewState, canvasToProjCoords, proj, onCellHover, clearHoverState, draggedInfo, onArtifactDrag, artifacts, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints, imageLayerDragInfo, layers, onUpdateLayer]);
   
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     lastMousePos.current = { x: e.clientX, y: e.clientY };
@@ -986,6 +1213,25 @@ export const DataCanvas: React.FC = () => {
     if (!projCoords) return;
 
     if (e.button === 0) { // Left mouse button
+        // Check for image layer handle click
+        const handleInfo = getImageLayerHandle(projCoords);
+        if (handleInfo) {
+            const layer = layers.find(l => l.id === handleInfo.layerId && l.type === 'image');
+            if (layer && layer.type === 'image') {
+                setImageLayerDragInfo({
+                    layerId: handleInfo.layerId,
+                    handleType: handleInfo.handleType,
+                    handleIndex: handleInfo.handleIndex,
+                    initialMouseProj: projCoords,
+                    initialPosition: layer.position,
+                    initialScaleX: layer.scaleX,
+                    initialScaleY: layer.scaleY,
+                    initialRotation: layer.rotation
+                });
+                return;
+            }
+        }
+
         // Only allow artifact dragging when in artifact mode
         if (activeTool === 'artifacts') {
             if (hoveredWaypointInfo) {
@@ -1001,15 +1247,21 @@ export const DataCanvas: React.FC = () => {
     }
   };
   
-  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => { 
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
     const wasClick = isPanning.current && (Math.abs(e.clientX - lastMousePos.current.x) < 2) && (Math.abs(e.clientY - lastMousePos.current.y) < 2);
-    
+
     const wasPanning = isPanning.current;
     isPanning.current = false;
-    
+
+    // Clear image layer drag info
+    if (imageLayerDragInfo) {
+      setImageLayerDragInfo(null);
+      return;
+    }
+
     if (!!draggedInfo) {
       onArtifactDragEnd();
-      return; 
+      return;
     }
 
     if (wasPanning && wasClick) {
@@ -1021,9 +1273,10 @@ export const DataCanvas: React.FC = () => {
         }
     }
   };
-  const handleMouseLeave = () => { 
-    isPanning.current = false; 
-    clearHoverState(); 
+  const handleMouseLeave = () => {
+    isPanning.current = false;
+    clearHoverState();
+    if (imageLayerDragInfo) setImageLayerDragInfo(null);
     if (!!draggedInfo) onArtifactDragEnd();
   };
   
@@ -1042,12 +1295,17 @@ export const DataCanvas: React.FC = () => {
 
   const cursorStyle = useMemo(() => {
     if (artifactCreationMode || isAppendingWaypoints) return 'crosshair';
+    if (imageLayerDragInfo) {
+      if (imageLayerDragInfo.handleType === 'center') return 'move';
+      if (imageLayerDragInfo.handleType === 'corner') return 'nwse-resize';
+      if (imageLayerDragInfo.handleType === 'edge') return 'grab';
+    }
     if (!!draggedInfo) return 'grabbing';
     if (hoveredWaypointInfo || hoveredArtifactId) return 'grab';
     if (activeTool === 'measurement') return 'copy';
     if (isPanning.current) return 'grabbing';
     return 'default';
-  }, [artifactCreationMode, isAppendingWaypoints, draggedInfo, hoveredWaypointInfo, hoveredArtifactId, activeTool, isPanning.current]);
+  }, [artifactCreationMode, isAppendingWaypoints, draggedInfo, hoveredWaypointInfo, hoveredArtifactId, activeTool, isPanning.current, imageLayerDragInfo]);
 
   if (!isDataLoaded) {
     return (<div className="w-full h-full flex items-center justify-center text-center text-gray-400 bg-gray-900/50 rounded-lg"><div><h3 className="text-xl font-semibold">No Data Loaded</h3><p className="mt-2">Use the Layers panel to load a basemap or data file.</p></div></div>);
