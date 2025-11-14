@@ -421,9 +421,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onMoveLayerUp = useCallback((id: string) => {
       setLayers(prev => {
         const index = prev.findIndex(l => l.id === id);
-        if (index <= 0) return prev; // Already at top or not found
+        if (index === -1 || index >= prev.length - 1) return prev; // Already at top or not found
         const newLayers = [...prev];
-        [newLayers[index - 1], newLayers[index]] = [newLayers[index], newLayers[index - 1]];
+        [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
         return newLayers;
       });
     }, []);
@@ -431,9 +431,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onMoveLayerDown = useCallback((id: string) => {
       setLayers(prev => {
         const index = prev.findIndex(l => l.id === id);
-        if (index === -1 || index >= prev.length - 1) return prev; // Already at bottom or not found
+        if (index <= 0) return prev; // Already at bottom or not found
         const newLayers = [...prev];
-        [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+        [newLayers[index - 1], newLayers[index]] = [newLayers[index], newLayers[index - 1]];
         return newLayers;
       });
     }, []);
