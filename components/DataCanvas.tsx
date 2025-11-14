@@ -515,37 +515,38 @@ export const DataCanvas: React.FC = () => {
     });
 
     // Draw preview rectangle if in rectangle creation mode with first corner set
-    if (rectangleFirstCorner && currentMouseProjCoords && artifactCreationMode === 'rectangle' && snapToCellCorner) {
+    if (rectangleFirstCorner && currentMouseProjCoords && artifactCreationMode === 'rectangle' && snapToCellCorner && calculateRectangleFromCellCorners) {
         const snappedSecondCorner = snapToCellCorner(currentMouseProjCoords);
         if (snappedSecondCorner) {
-            const x1 = rectangleFirstCorner[0];
-            const y1 = rectangleFirstCorner[1];
-            const x2 = snappedSecondCorner[0];
-            const y2 = snappedSecondCorner[1];
+            // Calculate rectangle parameters with correct orientation
+            const rectParams = calculateRectangleFromCellCorners(rectangleFirstCorner, snappedSecondCorner);
 
-            ctx.save();
-            ctx.strokeStyle = '#ff00ff';
-            ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
-            ctx.lineWidth = 2 / effectiveScale;
+            if (rectParams) {
+                ctx.save();
+                ctx.strokeStyle = '#ff00ff';
+                ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
+                ctx.lineWidth = 2 / effectiveScale;
 
-            // Draw preview rectangle
-            const width = x2 - x1;
-            const height = y2 - y1;
-            ctx.strokeRect(x1, y1, width, height);
+                // Draw preview rectangle with correct orientation
+                ctx.translate(rectParams.center[0], rectParams.center[1]);
+                ctx.rotate(rectParams.rotation * Math.PI / 180);
+                ctx.strokeRect(-rectParams.width / 2, -rectParams.height / 2, rectParams.width, rectParams.height);
+                ctx.restore();
 
-            // Draw corner markers
-            const markerSize = 10 / effectiveScale;
-            [rectangleFirstCorner, snappedSecondCorner].forEach(corner => {
+                // Draw corner markers at snapped positions
+                ctx.save();
                 ctx.fillStyle = '#ff00ff';
-                ctx.fillRect(corner[0] - markerSize/2, corner[1] - markerSize/2, markerSize, markerSize);
-            });
-
-            ctx.restore();
+                const markerSize = 10 / effectiveScale;
+                [rectangleFirstCorner, snappedSecondCorner].forEach(corner => {
+                    ctx.fillRect(corner[0] - markerSize/2, corner[1] - markerSize/2, markerSize, markerSize);
+                });
+                ctx.restore();
+            }
         }
     }
 
     ctx.restore();
-  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner]);
+  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner, calculateRectangleFromCellCorners]);
 
 
   useEffect(() => {
