@@ -802,6 +802,7 @@ export const DataCanvas: React.FC = () => {
                             lastWaypointProj[0] + dx * ratio,
                             lastWaypointProj[1] + dy * ratio
                         ];
+                        console.log('Clamping preview: distProj=', distProj, 'radiusProj=', radiusProj, 'ratio=', ratio);
                     }
                 } catch (e) {
                     // Ignore calculation errors, keep preview at cursor
