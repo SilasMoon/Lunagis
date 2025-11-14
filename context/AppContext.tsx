@@ -374,7 +374,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const vrtData = parseVrt(vrtContent);
           if (!vrtData) throw new Error("Failed to parse VRT file.");
 
-          const image = await dataUrlToImage(URL.createObjectURL(pngFile));
+          const objectUrl = URL.createObjectURL(pngFile);
+          const image = await dataUrlToImage(objectUrl);
+          URL.revokeObjectURL(objectUrl);
 
           const newLayer: BaseMapLayer = {
               id: `basemap-${Date.now()}`, name: pngFile.name, type: 'basemap',
@@ -783,7 +785,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   const vrtData = parseVrt(vrtContent);
                   if (!vrtData) throw new Error(`Failed to parse VRT file: ${vrtFile.name}`);
 
-                  const image = await dataUrlToImage(URL.createObjectURL(pngFile));
+                  const objectUrl = URL.createObjectURL(pngFile);
+                  const image = await dataUrlToImage(objectUrl);
+                  URL.revokeObjectURL(objectUrl);
 
                   const layer: BaseMapLayer = { ...sLayer, image, vrt: vrtData };
                   newLayers.push(layer);
