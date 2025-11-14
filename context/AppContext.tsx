@@ -4,6 +4,7 @@ import { parseVrt } from '../services/vrtParser';
 import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer } from '../types';
 import { indexToDate } from '../utils/time';
 import * as analysisService from '../services/analysisService';
+import { useToast } from '../components/Toast';
 
 // Geographic bounding box for the data
 const LAT_RANGE: [number, number] = [-85.505, -85.26];
@@ -132,6 +133,7 @@ export const useAppContext = () => {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { showError, showWarning, showSuccess } = useToast();
     const [layers, setLayers] = useState<Layer[]>([]);
     const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
 
@@ -357,7 +359,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setViewState(null);
         }
       } catch (error) {
-        alert(`Error loading file: ${error instanceof Error ? error.message : String(error)}`);
+        showError(`Error loading file: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setIsLoading(null);
       }
@@ -388,7 +390,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setActiveLayerId(newLayer.id);
           setViewState(null);
       } catch (error) {
-          alert(`Error processing base map: ${error instanceof Error ? error.message : String(error)}`);
+          showError(`Error processing base map: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
           setIsLoading(null);
       }
@@ -496,7 +498,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setActiveLayerId(newLayer.id);
           setIsCreatingExpression(false);
       } catch (e) {
-          alert(`Expression Error: ${e instanceof Error ? e.message : String(e)}`);
+          showError(`Expression Error: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
           setIsLoading(null);
       }
@@ -505,7 +507,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onRecalculateExpressionLayer = useCallback(async (layerId: string, newExpression: string) => {
       const layer = layers.find(l => l.id === layerId);
       if (!layer || layer.type !== 'analysis' || layer.analysisType !== 'expression') {
-          alert('Invalid layer for expression recalculation');
+          showError('Invalid layer for expression recalculation');
           return;
       }
 
@@ -532,7 +534,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return l;
           }));
       } catch (e) {
-          alert(`Expression Error: ${e instanceof Error ? e.message : String(e)}`);
+          showError(`Expression Error: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
           setIsLoading(null);
       }
@@ -674,7 +676,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [flickeringLayerId]);
     
     const onExportConfig = useCallback(async () => {
-      if (layers.length === 0) { alert("Cannot export an empty session."); return; }
+      if (layers.length === 0) { showWarning("Cannot export an empty session."); return; }
       setIsLoading("Exporting session...");
       try {
           const serializableLayers: SerializableLayer[] = layers.map((l): SerializableLayer => {
@@ -718,7 +720,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
       } catch (e) {
-          alert(`Error exporting session: ${e instanceof Error ? e.message : String(e)}`);
+          showError(`Error exporting session: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
           setIsLoading(null);
       }
@@ -748,13 +750,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   handleRestoreSession(config, []); // No files required
               }
           } catch (e) {
-              alert(`Error reading config file: ${e instanceof Error ? e.message : String(e)}`);
+              showError(`Error reading config file: ${e instanceof Error ? e.message : String(e)}`);
           } finally {
               setIsLoading(null);
           }
       };
       reader.onerror = () => {
-          alert("Failed to read the file.");
+          showError("Failed to read the file.");
           setIsLoading(null);
       };
       reader.readAsText(file);
@@ -863,7 +865,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setNightfallPlotYAxisRange(config.nightfallPlotYAxisRange || { min: -15, max: 15 });
 
       } catch (e) {
-          alert(`Error restoring session: ${e instanceof Error ? e.message : String(e)}`);
+          showError(`Error restoring session: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
           setIsLoading(null);
       }
