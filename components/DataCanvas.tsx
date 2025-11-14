@@ -726,56 +726,58 @@ export const DataCanvas: React.FC = () => {
     }
 
     // Draw interactive handles for active image layer
-    const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image') as typeof layers[0] | undefined;
-    if (activeImageLayer && activeImageLayer.type === 'image') {
-      const layer = activeImageLayer;
-      const displayWidth = layer.originalWidth * layer.scaleX;
-      const displayHeight = layer.originalHeight * layer.scaleY;
+    if (activeLayerId) {
+      const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image');
+      if (activeImageLayer && activeImageLayer.type === 'image') {
+        const layer = activeImageLayer;
+        const displayWidth = layer.originalWidth * layer.scaleX;
+        const displayHeight = layer.originalHeight * layer.scaleY;
 
-      ctx.save();
-      ctx.translate(layer.position[0], layer.position[1]);
-      const rotationRad = (layer.rotation * Math.PI) / 180;
-      ctx.rotate(rotationRad);
+        ctx.save();
+        ctx.translate(layer.position[0], layer.position[1]);
+        const rotationRad = (layer.rotation * Math.PI) / 180;
+        ctx.rotate(rotationRad);
 
-      // Draw bounding box
-      ctx.strokeStyle = '#00ffff';
-      ctx.lineWidth = 2 / effectiveScale;
-      ctx.strokeRect(-displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
+        // Draw bounding box
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 2 / effectiveScale;
+        ctx.strokeRect(-displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
 
-      // Draw corner handles for scaling
-      const handleSize = 12 / effectiveScale;
-      ctx.fillStyle = '#00ffff';
-      const corners = [
-        [-displayWidth / 2, -displayHeight / 2], // Top-left
-        [displayWidth / 2, -displayHeight / 2],  // Top-right
-        [displayWidth / 2, displayHeight / 2],   // Bottom-right
-        [-displayWidth / 2, displayHeight / 2]   // Bottom-left
-      ];
-      corners.forEach(corner => {
-        ctx.fillRect(corner[0] - handleSize / 2, corner[1] - handleSize / 2, handleSize, handleSize);
-      });
+        // Draw corner handles for scaling
+        const handleSize = 12 / effectiveScale;
+        ctx.fillStyle = '#00ffff';
+        const corners = [
+          [-displayWidth / 2, -displayHeight / 2], // Top-left
+          [displayWidth / 2, -displayHeight / 2],  // Top-right
+          [displayWidth / 2, displayHeight / 2],   // Bottom-right
+          [-displayWidth / 2, displayHeight / 2]   // Bottom-left
+        ];
+        corners.forEach(corner => {
+          ctx.fillRect(corner[0] - handleSize / 2, corner[1] - handleSize / 2, handleSize, handleSize);
+        });
 
-      // Draw edge handles for rotation
-      ctx.fillStyle = '#ffff00';
-      const edges = [
-        [0, -displayHeight / 2],  // Top
-        [displayWidth / 2, 0],    // Right
-        [0, displayHeight / 2],   // Bottom
-        [-displayWidth / 2, 0]    // Left
-      ];
-      edges.forEach(edge => {
+        // Draw edge handles for rotation
+        ctx.fillStyle = '#ffff00';
+        const edges = [
+          [0, -displayHeight / 2],  // Top
+          [displayWidth / 2, 0],    // Right
+          [0, displayHeight / 2],   // Bottom
+          [-displayWidth / 2, 0]    // Left
+        ];
+        edges.forEach(edge => {
+          ctx.beginPath();
+          ctx.arc(edge[0], edge[1], handleSize / 2, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        // Draw center handle for moving
+        ctx.fillStyle = '#ff00ff';
         ctx.beginPath();
-        ctx.arc(edge[0], edge[1], handleSize / 2, 0, 2 * Math.PI);
+        ctx.arc(0, 0, handleSize / 2, 0, 2 * Math.PI);
         ctx.fill();
-      });
 
-      // Draw center handle for moving
-      ctx.fillStyle = '#ff00ff';
-      ctx.beginPath();
-      ctx.arc(0, 0, handleSize / 2, 0, 2 * Math.PI);
-      ctx.fill();
-
-      ctx.restore();
+        ctx.restore();
+      }
     }
 
     ctx.restore();
