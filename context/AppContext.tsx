@@ -27,6 +27,7 @@ interface AppContextType {
     activeLayerId: string | null;
     isLoading: string | null;
     timeRange: TimeRange | null;
+    currentDateIndex: number | null;
     hoveredCoords: GeoCoordinates;
     showGraticule: boolean;
     viewState: ViewState | null;
@@ -71,6 +72,7 @@ interface AppContextType {
     setActiveLayerId: React.Dispatch<React.SetStateAction<string | null>>;
     setIsLoading: React.Dispatch<React.SetStateAction<string | null>>;
     setTimeRange: React.Dispatch<React.SetStateAction<TimeRange | null>>;
+    setCurrentDateIndex: React.Dispatch<React.SetStateAction<number | null>>;
     setHoveredCoords: React.Dispatch<React.SetStateAction<GeoCoordinates>>;
     setShowGraticule: React.Dispatch<React.SetStateAction<boolean>>;
     setViewState: React.Dispatch<React.SetStateAction<ViewState | null>>;
@@ -144,6 +146,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const [isLoading, setIsLoading] = useState<string | null>(null);
     const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
+    const [currentDateIndex, setCurrentDateIndex] = useState<number | null>(null);
     const [hoveredCoords, setHoveredCoords] = useState<GeoCoordinates>(null);
     const [showGraticule, setShowGraticule] = useState<boolean>(true);
     const [viewState, setViewState] = useState<ViewState | null>(null);
@@ -480,6 +483,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (layerType === 'data' && !primaryDataLayer) {
           const initialTimeRange = { start: 0, end: time - 1 };
           setTimeRange(initialTimeRange);
+          setCurrentDateIndex(0);
           setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
           setViewState(null);
         }
@@ -755,11 +759,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const frameDuration = 1000 / playbackSpeed;
           if (elapsed >= frameDuration) {
               lastFrameTime.current = timestamp;
-              setTimeRange(currentRange => {
-                  if (!currentRange || !playbackRange.current) return currentRange;
-                  let newTime = currentRange.start + 1;
+              setCurrentDateIndex(currentIndex => {
+                  if (currentIndex === null || !playbackRange.current) return currentIndex;
+                  let newTime = currentIndex + 1;
                   if (newTime > playbackRange.current.end) newTime = playbackRange.current.start;
-                  return { start: newTime, end: newTime };
+                  return newTime;
               });
           }
           animationFrameId.current = requestAnimationFrame(animate);
@@ -771,10 +775,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onTogglePlay = useCallback(() => {
       const aboutToPlay = !isPlaying;
       if (aboutToPlay) {
-          if (!isPaused) { 
+          if (!isPaused) {
               if (!timeRange || timeRange.start >= timeRange.end) return;
               playbackRange.current = { ...timeRange };
-              setTimeRange({ start: timeRange.start, end: timeRange.start });
+              setCurrentDateIndex(timeRange.start);
           }
           setIsPaused(false);
           setIsPlaying(true);
@@ -1048,6 +1052,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setLayers(finalLayers);
           setActiveLayerId(config.activeLayerId);
           setTimeRange(config.timeRange);
+          setCurrentDateIndex(config.timeRange?.start ?? null);
           setViewState(config.viewState);
           setShowGraticule(config.showGraticule);
           setGraticuleDensity(config.graticuleDensity);
@@ -1078,6 +1083,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeLayerId,
         isLoading,
         timeRange,
+        currentDateIndex,
         hoveredCoords,
         showGraticule,
         viewState,
@@ -1117,6 +1123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveLayerId,
         setIsLoading,
         setTimeRange,
+        setCurrentDateIndex,
         setHoveredCoords,
         setShowGraticule,
         setViewState,
