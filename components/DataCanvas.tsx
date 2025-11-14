@@ -70,7 +70,7 @@ export const DataCanvas: React.FC = () => {
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
-    setActiveArtifactId, setArtifacts, setSelectedCells
+    setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer
   } = useAppContext();
 
   const timeIndex = timeRange?.start ?? 0;
