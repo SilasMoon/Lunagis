@@ -766,80 +766,110 @@ export const DataCanvas: React.FC = () => {
         if (pathBeingDrawn && pathBeingDrawn.waypoints.length > 0) {
             const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
             const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
 
-            // Draw dashed preview line from last waypoint to cursor
+            let previewEndProj = currentMouseProjCoords; // Default: preview to cursor
+            let radiusProj: number | null = null;
+            let distance = 0;
+            let isOverLimit = false;
+
+            // Calculate radius and bounded preview point if max length is set
+            if (maxLength) {
+                try {
+                    const lastWaypointGeo = lastWaypoint.geoPosition;
+
+                    // Calculate approximate meters per degree at this latitude
+                    const metersPerDegreeLat = 111320;
+                    const metersPerDegreeLon = 111320 * Math.cos((lastWaypointGeo[1] * Math.PI) / 180);
+
+                    // Calculate degrees offset for the max length
+                    const lonOffset = maxLength / metersPerDegreeLon;
+
+                    // Project two points to calculate radius in projected space
+                    const edgeGeo: [number, number] = [lastWaypointGeo[0] + lonOffset, lastWaypointGeo[1]];
+                    const edgeProj = proj.forward(edgeGeo);
+
+                    radiusProj = Math.sqrt(
+                        Math.pow(edgeProj[0] - lastWaypointProj[0], 2) +
+                        Math.pow(edgeProj[1] - lastWaypointProj[1], 2)
+                    );
+
+                    // Calculate distance from last waypoint to cursor
+                    const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
+                    distance = calculateGeoDistance(lastWaypointGeo, [cursorGeo[0], cursorGeo[1]]);
+                    isOverLimit = distance > maxLength;
+
+                    // If cursor is beyond max distance, clamp preview to circle boundary
+                    if (isOverLimit) {
+                        const dx = currentMouseProjCoords[0] - lastWaypointProj[0];
+                        const dy = currentMouseProjCoords[1] - lastWaypointProj[1];
+                        const distProj = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distProj > 0) {
+                            // Calculate point on circle boundary in direction of cursor
+                            const ratio = radiusProj / distProj;
+                            previewEndProj = [
+                                lastWaypointProj[0] + dx * ratio,
+                                lastWaypointProj[1] + dy * ratio
+                            ];
+                        }
+                    }
+                } catch (e) {
+                    // Ignore calculation errors
+                }
+            }
+
+            // Draw dashed preview line from last waypoint to preview end point
             ctx.save();
             ctx.strokeStyle = pathBeingDrawn.color;
             ctx.setLineDash([10 / effectiveScale, 10 / effectiveScale]);
             ctx.lineWidth = pathBeingDrawn.thickness / effectiveScale;
             ctx.beginPath();
             ctx.moveTo(lastWaypointProj[0], lastWaypointProj[1]);
-            ctx.lineTo(currentMouseProjCoords[0], currentMouseProjCoords[1]);
+            ctx.lineTo(previewEndProj[0], previewEndProj[1]);
             ctx.stroke();
             ctx.restore();
 
+            // Draw preview waypoint dot at the end of the preview line
+            ctx.save();
+            ctx.fillStyle = pathBeingDrawn.color;
+            ctx.globalAlpha = 0.6;
+            const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+            ctx.beginPath();
+            ctx.arc(previewEndProj[0], previewEndProj[1], dotRadius, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+
             // Draw dashed circle around last waypoint if max segment length is set
-            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-            if (maxLength) {
+            if (maxLength && radiusProj) {
+                ctx.save();
+                ctx.strokeStyle = pathBeingDrawn.color;
+                ctx.setLineDash([15 / effectiveScale, 10 / effectiveScale]);
+                ctx.lineWidth = 1 / effectiveScale;
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.arc(lastWaypointProj[0], lastWaypointProj[1], radiusProj, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.restore();
+
+                // Display distance from last waypoint to cursor (at cursor, not at preview end)
                 try {
-                    // Convert max length from meters to projected coordinates
-                    // We approximate by projecting a point at the max distance
-                    const lastWaypointGeo = lastWaypoint.geoPosition;
-
-                    // Calculate approximate meters per degree at this latitude
-                    const metersPerDegreeLat = 111320; // roughly constant
-                    const metersPerDegreeLon = 111320 * Math.cos((lastWaypointGeo[1] * Math.PI) / 180);
-
-                    // Calculate degrees offset for the max length
-                    const latOffset = maxLength / metersPerDegreeLat;
-                    const lonOffset = maxLength / metersPerDegreeLon;
-
-                    // Project two points to calculate radius in projected space
-                    const centerGeo = lastWaypointGeo;
-                    const edgeGeo: [number, number] = [centerGeo[0] + lonOffset, centerGeo[1]];
-                    const edgeProj = proj.forward(edgeGeo);
-
-                    const radiusProj = Math.sqrt(
-                        Math.pow(edgeProj[0] - lastWaypointProj[0], 2) +
-                        Math.pow(edgeProj[1] - lastWaypointProj[1], 2)
-                    );
-
                     ctx.save();
-                    ctx.strokeStyle = pathBeingDrawn.color;
-                    ctx.setLineDash([15 / effectiveScale, 10 / effectiveScale]);
-                    ctx.lineWidth = 1 / effectiveScale;
-                    ctx.globalAlpha = 0.5;
-                    ctx.beginPath();
-                    ctx.arc(lastWaypointProj[0], lastWaypointProj[1], radiusProj, 0, 2 * Math.PI);
-                    ctx.stroke();
+                    ctx.translate(currentMouseProjCoords[0], currentMouseProjCoords[1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+                    const label = `${distance.toFixed(0)} m`;
+                    ctx.fillStyle = isOverLimit ? '#ff5555' : '#ffffff';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'bottom';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeText(label, 10, -10);
+                    ctx.fillText(label, 10, -10);
                     ctx.restore();
-
-                    // Display distance from last waypoint to cursor
-                    try {
-                        const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
-                        const distance = calculateGeoDistance(lastWaypointGeo, [cursorGeo[0], cursorGeo[1]]);
-
-                        // Draw distance label at cursor
-                        ctx.save();
-                        ctx.translate(currentMouseProjCoords[0], currentMouseProjCoords[1]);
-                        ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-
-                        const label = `${distance.toFixed(0)} m`;
-                        const isOverLimit = distance > maxLength;
-                        ctx.fillStyle = isOverLimit ? '#ff5555' : '#ffffff';
-                        ctx.font = 'bold 14px sans-serif';
-                        ctx.textAlign = 'left';
-                        ctx.textBaseline = 'bottom';
-                        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                        ctx.lineWidth = 2.5;
-                        ctx.strokeText(label, 10, -10);
-                        ctx.fillText(label, 10, -10);
-                        ctx.restore();
-                    } catch (e) {
-                        // Ignore projection errors
-                    }
                 } catch (e) {
-                    // Ignore calculation errors
+                    // Ignore projection errors
                 }
             }
         }
