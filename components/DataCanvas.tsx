@@ -70,7 +70,7 @@ export const DataCanvas: React.FC = () => {
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
-    setActiveArtifactId, setArtifacts, setSelectedCells
+    setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer
   } = useAppContext();
 
   const timeIndex = timeRange?.start ?? 0;
@@ -178,14 +178,17 @@ export const DataCanvas: React.FC = () => {
 
   // Helper function to check if clicking on an image layer handle
   const getImageLayerHandle = useCallback((projCoords: [number, number]): { layerId: string; handleType: 'center' | 'corner' | 'edge'; handleIndex?: number } | null => {
-    if (!viewState) return null;
-    const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image');
-    if (!activeImageLayer || activeImageLayer.type !== 'image') return null;
+    try {
+      if (!viewState || !activeLayerId || !projCoords) return null;
+      const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image');
+      if (!activeImageLayer || activeImageLayer.type !== 'image') return null;
 
-    const layer = activeImageLayer;
-    const displayWidth = layer.originalWidth * layer.scaleX;
-    const displayHeight = layer.originalHeight * layer.scaleY;
-    const handleSize = 12 / viewState.scale;
+      const layer = activeImageLayer;
+      if (!layer.originalWidth || !layer.originalHeight || !layer.scaleX || !layer.scaleY || !layer.position) return null;
+
+      const displayWidth = layer.originalWidth * layer.scaleX;
+      const displayHeight = layer.originalHeight * layer.scaleY;
+      const handleSize = 12 / viewState.scale;
 
     // Transform point to layer's local coordinates
     const dx = projCoords[0] - layer.position[0];
@@ -230,6 +233,10 @@ export const DataCanvas: React.FC = () => {
     }
 
     return null;
+    } catch (error) {
+      console.error('Error in getImageLayerHandle:', error);
+      return null;
+    }
   }, [viewState, layers, activeLayerId]);
 
   useEffect(() => {
@@ -1064,18 +1071,19 @@ export const DataCanvas: React.FC = () => {
     setCurrentMouseProjCoords(projCoords);
 
     // Handle image layer transformation
-    if (imageLayerDragInfo && projCoords) {
-        const dragInfo = imageLayerDragInfo;
-        const layer = layers.find(l => l.id === dragInfo.layerId && l.type === 'image');
-        if (layer && layer.type === 'image') {
-            if (dragInfo.handleType === 'center') {
-                // Move the image
-                const dx = projCoords[0] - dragInfo.initialMouseProj[0];
-                const dy = projCoords[1] - dragInfo.initialMouseProj[1];
-                onUpdateLayer(dragInfo.layerId, {
-                    position: [dragInfo.initialPosition[0] + dx, dragInfo.initialPosition[1] + dy]
-                });
-            } else if (dragInfo.handleType === 'corner' && dragInfo.handleIndex !== undefined) {
+    try {
+      if (imageLayerDragInfo && projCoords) {
+          const dragInfo = imageLayerDragInfo;
+          const layer = layers.find(l => l.id === dragInfo.layerId && l.type === 'image');
+          if (layer && layer.type === 'image') {
+              if (dragInfo.handleType === 'center') {
+                  // Move the image
+                  const dx = projCoords[0] - dragInfo.initialMouseProj[0];
+                  const dy = projCoords[1] - dragInfo.initialMouseProj[1];
+                  onUpdateLayer(dragInfo.layerId, {
+                      position: [dragInfo.initialPosition[0] + dx, dragInfo.initialPosition[1] + dy]
+                  });
+              } else if (dragInfo.handleType === 'corner' && dragInfo.handleIndex !== undefined) {
                 // Scale the image
                 const rotationRad = (dragInfo.initialRotation * Math.PI) / 180;
                 const cosR = Math.cos(-rotationRad);
@@ -1135,6 +1143,9 @@ export const DataCanvas: React.FC = () => {
             }
         }
         return;
+      }
+    } catch (error) {
+      console.error('Error in image layer transformation:', error);
     }
 
     if (!!draggedInfo && projCoords) {
@@ -1214,22 +1225,26 @@ export const DataCanvas: React.FC = () => {
 
     if (e.button === 0) { // Left mouse button
         // Check for image layer handle click
-        const handleInfo = getImageLayerHandle(projCoords);
-        if (handleInfo) {
-            const layer = layers.find(l => l.id === handleInfo.layerId && l.type === 'image');
-            if (layer && layer.type === 'image') {
-                setImageLayerDragInfo({
-                    layerId: handleInfo.layerId,
-                    handleType: handleInfo.handleType,
-                    handleIndex: handleInfo.handleIndex,
-                    initialMouseProj: projCoords,
-                    initialPosition: layer.position,
-                    initialScaleX: layer.scaleX,
-                    initialScaleY: layer.scaleY,
-                    initialRotation: layer.rotation
-                });
-                return;
-            }
+        try {
+          const handleInfo = getImageLayerHandle(projCoords);
+          if (handleInfo) {
+              const layer = layers.find(l => l.id === handleInfo.layerId && l.type === 'image');
+              if (layer && layer.type === 'image') {
+                  setImageLayerDragInfo({
+                      layerId: handleInfo.layerId,
+                      handleType: handleInfo.handleType,
+                      handleIndex: handleInfo.handleIndex,
+                      initialMouseProj: projCoords,
+                      initialPosition: layer.position,
+                      initialScaleX: layer.scaleX,
+                      initialScaleY: layer.scaleY,
+                      initialRotation: layer.rotation
+                  });
+                  return;
+              }
+          }
+        } catch (error) {
+          console.error('Error checking image layer handle:', error);
         }
 
         // Only allow artifact dragging when in artifact mode
