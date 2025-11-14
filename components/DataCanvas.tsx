@@ -69,7 +69,7 @@ export const DataCanvas: React.FC = () => {
     clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
-    isAppendingWaypoints, coordinateTransformer,
+    isAppendingWaypoints, coordinateTransformer, snapToCellCorner,
     setActiveArtifactId, setArtifacts, setSelectedCells
   } = useAppContext();
 
@@ -99,6 +99,15 @@ export const DataCanvas: React.FC = () => {
   const [initialViewState, setInitialViewState] = useState<ViewState | null>(null);
   const [hoveredArtifactId, setHoveredArtifactId] = useState<string | null>(null);
   const [hoveredWaypointInfo, setHoveredWaypointInfo] = useState<{ artifactId: string; waypointId: string } | null>(null);
+  const [rectangleFirstCorner, setRectangleFirstCorner] = useState<[number, number] | null>(null);
+  const [currentMouseProjCoords, setCurrentMouseProjCoords] = useState<[number, number] | null>(null);
+
+  // Clear rectangle first corner when exiting rectangle creation mode
+  useEffect(() => {
+    if (artifactCreationMode !== 'rectangle') {
+      setRectangleFirstCorner(null);
+    }
+  }, [artifactCreationMode]);
 
   const combinedBounds = useMemo(() => {
     if (!primaryDataLayer && !baseMapLayer) return null;
@@ -504,8 +513,39 @@ export const DataCanvas: React.FC = () => {
         }
         ctx.restore();
     });
+
+    // Draw preview rectangle if in rectangle creation mode with first corner set
+    if (rectangleFirstCorner && currentMouseProjCoords && artifactCreationMode === 'rectangle' && snapToCellCorner) {
+        const snappedSecondCorner = snapToCellCorner(currentMouseProjCoords);
+        if (snappedSecondCorner) {
+            const x1 = rectangleFirstCorner[0];
+            const y1 = rectangleFirstCorner[1];
+            const x2 = snappedSecondCorner[0];
+            const y2 = snappedSecondCorner[1];
+
+            ctx.save();
+            ctx.strokeStyle = '#ff00ff';
+            ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
+            ctx.lineWidth = 2 / effectiveScale;
+
+            // Draw preview rectangle
+            const width = x2 - x1;
+            const height = y2 - y1;
+            ctx.strokeRect(x1, y1, width, height);
+
+            // Draw corner markers
+            const markerSize = 10 / effectiveScale;
+            [rectangleFirstCorner, snappedSecondCorner].forEach(corner => {
+                ctx.fillStyle = '#ff00ff';
+                ctx.fillRect(corner[0] - markerSize/2, corner[1] - markerSize/2, markerSize, markerSize);
+            });
+
+            ctx.restore();
+        }
+    }
+
     ctx.restore();
-  }, [artifacts, viewState, proj, artifactDisplayOptions]);
+  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner]);
 
 
   useEffect(() => {
@@ -601,10 +641,37 @@ export const DataCanvas: React.FC = () => {
         setActiveArtifactId(newId);
         onFinishArtifactCreation();
       } else if (artifactCreationMode === 'rectangle') {
-        const newArtifact: RectangleArtifact = { id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`, visible: true, color: '#ff00ff', thickness: 2, center: projCoords, width: 1000, height: 1000, rotation: 0 };
-        setArtifacts(prev => [...prev, newArtifact]);
-        setActiveArtifactId(newId);
-        onFinishArtifactCreation();
+        if (!rectangleFirstCorner) {
+          // First click: Store the snapped first corner
+          const snappedCorner = snapToCellCorner ? snapToCellCorner(projCoords) : projCoords;
+          setRectangleFirstCorner(snappedCorner);
+        } else {
+          // Second click: Create rectangle from first corner to snapped second corner
+          const snappedSecondCorner = snapToCellCorner ? snapToCellCorner(projCoords) : projCoords;
+          const x1 = rectangleFirstCorner[0];
+          const y1 = rectangleFirstCorner[1];
+          const x2 = snappedSecondCorner[0];
+          const y2 = snappedSecondCorner[1];
+
+          // Calculate center, width, and height
+          const center: [number, number] = [(x1 + x2) / 2, (y1 + y2) / 2];
+          const width = Math.abs(x2 - x1);
+          const height = Math.abs(y2 - y1);
+
+          // Only create rectangle if it has non-zero dimensions
+          if (width > 0 && height > 0) {
+            const newArtifact: RectangleArtifact = {
+              id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`,
+              visible: true, color: '#ff00ff', thickness: 2,
+              center, width, height, rotation: 0
+            };
+            setArtifacts(prev => [...prev, newArtifact]);
+            setActiveArtifactId(newId);
+          }
+
+          setRectangleFirstCorner(null);
+          onFinishArtifactCreation();
+        }
       }
     } else if (isAppendingWaypoints) {
       const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
@@ -633,8 +700,9 @@ export const DataCanvas: React.FC = () => {
       }
     }
   }, [
-      artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts, 
-      setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo
+      artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
+      setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
+      rectangleFirstCorner, snapToCellCorner
   ]);
 
   const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
@@ -684,7 +752,27 @@ export const DataCanvas: React.FC = () => {
         setArtifacts(prev => prev.map(a => {
             if (a.id === draggedInfo.artifactId) {
                 if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
-                    return { ...a, center: [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy] };
+                    const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
+
+                    // Apply snapping for rectangles
+                    if (a.type === 'rectangle' && snapToCellCorner) {
+                        // Calculate the top-left corner of the rectangle
+                        const topLeft: [number, number] = [newCenter[0] - a.width / 2, newCenter[1] - a.height / 2];
+
+                        // Snap the top-left corner to nearest cell corner
+                        const snappedTopLeft = snapToCellCorner(topLeft);
+
+                        if (snappedTopLeft) {
+                            // Recalculate center from snapped top-left corner
+                            const snappedCenter: [number, number] = [
+                                snappedTopLeft[0] + a.width / 2,
+                                snappedTopLeft[1] + a.height / 2
+                            ];
+                            return { ...a, center: snappedCenter };
+                        }
+                    }
+
+                    return { ...a, center: newCenter };
                 } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
                     const newWaypoints = a.waypoints.map((wp, i) => {
                         const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
@@ -702,7 +790,7 @@ export const DataCanvas: React.FC = () => {
             return a;
         }));
     }
-  }, [draggedInfo, proj, setArtifacts]);
+  }, [draggedInfo, proj, setArtifacts, snapToCellCorner]);
 
   const onArtifactDragEnd = useCallback(() => {
     setDraggedInfo(null);
@@ -711,7 +799,8 @@ export const DataCanvas: React.FC = () => {
 
   const handleInteractionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-    
+    setCurrentMouseProjCoords(projCoords);
+
     if (!!draggedInfo && projCoords) {
         onArtifactDrag(projCoords);
         return;
@@ -788,10 +877,15 @@ export const DataCanvas: React.FC = () => {
     if (!projCoords) return;
 
     if (e.button === 0) { // Left mouse button
-        if (hoveredWaypointInfo) {
-            onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
-        } else if (hoveredArtifactId) {
-            onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
+        // Only allow artifact dragging when in artifact mode
+        if (activeTool === 'artifacts') {
+            if (hoveredWaypointInfo) {
+                onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
+            } else if (hoveredArtifactId) {
+                onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
+            } else {
+                isPanning.current = true;
+            }
         } else {
             isPanning.current = true;
         }

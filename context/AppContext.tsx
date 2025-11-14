@@ -62,6 +62,7 @@ interface AppContextType {
     proj: any;
     fullTimeDomain: TimeDomain | null;
     coordinateTransformer: ((lat: number, lon: number) => PixelCoords) | null;
+    snapToCellCorner: ((projCoords: [number, number]) => [number, number] | null) | null;
 
     // Setters & Handlers
     setLayers: React.Dispatch<React.SetStateAction<Layer[]>>;
@@ -235,6 +236,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
       return null;
+    }, [proj, primaryDataLayer]);
+
+    // Function to snap projected coordinates to the nearest data cell corner
+    const snapToCellCorner = useMemo(() => {
+      if (!primaryDataLayer || !proj) return null;
+      const { width, height } = primaryDataLayer.dimensions;
+      const [lonMin, lonMax] = LON_RANGE;
+      const [latMin, latMax] = LAT_RANGE;
+
+      const c_tl = proj.forward([lonMin, latMax]); const c_tr = proj.forward([lonMax, latMax]);
+      const c_bl = proj.forward([lonMin, latMin]);
+      const a = (c_tr[0] - c_tl[0]) / width; const b = (c_tr[1] - c_tl[1]) / width;
+      const c = (c_bl[0] - c_tl[0]) / height; const d = (c_bl[1] - c_tl[1]) / height;
+      const e = c_tl[0]; const f = c_tl[1];
+      const determinant = a * d - b * c;
+      if (Math.abs(determinant) < 1e-9) return null;
+
+      return (projCoords: [number, number]): [number, number] | null => {
+        try {
+          const [projX, projY] = projCoords;
+          // Convert projected coords to cell coords (continuous values)
+          const cellX = (d * (projX - e) - c * (projY - f)) / determinant;
+          const cellY = (a * (projY - f) - b * (projX - e)) / determinant;
+
+          // Round to nearest cell corner (integer coordinates)
+          const snappedCellX = Math.round(cellX);
+          const snappedCellY = Math.round(cellY);
+
+          // Clamp to valid range
+          const clampedCellX = Math.max(0, Math.min(width, snappedCellX));
+          const clampedCellY = Math.max(0, Math.min(height, snappedCellY));
+
+          // Convert back to projected coordinates
+          const snappedProjX = a * clampedCellX + c * clampedCellY + e;
+          const snappedProjY = b * clampedCellX + d * clampedCellY + f;
+
+          return [snappedProjX, snappedProjY];
+        } catch (error) {
+          return null;
+        }
+      };
     }, [proj, primaryDataLayer]);
     
     useEffect(() => {
@@ -941,6 +983,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         proj,
         fullTimeDomain,
         coordinateTransformer,
+        snapToCellCorner,
         setLayers,
         setActiveLayerId,
         setIsLoading,
