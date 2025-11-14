@@ -476,18 +476,30 @@ export const DataCanvas: React.FC = () => {
             
             const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
             const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
-            
-            const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
-            const anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep; const anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
+
+            let anchorLon = 0, anchorLat = 0;
+            try {
+                const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
+                anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep;
+                anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
+            } catch(e) {
+                // Fallback to origin if anchor calculation fails
+                anchorLon = 0;
+                anchorLat = 0;
+            }
 
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
             
             for (let lon = -180; lon <= 180; lon += lonStep) {
-                gratCtx.beginPath(); for (let i = 0; i <= 100; i++) { const lat = -90 + (i/100)*180, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
+                try {
+                    gratCtx.beginPath(); for (let i = 0; i <= 100; i++) { const lat = -90 + (i/100)*180, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
+                } catch(e) {}
                 try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
             }
             for (let lat = -90; lat <= 90; lat += latStep) {
-                gratCtx.beginPath(); for (let i = 0; i <= 200; i++) { const lon = -180 + (i/200)*360, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
+                try {
+                    gratCtx.beginPath(); for (let i = 0; i <= 200; i++) { const lon = -180 + (i/200)*360, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
+                } catch(e) {}
                 try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
         }
