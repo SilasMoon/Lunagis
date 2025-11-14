@@ -43,6 +43,7 @@ interface AppContextType {
     gridColor: string;
     selectedCells: { x: number; y: number; }[];
     selectionColor: string;
+    selectedCellForPlot: { x: number; y: number; } | null;
     isPlaying: boolean;
     isPaused: boolean;
     playbackSpeed: number;
@@ -86,6 +87,7 @@ interface AppContextType {
     setGridColor: React.Dispatch<React.SetStateAction<string>>;
     setSelectedCells: React.Dispatch<React.SetStateAction<{ x: number; y: number; }[]>>;
     setSelectionColor: React.Dispatch<React.SetStateAction<string>>;
+    setSelectedCellForPlot: React.Dispatch<React.SetStateAction<{ x: number; y: number; } | null>>;
     setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
     setIsPaused: React.Dispatch<React.SetStateAction<boolean>>;
     onPlaybackSpeedChange: (speed: number) => void;
@@ -168,6 +170,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     const [selectedCells, setSelectedCells] = useState<{x: number, y: number}[]>([]);
     const [selectionColor, setSelectionColor] = useState<string>('#ffff00');
+    const [selectedCellForPlot, setSelectedCellForPlot] = useState<{x: number, y: number} | null>(null);
 
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
     const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -355,7 +358,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [proj, primaryDataLayer]);
 
     useEffect(() => {
-      if (selectedPixel) {
+      // Prioritize selectedCellForPlot over selectedPixel (hover)
+      if (selectedCellForPlot) {
+          // Find the top visible data layer
+          const topDataLayer = [...layers].reverse().find(l =>
+              l.visible && (l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms')
+          );
+          if (topDataLayer) {
+              // Check if selected cell coordinates are within bounds for this layer
+              if (selectedCellForPlot.y < topDataLayer.dimensions.height && selectedCellForPlot.x < topDataLayer.dimensions.width) {
+                  const series = topDataLayer.dataset.map(slice => slice?.[selectedCellForPlot.y]?.[selectedCellForPlot.x] ?? 0);
+                  setTimeSeriesData({data: series, range: topDataLayer.range});
+              } else {
+                  setTimeSeriesData(null);
+              }
+          } else {
+              setTimeSeriesData(null);
+          }
+      } else if (selectedPixel) {
           const layer = layers.find(l => l.id === selectedPixel.layerId);
           if (layer?.type === 'data' || (layer?.type === 'analysis') || layer?.type === 'dte_comms' || layer?.type === 'lpf_comms') {
               // Check if selected pixel coordinates are within bounds for this layer
@@ -371,7 +391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
           setTimeSeriesData(null);
       }
-    }, [selectedPixel, layers]);
+    }, [selectedPixel, selectedCellForPlot, layers]);
 
     useEffect(() => {
       if (activeLayerId && selectedPixel && timeRange) {
@@ -1099,6 +1119,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         gridColor,
         selectedCells,
         selectionColor,
+        selectedCellForPlot,
         isPlaying,
         isPaused,
         playbackSpeed,
@@ -1137,6 +1158,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setGridColor,
         setSelectedCells,
         setSelectionColor,
+        setSelectedCellForPlot,
         setIsPlaying,
         setIsPaused,
         onPlaybackSpeedChange: setPlaybackSpeed,
