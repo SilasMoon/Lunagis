@@ -782,25 +782,26 @@ export const DataCanvas: React.FC = () => {
                     // This matches how circle artifacts work - the projected coordinate system is in meters
                     radiusProj = maxLength;
 
-                    // Calculate distance from last waypoint to cursor
+                    // Calculate distance in projected space from last waypoint to cursor
+                    const dx = currentMouseProjCoords[0] - lastWaypointProj[0];
+                    const dy = currentMouseProjCoords[1] - lastWaypointProj[1];
+                    const distProj = Math.sqrt(dx * dx + dy * dy);
+
+                    // Check if cursor is beyond circle boundary in projected space
+                    isOverLimit = distProj > radiusProj;
+
+                    // Calculate geodesic distance for display
                     const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
                     distance = calculateGeoDistance(lastWaypointGeo, [cursorGeo[0], cursorGeo[1]]);
-                    isOverLimit = distance > maxLength;
 
                     // If cursor is beyond max distance, clamp preview to circle boundary
-                    if (isOverLimit) {
-                        const dx = currentMouseProjCoords[0] - lastWaypointProj[0];
-                        const dy = currentMouseProjCoords[1] - lastWaypointProj[1];
-                        const distProj = Math.sqrt(dx * dx + dy * dy);
-
-                        if (distProj > 0) {
-                            // Calculate point on circle boundary in direction of cursor
-                            const ratio = radiusProj / distProj;
-                            previewEndProj = [
-                                lastWaypointProj[0] + dx * ratio,
-                                lastWaypointProj[1] + dy * ratio
-                            ];
-                        }
+                    if (isOverLimit && distProj > 0) {
+                        // Calculate point on circle boundary in direction of cursor
+                        const ratio = radiusProj / distProj;
+                        previewEndProj = [
+                            lastWaypointProj[0] + dx * ratio,
+                            lastWaypointProj[1] + dy * ratio
+                        ];
                     }
                 } catch (e) {
                     // Ignore calculation errors

@@ -798,6 +798,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onFinishArtifactCreation = useCallback(() => {
       setArtifactCreationMode(null);
       setIsAppendingWaypoints(false);
+      setActiveArtifactId(null); // Clear active artifact to allow creating new paths
     }, []);
     
     const onStartAppendWaypoints = useCallback(() => {
