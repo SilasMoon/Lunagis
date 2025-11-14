@@ -16,6 +16,33 @@
         image-rendering: pixelated;
         image-rendering: crisp-edges;
       }
+
+      /* Visible focus indicators for accessibility */
+      *:focus-visible {
+        outline: 2px solid #06b6d4;
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      /* Focus styles for interactive elements */
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid #06b6d4;
+        outline-offset: 2px;
+      }
+
+      /* Remove default focus outline to prevent double outlines */
+      *:focus {
+        outline: none;
+      }
+
+      /* Keyboard-only focus (not mouse clicks) */
+      *:focus:not(:focus-visible) {
+        outline: none;
+      }
     </style>
 
   <script type="importmap">
@@ -27,7 +54,7 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="/Lunagis/assets/index-CkYdrDXH.js"></script>
+  <script type="module" crossorigin src="/Lunagis/assets/index-B4dDl5wm.js"></script>
 </head>
   <body class="bg-gray-900 text-gray-100">
     <div id="root"></div>
