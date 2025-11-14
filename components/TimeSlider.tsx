@@ -119,9 +119,7 @@ export const TimeSlider: React.FC = () => {
         } else if (draggingHandle === 'end') {
           handleManualTimeRangeChange({ ...timeRange, end: Math.max(newIndex, timeRange.start) });
         } else if (draggingHandle === 'current') {
-          // Constrain current cursor within time range
-          const constrainedIndex = Math.max(timeRange.start, Math.min(newIndex, timeRange.end));
-          setCurrentDateIndex(constrainedIndex);
+          setCurrentDateIndex(newIndex);
         }
         rafRef.current = null;
       });
@@ -165,13 +163,13 @@ export const TimeSlider: React.FC = () => {
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        const newCurrent = Math.max(timeRange.start, currentDateIndex - 1);
+        const newCurrent = Math.max(0, currentDateIndex - 1);
         if (newCurrent !== currentDateIndex) {
           setCurrentDateIndex(newCurrent);
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        const newCurrent = Math.min(timeRange.end, currentDateIndex + 1);
+        const newCurrent = Math.min(maxTimeIndex, currentDateIndex + 1);
         if (newCurrent !== currentDateIndex) {
           setCurrentDateIndex(newCurrent);
         }
@@ -179,7 +177,7 @@ export const TimeSlider: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.removeEventListener('keydown', handleKeyDown); };
-  }, [isDataLoaded, timeRange, currentDateIndex, setCurrentDateIndex]);
+  }, [isDataLoaded, timeRange, currentDateIndex, maxTimeIndex, setCurrentDateIndex]);
   
   const startX = timeRange ? xScale(indexToDate(timeRange.start)) : 0;
   const endX = timeRange ? xScale(indexToDate(timeRange.end)) : 0;
