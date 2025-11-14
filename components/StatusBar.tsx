@@ -10,17 +10,25 @@ const InfoItem: React.FC<{ label: string; value: string | number; }> = ({ label,
 );
 
 export const StatusBar: React.FC = () => {
-    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer } = useAppContext();
+    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer, timeSeriesData } = useAppContext();
 
     if (!primaryDataLayer) {
         return null;
     }
+
+    // Get current value for the current date
+    const currentValue = timeSeriesData && currentDateIndex !== null && currentDateIndex < timeSeriesData.data.length
+        ? timeSeriesData.data[currentDateIndex]
+        : null;
 
     return (
         <section className="bg-gray-800/70 border-y border-gray-700 w-full flex-shrink-0 z-40 px-4 py-1 flex items-center justify-between flex-wrap gap-x-6 gap-y-1">
             <div className="flex items-center gap-x-4">
                 <InfoItem label="Lat" value={hoveredCoords ? hoveredCoords.lat.toFixed(4) : '---'} />
                 <InfoItem label="Lon" value={hoveredCoords ? hoveredCoords.lon.toFixed(4) : '---'} />
+                {currentValue !== null && (
+                    <InfoItem label="Value" value={currentValue.toFixed(2)} />
+                )}
             </div>
 
             {timeRange ? (

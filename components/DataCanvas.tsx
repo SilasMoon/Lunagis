@@ -97,7 +97,7 @@ export const DataCanvas: React.FC = () => {
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
     setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer, pathCreationOptions,
-    activeArtifactId
+    activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
   } = useAppContext();
 
   const timeIndex = currentDateIndex ?? 0;
@@ -1040,7 +1040,7 @@ export const DataCanvas: React.FC = () => {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (selectedCells.length === 0) return;
+    if (selectedCells.length === 0 && !selectedCellForPlot) return;
 
     ctx.save();
     const { center, scale } = viewState;
@@ -1048,7 +1048,7 @@ export const DataCanvas: React.FC = () => {
     const effectiveScale = scale * dpr;
     ctx.scale(effectiveScale, -effectiveScale);
     ctx.translate(-center[0], -center[1]);
-    
+
     const [lonMin, lonMax] = lonRange;
     const [latMin, latMax] = latRange;
     const c_tl = proj.forward([lonMin, latMax]); const c_tr = proj.forward([lonMax, latMax]); const c_bl = proj.forward([lonMin, latMin]);
@@ -1057,30 +1057,57 @@ export const DataCanvas: React.FC = () => {
     const c = (c_bl[0] - c_tl[0]) / height; const d = (c_bl[1] - c_tl[1]) / height;
     const e = c_tl[0]; const f = c_tl[1];
 
-    ctx.strokeStyle = selectionColor;
-    ctx.lineWidth = 2 / (scale * dpr); 
-    ctx.beginPath();
-    
-    for (const cell of selectedCells) {
-      const u = cell.x;
-      const v = cell.y;
-      
+    // Draw selectedCellForPlot (layer management mode) with cyan color and thicker border
+    if (selectedCellForPlot) {
+      ctx.strokeStyle = '#00ffff'; // Cyan color
+      ctx.lineWidth = 3 / (scale * dpr); // Thicker border
+      ctx.beginPath();
+
+      const u = selectedCellForPlot.x;
+      const v = selectedCellForPlot.y;
+
       const p0 = [a * u + c * v + e, b * u + d * v + f];
       const p1 = [a * (u + 1) + c * v + e, b * (u + 1) + d * v + f];
       const p2 = [a * (u + 1) + c * (v + 1) + e, b * (u + 1) + d * (v + 1) + f];
       const p3 = [a * u + c * (v + 1) + e, b * u + d * (v + 1) + f];
-      
+
       ctx.moveTo(p0[0], p0[1]);
       ctx.lineTo(p1[0], p1[1]);
       ctx.lineTo(p2[0], p2[1]);
       ctx.lineTo(p3[0], p3[1]);
       ctx.closePath();
+
+      ctx.stroke();
     }
-    
-    ctx.stroke();
+
+    // Draw selectedCells (measurement tool) with configured color
+    if (selectedCells.length > 0) {
+      ctx.strokeStyle = selectionColor;
+      ctx.lineWidth = 2 / (scale * dpr);
+      ctx.beginPath();
+
+      for (const cell of selectedCells) {
+        const u = cell.x;
+        const v = cell.y;
+
+        const p0 = [a * u + c * v + e, b * u + d * v + f];
+        const p1 = [a * (u + 1) + c * v + e, b * (u + 1) + d * v + f];
+        const p2 = [a * (u + 1) + c * (v + 1) + e, b * (u + 1) + d * (v + 1) + f];
+        const p3 = [a * u + c * (v + 1) + e, b * u + d * (v + 1) + f];
+
+        ctx.moveTo(p0[0], p0[1]);
+        ctx.lineTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        ctx.lineTo(p3[0], p3[1]);
+        ctx.closePath();
+      }
+
+      ctx.stroke();
+    }
+
     ctx.restore();
 
-  }, [selectedCells, selectionColor, viewState, primaryDataLayer, proj, lonRange, latRange]);
+  }, [selectedCells, selectionColor, selectedCellForPlot, viewState, primaryDataLayer, proj, lonRange, latRange]);
 
   const onCellHover = useCallback((coords: GeoCoordinates) => {
     setHoveredCoords(coords);
@@ -1220,6 +1247,19 @@ export const DataCanvas: React.FC = () => {
           }
         });
       }
+    } else if (activeTool === 'layers') {
+      // Cell selection for layer management mode
+      const pixel = coordinateTransformer ? coordinateTransformer(coords.lat, coords.lon) : null;
+      if (pixel) {
+        setSelectedCellForPlot(prev => {
+          // Toggle selection: if clicking the same cell, deselect it
+          if (prev && prev.x === pixel.x && prev.y === pixel.y) {
+            return null; // Deselect
+          } else {
+            return pixel; // Select
+          }
+        });
+      }
     } else {
       // Logic for selecting an artifact by clicking on it
       if (hoveredArtifactId) {
@@ -1231,7 +1271,7 @@ export const DataCanvas: React.FC = () => {
   }, [
       artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
       setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
-      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners, pathCreationOptions, proj
+      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners, pathCreationOptions, proj, setSelectedCellForPlot
   ]);
 
   const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
