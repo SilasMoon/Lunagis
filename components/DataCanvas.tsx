@@ -10,6 +10,15 @@ import { useDebounce } from '../hooks/useDebounce';
 declare const d3: any;
 declare const proj4: any;
 
+/**
+ * Fast hash function for custom colormap
+ * Replaces expensive JSON.stringify for cache key generation
+ */
+const hashColormap = (colormap: Array<{ value: number; color: string }> | undefined): string => {
+  if (!colormap || colormap.length === 0) return '';
+  return colormap.map(s => `${s.value}:${s.color}`).join('|');
+};
+
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center text-gray-400">
         <svg className="animate-spin h-10 w-10 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -166,7 +175,7 @@ export const DataCanvas: React.FC = () => {
           }
         }
         if (layer.colormap === 'Custom') {
-            baseKey += `-${JSON.stringify(layer.customColormap)}`;
+            baseKey += `-${hashColormap(layer.customColormap)}`;
         }
         cacheKey = baseKey;
         
