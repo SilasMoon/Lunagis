@@ -489,17 +489,52 @@ export const DataCanvas: React.FC = () => {
             }
 
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
-            
+
+            // Draw longitude lines (meridians)
             for (let lon = -180; lon <= 180; lon += lonStep) {
-                try {
-                    gratCtx.beginPath(); for (let i = 0; i <= 100; i++) { const lat = -90 + (i/100)*180, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
-                } catch(e) {}
+                gratCtx.beginPath();
+                let hasValidPoint = false;
+                for (let i = 0; i <= 100; i++) {
+                    const lat = -90 + (i/100)*180;
+                    try {
+                        const pt = proj.forward([lon, lat]);
+                        if (isFinite(pt[0]) && isFinite(pt[1])) {
+                            if (!hasValidPoint) {
+                                gratCtx.moveTo(pt[0], pt[1]);
+                                hasValidPoint = true;
+                            } else {
+                                gratCtx.lineTo(pt[0], pt[1]);
+                            }
+                        }
+                    } catch(e) {
+                        // Skip invalid points but continue drawing the line
+                    }
+                }
+                if (hasValidPoint) gratCtx.stroke();
                 try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
             }
+
+            // Draw latitude lines (parallels)
             for (let lat = -90; lat <= 90; lat += latStep) {
-                try {
-                    gratCtx.beginPath(); for (let i = 0; i <= 200; i++) { const lon = -180 + (i/200)*360, pt = proj.forward([lon, lat]); if (i === 0) gratCtx.moveTo(pt[0], pt[1]); else gratCtx.lineTo(pt[0], pt[1]); } gratCtx.stroke();
-                } catch(e) {}
+                gratCtx.beginPath();
+                let hasValidPoint = false;
+                for (let i = 0; i <= 200; i++) {
+                    const lon = -180 + (i/200)*360;
+                    try {
+                        const pt = proj.forward([lon, lat]);
+                        if (isFinite(pt[0]) && isFinite(pt[1])) {
+                            if (!hasValidPoint) {
+                                gratCtx.moveTo(pt[0], pt[1]);
+                                hasValidPoint = true;
+                            } else {
+                                gratCtx.lineTo(pt[0], pt[1]);
+                            }
+                        }
+                    } catch(e) {
+                        // Skip invalid points but continue drawing the line
+                    }
+                }
+                if (hasValidPoint) gratCtx.stroke();
                 try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
         }
