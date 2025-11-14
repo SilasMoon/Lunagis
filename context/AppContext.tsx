@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { parseNpy } from '../services/npyParser';
 import { parseVrt } from '../services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer } from '../types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer } from '../types';
 import { indexToDate } from '../utils/time';
 import * as analysisService from '../services/analysisService';
 import { useToast } from '../components/Toast';
@@ -101,6 +101,7 @@ interface AppContextType {
     onAddDteCommsLayer: (file: File) => void;
     onAddLpfCommsLayer: (file: File) => void;
     onAddBaseMapLayer: (pngFile: File, vrtFile: File) => void;
+    onAddImageLayer: (file: File, initialPosition?: [number, number]) => Promise<void>;
     onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
     onRemoveLayer: (id: string) => void;
     onCalculateNightfallLayer: (sourceLayerId: string) => void;
@@ -515,6 +516,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }, []);
 
+    const onAddImageLayer = useCallback(async (file: File, initialPosition?: [number, number]) => {
+      setIsLoading(`Loading image "${file.name}"...`);
+      try {
+          const objectUrl = URL.createObjectURL(file);
+          const image = await dataUrlToImage(objectUrl);
+          URL.revokeObjectURL(objectUrl);
+
+          // Default position: center of current view or [0, 0]
+          const position: [number, number] = initialPosition || (viewState ? viewState.center : [0, 0]);
+
+          const newLayer: ImageLayer = {
+              id: `image-${Date.now()}`,
+              name: file.name,
+              type: 'image',
+              visible: true,
+              opacity: 0.7, // Default to 70% opacity for overlay purposes
+              image,
+              fileName: file.name,
+              position,
+              scaleX: 1.0,
+              scaleY: 1.0,
+              rotation: 0,
+              originalWidth: image.width,
+              originalHeight: image.height,
+          };
+
+          setLayers(prev => [...prev, newLayer]);
+          setActiveLayerId(newLayer.id);
+          showSuccess(`Image layer "${file.name}" added successfully`);
+      } catch (error) {
+          showError(`Error loading image: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+          setIsLoading(null);
+      }
+    }, [viewState, showSuccess, showError]);
+
     const onUpdateLayer = useCallback((id: string, updates: Partial<Layer>) => {
       setLayers(prevLayers =>
         prevLayers.map(l => (l.id === id ? ({ ...l, ...updates } as Layer) : l))
@@ -822,6 +859,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (l.type === 'basemap') {
                   const { image, ...rest } = l; // Omit non-serializable image element
                   return rest;
+              } else if (l.type === 'image') {
+                  // Convert image to data URL for export
+                  const canvas = document.createElement('canvas');
+                  canvas.width = l.image.width;
+                  canvas.height = l.image.height;
+                  const ctx = canvas.getContext('2d')!;
+                  ctx.drawImage(l.image, 0, 0);
+                  const imageDataUrl = canvas.toDataURL('image/png');
+                  const { image, ...rest } = l;
+                  return { ...rest, imageDataUrl };
               } else { // data, analysis, or comms
                   const { dataset, ...rest } = l; // Omit large dataset
                   return rest;
@@ -881,6 +928,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                       requiredFiles.push(l.pngFileName);
                       requiredFiles.push(l.vrtFileName);
                   }
+                  // Image layers don't need separate files - they're embedded as data URLs
               }
 
               if (requiredFiles.length > 0) {
@@ -936,7 +984,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               } else if (sLayer.type === 'data' || sLayer.type === 'dte_comms' || sLayer.type === 'lpf_comms') {
                   const file = fileMap.get(sLayer.fileName);
                   if (!file) throw new Error(`Required file "${sLayer.fileName}" was not provided.`);
-                  
+
                   const arrayBuffer = await file.arrayBuffer();
                   const { data: float32Array, shape, header } = parseNpy(arrayBuffer);
                   const [height, width, time] = shape;
@@ -946,6 +994,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   else { for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let t = 0; t < time; t++) dataset[t][y][x] = float32Array[flatIndex++]; }
 
                   const layer: DataLayer | DteCommsLayer | LpfCommsLayer = { ...sLayer, dataset };
+                  newLayers.push(layer);
+              } else if (sLayer.type === 'image') {
+                  // Load image from embedded data URL
+                  const image = await dataUrlToImage(sLayer.imageDataUrl);
+                  const { imageDataUrl, ...rest } = sLayer;
+                  const layer: ImageLayer = { ...rest, image };
                   newLayers.push(layer);
               }
           }
@@ -1085,6 +1139,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onAddDteCommsLayer,
         onAddLpfCommsLayer,
         onAddBaseMapLayer,
+        onAddImageLayer,
         onUpdateLayer,
         onRemoveLayer,
         onMoveLayerUp,

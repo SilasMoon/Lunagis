@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, ImageLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
@@ -196,14 +196,41 @@ export const DataCanvas: React.FC = () => {
     // --- Render Layers ---
     layers.forEach(layer => {
       if (!layer.visible) return;
-      
+
       if (layer.type === 'basemap') {
         const gt = layer.vrt.geoTransform;
         baseCtx.save(); baseCtx.globalAlpha = layer.opacity;
         baseCtx.transform(gt[1], gt[4], gt[2], gt[5], gt[0], gt[3]);
         baseCtx.drawImage(layer.image, 0, 0);
         baseCtx.restore();
-      } 
+      }
+      else if (layer.type === 'image') {
+        // Render image layer with transformation
+        baseCtx.save();
+        baseCtx.globalAlpha = layer.opacity;
+
+        // Move to the image position
+        baseCtx.translate(layer.position[0], layer.position[1]);
+
+        // Apply rotation
+        const rotationRad = (layer.rotation * Math.PI) / 180;
+        baseCtx.rotate(rotationRad);
+
+        // Apply scaling
+        const displayWidth = layer.originalWidth * layer.scaleX;
+        const displayHeight = layer.originalHeight * layer.scaleY;
+
+        // Draw image centered at position
+        baseCtx.drawImage(
+          layer.image,
+          -displayWidth / 2,
+          -displayHeight / 2,
+          displayWidth,
+          displayHeight
+        );
+
+        baseCtx.restore();
+      }
       else if ((layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms') && proj) {
         let cacheKey: string;
         const invertedStr = !!layer.colormapInverted;
