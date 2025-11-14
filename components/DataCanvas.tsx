@@ -514,8 +514,6 @@ export const DataCanvas: React.FC = () => {
             const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
             const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
 
-            console.log('[GRATICULE DEBUG] lonSpan:', lonSpan, 'latSpan:', latSpan, 'lonStep:', lonStep, 'latStep:', latStep);
-
             let anchorLon = 0, anchorLat = 0;
             try {
                 const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
@@ -528,8 +526,6 @@ export const DataCanvas: React.FC = () => {
             }
 
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
-
-            console.log('[GRATICULE] Drawing graticule - lonStep:', lonStep, 'latStep:', latStep, 'lonSpan:', lonSpan, 'latSpan:', latSpan);
 
             // Draw longitude lines (meridians) - vertical lines running north-south
             let lonLinesAttempted = 0, lonLinesDrawn = 0, lonPointsTotal = 0;
@@ -555,7 +551,6 @@ export const DataCanvas: React.FC = () => {
                             // Skip this point if projection fails, but continue the line
                         }
                     }
-                    if (isFirstLon) console.log('[GRATICULE] First lon line (lon=' + lon + ') sample points:', samplePoints);
                     // Only stroke if we have at least 2 points (to make a line)
                     if (pointCount >= 2) {
                         gratCtx.stroke();
@@ -563,11 +558,10 @@ export const DataCanvas: React.FC = () => {
                         lonPointsTotal += pointCount;
                     }
                 } catch (e) {
-                    console.warn('Failed to draw longitude line at', lon, e);
+                    // Skip this line if drawing fails
                 }
                 try { const p = proj.forward([lon, anchorLat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
             }
-            console.log('[GRATICULE] Longitude: attempted', lonLinesAttempted, 'drawn', lonLinesDrawn, 'total points', lonPointsTotal);
 
             // Draw latitude lines (parallels) - horizontal lines running east-west
             let latLinesAttempted = 0, latLinesDrawn = 0, latPointsTotal = 0;
@@ -597,11 +591,10 @@ export const DataCanvas: React.FC = () => {
                         latPointsTotal += pointCount;
                     }
                 } catch (e) {
-                    console.warn('Failed to draw latitude line at', lat, e);
+                    // Skip this line if drawing fails
                 }
                 try { const p = proj.forward([anchorLon, lat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
-            console.log('[GRATICULE] Latitude: attempted', latLinesAttempted, 'drawn', latLinesDrawn, 'total points', latPointsTotal);
         }
     }
     contexts.forEach(ctx => ctx.restore());
