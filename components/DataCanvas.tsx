@@ -492,71 +492,79 @@ export const DataCanvas: React.FC = () => {
 
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
 
-            // Draw longitude lines (meridians)
-            let lonLinesDrawn = 0;
-            let lonPointsDrawn = 0;
-            for (let lon = -180; lon <= 180; lon += lonStep) {
-                gratCtx.beginPath();
-                let hasValidPoint = false;
-                let validPointsInLine = 0;
-                for (let i = 0; i <= 100; i++) {
-                    const lat = -90 + (i/100)*180;
-                    try {
-                        const pt = proj.forward([lon, lat]);
-                        if (isFinite(pt[0]) && isFinite(pt[1])) {
-                            if (!hasValidPoint) {
-                                gratCtx.moveTo(pt[0], pt[1]);
-                                hasValidPoint = true;
-                            } else {
-                                gratCtx.lineTo(pt[0], pt[1]);
-                            }
-                            validPointsInLine++;
-                        }
-                    } catch(e) {
-                        // Skip invalid points but continue drawing the line
-                    }
-                }
-                if (hasValidPoint) {
-                    gratCtx.stroke();
-                    lonLinesDrawn++;
-                    lonPointsDrawn += validPointsInLine;
-                }
-                try { const p = proj.forward([lon, anchorLat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
-            }
-            console.log('[GRATICULE DEBUG] Longitude lines drawn:', lonLinesDrawn, 'Total points:', lonPointsDrawn);
+            console.log('[GRATICULE] Drawing graticule - lonStep:', lonStep, 'latStep:', latStep, 'lonSpan:', lonSpan, 'latSpan:', latSpan);
 
-            // Draw latitude lines (parallels)
-            let latLinesDrawn = 0;
-            let latPointsDrawn = 0;
-            for (let lat = -90; lat <= 90; lat += latStep) {
-                gratCtx.beginPath();
-                let hasValidPoint = false;
-                let validPointsInLine = 0;
-                for (let i = 0; i <= 200; i++) {
-                    const lon = -180 + (i/200)*360;
-                    try {
-                        const pt = proj.forward([lon, lat]);
-                        if (isFinite(pt[0]) && isFinite(pt[1])) {
-                            if (!hasValidPoint) {
-                                gratCtx.moveTo(pt[0], pt[1]);
-                                hasValidPoint = true;
-                            } else {
-                                gratCtx.lineTo(pt[0], pt[1]);
+            // Draw longitude lines (meridians) - vertical lines running north-south
+            let lonLinesAttempted = 0, lonLinesDrawn = 0, lonPointsTotal = 0;
+            for (let lon = -180; lon <= 180; lon += lonStep) {
+                lonLinesAttempted++;
+                const isFirstLon = (lonLinesAttempted === 1);
+                try {
+                    gratCtx.beginPath();
+                    let pointCount = 0;
+                    const samplePoints: any[] = [];
+                    for (let i = 0; i <= 100; i++) {
+                        const lat = -90 + (i/100)*180;
+                        try {
+                            const pt = proj.forward([lon, lat]);
+                            // Only use point if coordinates are finite (not NaN or Infinity)
+                            if (isFinite(pt[0]) && isFinite(pt[1])) {
+                                if (pointCount === 0) gratCtx.moveTo(pt[0], pt[1]);
+                                else gratCtx.lineTo(pt[0], pt[1]);
+                                pointCount++;
+                                if (isFirstLon && i % 25 === 0) samplePoints.push({lat, pt});
                             }
-                            validPointsInLine++;
+                        } catch (err) {
+                            // Skip this point if projection fails, but continue the line
                         }
-                    } catch(e) {
-                        // Skip invalid points but continue drawing the line
                     }
+                    if (isFirstLon) console.log('[GRATICULE] First lon line (lon=' + lon + ') sample points:', samplePoints);
+                    // Only stroke if we have at least 2 points (to make a line)
+                    if (pointCount >= 2) {
+                        gratCtx.stroke();
+                        lonLinesDrawn++;
+                        lonPointsTotal += pointCount;
+                    }
+                } catch (e) {
+                    console.warn('Failed to draw longitude line at', lon, e);
                 }
-                if (hasValidPoint) {
-                    gratCtx.stroke();
-                    latLinesDrawn++;
-                    latPointsDrawn += validPointsInLine;
-                }
-                try { const p = proj.forward([anchorLon, lat]); if (p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
+                try { const p = proj.forward([lon, anchorLat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
             }
-            console.log('[GRATICULE DEBUG] Latitude lines drawn:', latLinesDrawn, 'Total points:', latPointsDrawn);
+            console.log('[GRATICULE] Longitude: attempted', lonLinesAttempted, 'drawn', lonLinesDrawn, 'total points', lonPointsTotal);
+
+            // Draw latitude lines (parallels) - horizontal lines running east-west
+            let latLinesAttempted = 0, latLinesDrawn = 0, latPointsTotal = 0;
+            for (let lat = -90; lat <= 90; lat += latStep) {
+                latLinesAttempted++;
+                try {
+                    gratCtx.beginPath();
+                    let pointCount = 0;
+                    for (let i = 0; i <= 200; i++) {
+                        const lon = -180 + (i/200)*360;
+                        try {
+                            const pt = proj.forward([lon, lat]);
+                            // Only use point if coordinates are finite (not NaN or Infinity)
+                            if (isFinite(pt[0]) && isFinite(pt[1])) {
+                                if (pointCount === 0) gratCtx.moveTo(pt[0], pt[1]);
+                                else gratCtx.lineTo(pt[0], pt[1]);
+                                pointCount++;
+                            }
+                        } catch (err) {
+                            // Skip this point if projection fails, but continue the line
+                        }
+                    }
+                    // Only stroke if we have at least 2 points (to make a line)
+                    if (pointCount >= 2) {
+                        gratCtx.stroke();
+                        latLinesDrawn++;
+                        latPointsTotal += pointCount;
+                    }
+                } catch (e) {
+                    console.warn('Failed to draw latitude line at', lat, e);
+                }
+                try { const p = proj.forward([anchorLon, lat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
+            }
+            console.log('[GRATICULE] Latitude: attempted', latLinesAttempted, 'drawn', latLinesDrawn, 'total points', latPointsTotal);
         }
     }
     contexts.forEach(ctx => ctx.restore());
