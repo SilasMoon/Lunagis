@@ -79,36 +79,6 @@ const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]
   return R * c;
 };
 
-/**
- * Calculate a destination point given a start point, distance, and bearing
- * @param coord - [lon, lat] starting point in degrees
- * @param distance - Distance in meters
- * @param bearing - Bearing in degrees (0 = north, 90 = east)
- * @returns Destination [lon, lat] in degrees
- */
-const calculateDestinationPoint = (coord: [number, number], distance: number, bearing: number): [number, number] => {
-  const R = 6371000; // Earth's radius in meters
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const toDeg = (rad: number) => (rad * 180) / Math.PI;
-
-  const [lon1, lat1] = coord;
-  const lat1Rad = toRad(lat1);
-  const lon1Rad = toRad(lon1);
-  const bearingRad = toRad(bearing);
-
-  const lat2Rad = Math.asin(
-    Math.sin(lat1Rad) * Math.cos(distance / R) +
-    Math.cos(lat1Rad) * Math.sin(distance / R) * Math.cos(bearingRad)
-  );
-
-  const lon2Rad = lon1Rad + Math.atan2(
-    Math.sin(bearingRad) * Math.sin(distance / R) * Math.cos(lat1Rad),
-    Math.cos(distance / R) - Math.sin(lat1Rad) * Math.sin(lat2Rad)
-  );
-
-  return [toDeg(lon2Rad), toDeg(lat2Rad)];
-};
-
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center text-gray-400">
         <svg className="animate-spin h-10 w-10 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -808,16 +778,9 @@ export const DataCanvas: React.FC = () => {
                 try {
                     const lastWaypointGeo = lastWaypoint.geoPosition;
 
-                    // Calculate a point exactly maxLength meters away (eastward, 90 degrees)
-                    // This uses accurate Haversine-based calculation
-                    const edgeGeo = calculateDestinationPoint(lastWaypointGeo, maxLength, 90);
-                    const edgeProj = proj.forward(edgeGeo);
-
-                    // Calculate radius in projected space
-                    radiusProj = Math.sqrt(
-                        Math.pow(edgeProj[0] - lastWaypointProj[0], 2) +
-                        Math.pow(edgeProj[1] - lastWaypointProj[1], 2)
-                    );
+                    // Use maxLength directly as radius in projected units (meters)
+                    // This matches how circle artifacts work - the projected coordinate system is in meters
+                    radiusProj = maxLength;
 
                     // Calculate distance from last waypoint to cursor
                     const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
