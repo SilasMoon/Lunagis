@@ -241,8 +241,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (selectedPixel) {
           const layer = layers.find(l => l.id === selectedPixel.layerId);
           if (layer?.type === 'data' || (layer?.type === 'analysis') || layer?.type === 'dte_comms' || layer?.type === 'lpf_comms') {
-              const series = layer.dataset.map(slice => slice[selectedPixel.y][selectedPixel.x]);
-              setTimeSeriesData({data: series, range: layer.range});
+              // Check if selected pixel coordinates are within bounds for this layer
+              if (selectedPixel.y < layer.dimensions.height && selectedPixel.x < layer.dimensions.width) {
+                  const series = layer.dataset.map(slice => slice?.[selectedPixel.y]?.[selectedPixel.x] ?? 0);
+                  setTimeSeriesData({data: series, range: layer.range});
+              } else {
+                  setTimeSeriesData(null);
+              }
           } else {
               setTimeSeriesData(null);
           }
@@ -258,17 +263,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const sourceLayer = layers.find(l => l.id === activeLayer.sourceLayerId) as DataLayer | undefined;
           if (sourceLayer) {
             const { x, y } = selectedPixel;
+            // Check if coordinates are within bounds for source layer
+            if (y >= sourceLayer.dimensions.height || x >= sourceLayer.dimensions.width) {
+              setDaylightFractionHoverData(null);
+              return;
+            }
+
             const { start, end } = timeRange;
             const totalHours = end - start + 1;
             let dayHours = 0;
-            
+
             let longestDay = 0, shortestDay = Infinity, dayPeriods = 0;
             let longestNight = 0, shortestNight = Infinity, nightPeriods = 0;
             let currentPeriodType: 'day' | 'night' | null = null;
             let currentPeriodLength = 0;
 
             for (let t = start; t <= end; t++) {
-              if (t >= sourceLayer.dataset.length) continue;
+              if (t >= sourceLayer.dataset.length || !sourceLayer.dataset[t]) continue;
               const value = sourceLayer.dataset[t][y][x];
               if (value === 1) dayHours++;
 
@@ -386,7 +397,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               pngFileName: pngFile.name, vrtFileName: vrtFile.name,
           };
 
-          setLayers(prev => [newLayer, ...prev.filter(l => l.type !== 'basemap')]);
+          setLayers(prev => [newLayer, ...prev]);
           setActiveLayerId(newLayer.id);
           setViewState(null);
       } catch (error) {
@@ -406,7 +417,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLayers(prev => prev.filter(l => l.id !== id));
       if (activeLayerId === id) setActiveLayerId(null);
     }, [activeLayerId]);
-    
+
+    const onMoveLayerUp = useCallback((id: string) => {
+      setLayers(prev => {
+        const index = prev.findIndex(l => l.id === id);
+        if (index === -1 || index >= prev.length - 1) return prev; // Already at top or not found
+        const newLayers = [...prev];
+        [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+        return newLayers;
+      });
+    }, []);
+
+    const onMoveLayerDown = useCallback((id: string) => {
+      setLayers(prev => {
+        const index = prev.findIndex(l => l.id === id);
+        if (index <= 0) return prev; // Already at bottom or not found
+        const newLayers = [...prev];
+        [newLayers[index - 1], newLayers[index]] = [newLayers[index], newLayers[index - 1]];
+        return newLayers;
+      });
+    }, []);
+
     const onCalculateNightfallLayer = useCallback(async (sourceLayerId: string) => {
       const sourceLayer = layers.find(l => l.id === sourceLayerId) as DataLayer | undefined;
       if (!sourceLayer) return;
@@ -946,6 +977,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onAddBaseMapLayer,
         onUpdateLayer,
         onRemoveLayer,
+        onMoveLayerUp,
+        onMoveLayerDown,
         onCalculateNightfallLayer,
         onCalculateDaylightFractionLayer,
         onCreateExpressionLayer,
