@@ -19,6 +19,7 @@ export const TimeSlider: React.FC = () => {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
   const [width, setWidth] = useState(0);
   const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
   
@@ -72,7 +73,7 @@ export const TimeSlider: React.FC = () => {
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    
+
     const newDate = xScale.invert(x);
     const newIndex = Math.max(0, Math.min(maxTimeIndex, dateToIndex(newDate)));
 
@@ -81,7 +82,7 @@ export const TimeSlider: React.FC = () => {
       const endPos = xScale(indexToDate(timeRange.end));
       const distToStart = Math.abs(x - startPos);
       const distToEnd = Math.abs(x - endPos);
-      
+
       const grabThreshold = 20;
       if (distToStart < distToEnd && distToStart < grabThreshold) {
         setDraggingHandle('start');
@@ -91,16 +92,31 @@ export const TimeSlider: React.FC = () => {
         if (distToStart < distToEnd) setDraggingHandle('start'); else setDraggingHandle('end');
       }
     } else if (draggingHandle) {
-      if (draggingHandle === 'start') {
-        handleManualTimeRangeChange({ ...timeRange, start: Math.min(newIndex, timeRange.end) });
-      } else {
-        handleManualTimeRangeChange({ ...timeRange, end: Math.max(newIndex, timeRange.start) });
+      // Throttle updates with requestAnimationFrame
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
       }
+
+      rafRef.current = requestAnimationFrame(() => {
+        if (draggingHandle === 'start') {
+          handleManualTimeRangeChange({ ...timeRange, start: Math.min(newIndex, timeRange.end) });
+        } else {
+          handleManualTimeRangeChange({ ...timeRange, end: Math.max(newIndex, timeRange.start) });
+        }
+        rafRef.current = null;
+      });
     }
   }, [xScale, handleManualTimeRangeChange, maxTimeIndex, isDataLoaded, timeRange, draggingHandle]);
 
   useEffect(() => {
-    const handleMouseUp = () => setDraggingHandle(null);
+    const handleMouseUp = () => {
+      setDraggingHandle(null);
+      // Cancel any pending RAF on mouse up
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
     const handleMouseMove = (e: MouseEvent) => {
         if (draggingHandle) {
             handleInteraction(e, false);
@@ -115,6 +131,11 @@ export const TimeSlider: React.FC = () => {
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      // Cleanup RAF on unmount
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
   }, [draggingHandle, handleInteraction]);
 

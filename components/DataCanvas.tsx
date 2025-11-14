@@ -10,6 +10,49 @@ import { useDebounce } from '../hooks/useDebounce';
 declare const d3: any;
 declare const proj4: any;
 
+/**
+ * Fast hash function for custom colormap
+ * Replaces expensive JSON.stringify for cache key generation
+ */
+const hashColormap = (colormap: Array<{ value: number; color: string }> | undefined): string => {
+  if (!colormap || colormap.length === 0) return '';
+  return colormap.map(s => `${s.value}:${s.color}`).join('|');
+};
+
+/**
+ * Create a pre-computed color lookup table
+ * This replaces 1M+ d3.color() calls with 256 calls + fast array lookups
+ * @param colorScale - D3 color scale function
+ * @param colorDomain - [min, max] value range
+ * @param steps - Number of lookup table entries (default 256)
+ * @returns Uint8ClampedArray with RGBA values (4 bytes per color)
+ */
+const createColorLookupTable = (
+  colorScale: any,
+  colorDomain: [number, number],
+  steps: number = 256
+): Uint8ClampedArray => {
+  const table = new Uint8ClampedArray(steps * 4);
+  const [minVal, maxVal] = colorDomain;
+  const range = maxVal - minVal;
+
+  for (let i = 0; i < steps; i++) {
+    // Map lookup index to actual data value
+    const value = minVal + (range * i) / (steps - 1);
+    const color = d3.color(colorScale(value));
+
+    if (color) {
+      const baseIdx = i * 4;
+      table[baseIdx] = color.r;
+      table[baseIdx + 1] = color.g;
+      table[baseIdx + 2] = color.b;
+      table[baseIdx + 3] = color.opacity * 255;
+    }
+  }
+
+  return table;
+};
+
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center text-gray-400">
         <svg className="animate-spin h-10 w-10 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -166,7 +209,7 @@ export const DataCanvas: React.FC = () => {
           }
         }
         if (layer.colormap === 'Custom') {
-            baseKey += `-${JSON.stringify(layer.customColormap)}`;
+            baseKey += `-${hashColormap(layer.customColormap)}`;
         }
         cacheKey = baseKey;
         
@@ -192,18 +235,29 @@ export const DataCanvas: React.FC = () => {
           
           const colorScale = getColorScale(layer.colormap, colorDomain, layer.colormapInverted, layer.customColormap, isThreshold);
           const imageData = offscreenCtx.createImageData(width, height);
-          
-          for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) {
-                  const value = slice[y][x];
-                  const index = (y * width + x) * 4;
-                  const finalColor = d3.color(colorScale(value));
-                  if (finalColor) {
-                    imageData.data[index] = finalColor.r;
-                    imageData.data[index + 1] = finalColor.g;
-                    imageData.data[index + 2] = finalColor.b;
-                    imageData.data[index + 3] = finalColor.opacity * 255;
-                  }
-          }}
+
+          // Pre-compute color lookup table (256 colors instead of 1M+ d3.color() calls)
+          const colorLUT = createColorLookupTable(colorScale, colorDomain, 256);
+          const [minVal, maxVal] = colorDomain;
+          const valueRange = maxVal - minVal;
+
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              const value = slice[y][x];
+              const pixelIdx = (y * width + x) * 4;
+
+              // Map value to lookup table index (0-255)
+              let normalized = (value - minVal) / valueRange;
+              normalized = Math.max(0, Math.min(1, normalized)); // Clamp to [0, 1]
+              const lutIdx = Math.floor(normalized * 255) * 4;
+
+              // Fast lookup instead of d3.color() call
+              imageData.data[pixelIdx] = colorLUT[lutIdx];
+              imageData.data[pixelIdx + 1] = colorLUT[lutIdx + 1];
+              imageData.data[pixelIdx + 2] = colorLUT[lutIdx + 2];
+              imageData.data[pixelIdx + 3] = colorLUT[lutIdx + 3];
+            }
+          }
           offscreenCtx.putImageData(imageData, 0, 0);
           offscreenCanvasCache.set(cacheKey, offscreenCanvas);
         }
