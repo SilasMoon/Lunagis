@@ -110,6 +110,7 @@ export const DataCanvas: React.FC = () => {
   const debouncedShowGrid = useDebounce(showGrid, 50);
   const debouncedGridSpacing = useDebounce(gridSpacing, 100);
 
+  const containerRef = useRef<HTMLDivElement>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const dataCanvasRef = useRef<HTMLCanvasElement>(null);
   const artifactCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -265,6 +266,42 @@ export const DataCanvas: React.FC = () => {
       return null;
     }
   }, [viewState, layers, activeLayerId]);
+
+  // Attach wheel event listener with passive: false to allow preventDefault()
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!viewState) return;
+
+      // Prevent default scrolling behavior
+      e.preventDefault();
+
+      const rect = container.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+
+      const mouseProjBefore = canvasToProjCoords(offsetX, offsetY);
+      if (!mouseProjBefore) return;
+
+      const zoomFactor = 1 - e.deltaY * 0.001;
+      const newScale = viewState.scale * zoomFactor;
+      const dpr = window.devicePixelRatio || 1;
+      const newCenter: [number, number] = [
+        mouseProjBefore[0] - ((offsetX) * dpr - container.offsetWidth * dpr / 2) / (newScale * dpr),
+        mouseProjBefore[1] + ((offsetY) * dpr - container.offsetHeight * dpr / 2) / (newScale * dpr)
+      ];
+      setViewState({ scale: newScale, center: newCenter });
+    };
+
+    // Register with passive: false to allow preventDefault()
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [viewState, canvasToProjCoords, setViewState]);
 
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
@@ -1551,17 +1588,7 @@ export const DataCanvas: React.FC = () => {
     if (imageLayerDragInfo) setImageLayerDragInfo(null);
     if (!!draggedInfo) onArtifactDragEnd();
   };
-  
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (!viewState) return; e.preventDefault();
-    const mouseProjBefore = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-    if (!mouseProjBefore) return;
-    const zoomFactor = 1 - e.deltaY * 0.001; const newScale = viewState.scale * zoomFactor;
-    const dpr = window.devicePixelRatio || 1;
-    const newCenter: [number, number] = [ mouseProjBefore[0] - ( (e.nativeEvent.offsetX) * dpr - e.currentTarget.offsetWidth * dpr / 2) / (newScale * dpr), mouseProjBefore[1] + ( (e.nativeEvent.offsetY) * dpr - e.currentTarget.offsetHeight * dpr / 2) / (newScale * dpr) ];
-    setViewState({ scale: newScale, center: newCenter });
-  };
-  
+
   const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; setViewState({ ...viewState, scale: viewState.scale * factor }); }, [viewState, setViewState]);
   const handleResetView = useCallback(() => { if(initialViewState) { setViewState(initialViewState); } }, [initialViewState, setViewState]);
 
@@ -1584,13 +1611,13 @@ export const DataCanvas: React.FC = () => {
   }
 
   return (
-    <div 
+    <div
+      ref={containerRef}
       className="w-full h-full relative"
       onMouseDown={handleMouseDown}
-      onMouseMove={handleInteractionMove} 
-      onMouseUp={handleMouseUp} 
-      onMouseLeave={handleMouseLeave} 
-      onWheel={handleWheel}
+      onMouseMove={handleInteractionMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
       style={{ cursor: cursorStyle }}
     >
       {isRendering && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 z-50"><LoadingSpinner /></div>}
