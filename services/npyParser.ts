@@ -81,7 +81,6 @@ export function parseNpy(arrayBuffer: ArrayBuffer): NpyData {
     const float64 = new Float64Array(arrayBuffer, dataOffset);
     data = new Float32Array(float64); // This creates a copy
   } else if (dtype.includes('b1') || dtype.includes('?')) {
-    console.log("Parsing boolean .npy file. Converting to float32 (0.0, 1.0).");
     const booleanData = new Uint8Array(arrayBuffer, dataOffset);
     data = new Float32Array(booleanData.length);
     for(let i = 0; i < booleanData.length; i++) {
