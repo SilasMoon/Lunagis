@@ -261,6 +261,8 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
     const {
         onUpdateLayer,
         onRemoveLayer,
+        onMoveLayerUp,
+        onMoveLayerDown,
         onCalculateNightfallLayer,
         onCalculateDaylightFractionLayer,
         daylightFractionHoverData,
@@ -309,6 +311,14 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                 <button onClick={() => onToggleFlicker(layer.id)} title="Flicker Layer" className={`${layer.id === flickeringLayerId ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}>
                     <FlickerIcon />
                 </button>
+                <div className="flex flex-col gap-0.5">
+                    <button onClick={() => onMoveLayerUp(layer.id)} title="Move Layer Up" className="text-gray-400 hover:text-white p-0 h-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" /></svg>
+                    </button>
+                    <button onClick={() => onMoveLayerDown(layer.id)} title="Move Layer Down" className="text-gray-400 hover:text-white p-0 h-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    </button>
+                </div>
                 <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-sm">
                     <p className="font-medium text-gray-200" title={layer.name}>{layer.name}</p>
                     <p className="text-xs text-gray-400">{formatLayerType(layer.type)}</p>

@@ -386,7 +386,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               pngFileName: pngFile.name, vrtFileName: vrtFile.name,
           };
 
-          setLayers(prev => [newLayer, ...prev.filter(l => l.type !== 'basemap')]);
+          setLayers(prev => [newLayer, ...prev]);
           setActiveLayerId(newLayer.id);
           setViewState(null);
       } catch (error) {
@@ -406,7 +406,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLayers(prev => prev.filter(l => l.id !== id));
       if (activeLayerId === id) setActiveLayerId(null);
     }, [activeLayerId]);
-    
+
+    const onMoveLayerUp = useCallback((id: string) => {
+      setLayers(prev => {
+        const index = prev.findIndex(l => l.id === id);
+        if (index <= 0) return prev; // Already at top or not found
+        const newLayers = [...prev];
+        [newLayers[index - 1], newLayers[index]] = [newLayers[index], newLayers[index - 1]];
+        return newLayers;
+      });
+    }, []);
+
+    const onMoveLayerDown = useCallback((id: string) => {
+      setLayers(prev => {
+        const index = prev.findIndex(l => l.id === id);
+        if (index === -1 || index >= prev.length - 1) return prev; // Already at bottom or not found
+        const newLayers = [...prev];
+        [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+        return newLayers;
+      });
+    }, []);
+
     const onCalculateNightfallLayer = useCallback(async (sourceLayerId: string) => {
       const sourceLayer = layers.find(l => l.id === sourceLayerId) as DataLayer | undefined;
       if (!sourceLayer) return;
@@ -946,6 +966,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onAddBaseMapLayer,
         onUpdateLayer,
         onRemoveLayer,
+        onMoveLayerUp,
+        onMoveLayerDown,
         onCalculateNightfallLayer,
         onCalculateDaylightFractionLayer,
         onCreateExpressionLayer,
