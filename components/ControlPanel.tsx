@@ -352,20 +352,78 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                <CustomColormapEditor
                                    layerRange={layer.range}
                                    stops={
-                                    (layer.customColormap || []).map(s => ({ 
-                                        ...s, 
+                                    (layer.customColormap || []).map(s => ({
+                                        ...s,
                                         value: useDaysUnitForCustom ? s.value / 24 : s.value
                                     }))
                                    }
                                    onStopsChange={(stops) => {
-                                      const stopsInHours = stops.map(s => ({ 
-                                          ...s, 
+                                      const stopsInHours = stops.map(s => ({
+                                          ...s,
                                           value: useDaysUnitForCustom ? s.value * 24 : s.value
                                         }));
                                       onUpdateLayer(layer.id, { customColormap: stopsInHours });
                                    }}
                                    units={useDaysUnitForCustom ? 'days' : undefined}
                                />
+                           )}
+                           {layer.colormap !== 'Custom' && (
+                               <div className="space-y-3 p-3 bg-gray-900/30 rounded-md">
+                                   <h4 className="text-sm font-medium text-gray-300">Transparency Thresholds</h4>
+                                   <div className="space-y-2">
+                                       <div className="flex items-center gap-2">
+                                           <label className="text-xs text-gray-400 w-20 flex-shrink-0">Lower ≤</label>
+                                           <input
+                                               type="number"
+                                               step="any"
+                                               value={layer.transparencyLowerThreshold ?? ''}
+                                               onChange={(e) => {
+                                                   const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                                   onUpdateLayer(layer.id, { transparencyLowerThreshold: val });
+                                               }}
+                                               placeholder="None"
+                                               className="flex-grow bg-gray-700 text-white text-sm rounded-md p-2 border border-gray-600"
+                                           />
+                                           {layer.transparencyLowerThreshold !== undefined && (
+                                               <button
+                                                   onClick={() => onUpdateLayer(layer.id, { transparencyLowerThreshold: undefined })}
+                                                   className="text-gray-400 hover:text-red-400"
+                                                   title="Clear lower threshold"
+                                               >
+                                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                       <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                   </svg>
+                                               </button>
+                                           )}
+                                       </div>
+                                       <div className="flex items-center gap-2">
+                                           <label className="text-xs text-gray-400 w-20 flex-shrink-0">Upper ≥</label>
+                                           <input
+                                               type="number"
+                                               step="any"
+                                               value={layer.transparencyUpperThreshold ?? ''}
+                                               onChange={(e) => {
+                                                   const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                                   onUpdateLayer(layer.id, { transparencyUpperThreshold: val });
+                                               }}
+                                               placeholder="None"
+                                               className="flex-grow bg-gray-700 text-white text-sm rounded-md p-2 border border-gray-600"
+                                           />
+                                           {layer.transparencyUpperThreshold !== undefined && (
+                                               <button
+                                                   onClick={() => onUpdateLayer(layer.id, { transparencyUpperThreshold: undefined })}
+                                                   className="text-gray-400 hover:text-red-400"
+                                                   title="Clear upper threshold"
+                                               >
+                                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                       <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                   </svg>
+                                               </button>
+                                           )}
+                                       </div>
+                                       <p className="text-xs text-gray-500 italic">Values at or beyond thresholds become transparent</p>
+                                   </div>
+                               </div>
                            )}
                           <div className="flex flex-col items-center">
                             <Colorbar 

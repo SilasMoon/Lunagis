@@ -211,6 +211,13 @@ export const DataCanvas: React.FC = () => {
         if (layer.colormap === 'Custom') {
             baseKey += `-${hashColormap(layer.customColormap)}`;
         }
+        // Include transparency thresholds in cache key
+        if (layer.transparencyLowerThreshold !== undefined) {
+            baseKey += `-lt${layer.transparencyLowerThreshold}`;
+        }
+        if (layer.transparencyUpperThreshold !== undefined) {
+            baseKey += `-ut${layer.transparencyUpperThreshold}`;
+        }
         cacheKey = baseKey;
         
         let offscreenCanvas = offscreenCanvasCache.get(cacheKey);
@@ -256,6 +263,14 @@ export const DataCanvas: React.FC = () => {
               imageData.data[pixelIdx + 1] = colorLUT[lutIdx + 1];
               imageData.data[pixelIdx + 2] = colorLUT[lutIdx + 2];
               imageData.data[pixelIdx + 3] = colorLUT[lutIdx + 3];
+
+              // Apply transparency thresholds
+              if (layer.transparencyLowerThreshold !== undefined && value <= layer.transparencyLowerThreshold) {
+                imageData.data[pixelIdx + 3] = 0; // Set alpha to transparent
+              }
+              if (layer.transparencyUpperThreshold !== undefined && value >= layer.transparencyUpperThreshold) {
+                imageData.data[pixelIdx + 3] = 0; // Set alpha to transparent
+              }
             }
           }
           offscreenCtx.putImageData(imageData, 0, 0);

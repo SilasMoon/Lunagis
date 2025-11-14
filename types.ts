@@ -73,6 +73,8 @@ export interface DataLayer extends LayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number; // Values <= this become transparent
+  transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
 }
 
@@ -84,6 +86,8 @@ export interface DteCommsLayer extends LayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number; // Values <= this become transparent
+  transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
 }
 
@@ -95,6 +99,8 @@ export interface LpfCommsLayer extends LayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number; // Values <= this become transparent
+  transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
 }
 
@@ -109,6 +115,8 @@ export interface AnalysisLayer extends LayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number; // Values <= this become transparent
+  transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
   sourceLayerId?: string;
   params: {
@@ -184,6 +192,8 @@ export interface SerializableDataLayer extends SerializableLayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number;
+  transparencyUpperThreshold?: number;
   dimensions: { time: number; height: number; width: number };
 }
 
@@ -194,6 +204,8 @@ export interface SerializableDteCommsLayer extends SerializableLayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number;
+  transparencyUpperThreshold?: number;
   dimensions: { time: number; height: number; width: number };
 }
 
@@ -204,6 +216,8 @@ export interface SerializableLpfCommsLayer extends SerializableLayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number;
+  transparencyUpperThreshold?: number;
   dimensions: { time: number; height: number; width: number };
 }
 
@@ -214,6 +228,8 @@ export interface SerializableAnalysisLayer extends SerializableLayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number;
+  transparencyUpperThreshold?: number;
   dimensions: { time: number; height: number; width: number };
   sourceLayerId?: string;
   params: {
