@@ -1002,7 +1002,9 @@ const ArtifactsPanel: React.FC = () => {
         onFinishArtifactCreation,
         primaryDataLayer,
         baseMapLayer,
-        isAppendingWaypoints
+        isAppendingWaypoints,
+        pathCreationOptions,
+        setPathCreationOptions
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 
@@ -1031,6 +1033,30 @@ const ArtifactsPanel: React.FC = () => {
           ) : (
             <>
                 <p className="text-sm text-gray-400">Add and manage annotations on the map. Click a button below, then click on the map to place an artifact.</p>
+
+                {/* Path Creation Settings */}
+                <Section title="Path Creation Settings" defaultOpen={false}>
+                    <div className="space-y-2">
+                        <label className="flex flex-col gap-1">
+                            <span className="text-sm text-gray-300">Max Segment Length (m):</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="100"
+                                value={pathCreationOptions.defaultMaxSegmentLength ?? ''}
+                                placeholder="No limit"
+                                onChange={(e) => {
+                                    const value = e.target.value === '' ? null : parseFloat(e.target.value);
+                                    setPathCreationOptions({ defaultMaxSegmentLength: value });
+                                }}
+                                className="bg-gray-700 text-white rounded p-2 border border-gray-600 text-sm"
+                                title="Maximum distance between waypoints. A visual guide circle will be shown during path creation."
+                            />
+                            <span className="text-xs text-gray-500">Set a limit before creating a path. Leave empty for no limit.</span>
+                        </label>
+                    </div>
+                </Section>
+
                 <div className="grid grid-cols-3 gap-2">
                     <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Circle</button>
                     <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Rect</button>

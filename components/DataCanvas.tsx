@@ -53,6 +53,32 @@ const createColorLookupTable = (
   return table;
 };
 
+/**
+ * Calculate the Haversine distance between two geographic coordinates
+ * @param coord1 - [lon, lat] in degrees
+ * @param coord2 - [lon, lat] in degrees
+ * @returns Distance in meters
+ */
+const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]): number => {
+  const R = 6371000; // Earth's radius in meters
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+  const [lon1, lat1] = coord1;
+  const [lon2, lat2] = coord2;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center text-gray-400">
         <svg className="animate-spin h-10 w-10 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -70,7 +96,8 @@ export const DataCanvas: React.FC = () => {
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
-    setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer
+    setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer, pathCreationOptions,
+    activeArtifactId
   } = useAppContext();
 
   const timeIndex = timeRange?.start ?? 0;
@@ -732,6 +759,111 @@ export const DataCanvas: React.FC = () => {
         }
     }
 
+    // Draw path creation preview (dashed circle and preview line)
+    if ((artifactCreationMode === 'path' || isAppendingWaypoints) && currentMouseProjCoords && proj && activeArtifactId) {
+        const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
+
+        if (pathBeingDrawn && pathBeingDrawn.waypoints.length > 0) {
+            const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
+            const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+
+            let previewEndProj = currentMouseProjCoords; // Default: preview to cursor
+            let radiusProj: number | null = null;
+            let distance = 0;
+            let isOverLimit = false;
+
+            // Calculate radius and bounded preview point if max length is set
+            if (maxLength) {
+                try {
+                    const lastWaypointGeo = lastWaypoint.geoPosition;
+
+                    // Use maxLength directly as radius in projected units (meters)
+                    // This matches how circle artifacts work - the projected coordinate system is in meters
+                    radiusProj = maxLength;
+
+                    // Calculate distance in projected space from last waypoint to cursor
+                    const dx = currentMouseProjCoords[0] - lastWaypointProj[0];
+                    const dy = currentMouseProjCoords[1] - lastWaypointProj[1];
+                    const distProj = Math.sqrt(dx * dx + dy * dy);
+
+                    // Check if cursor is beyond circle boundary in projected space
+                    isOverLimit = distProj > radiusProj;
+
+                    // Calculate geodesic distance for display
+                    const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
+                    distance = calculateGeoDistance(lastWaypointGeo, [cursorGeo[0], cursorGeo[1]]);
+
+                    // Always clamp preview to circle boundary if cursor is beyond it
+                    if (distProj > radiusProj) {
+                        // Clamp to circle boundary in direction of cursor
+                        const ratio = radiusProj / distProj;
+                        previewEndProj = [
+                            lastWaypointProj[0] + dx * ratio,
+                            lastWaypointProj[1] + dy * ratio
+                        ];
+                    }
+                } catch (e) {
+                    // Ignore calculation errors, keep preview at cursor
+                }
+            }
+
+            // Draw dashed preview line from last waypoint to preview end point
+            ctx.save();
+            ctx.strokeStyle = pathBeingDrawn.color;
+            ctx.setLineDash([10 / effectiveScale, 10 / effectiveScale]);
+            ctx.lineWidth = pathBeingDrawn.thickness / effectiveScale;
+            ctx.beginPath();
+            ctx.moveTo(lastWaypointProj[0], lastWaypointProj[1]);
+            ctx.lineTo(previewEndProj[0], previewEndProj[1]);
+            ctx.stroke();
+            ctx.restore();
+
+            // Draw preview waypoint dot at the end of the preview line
+            ctx.save();
+            ctx.fillStyle = pathBeingDrawn.color;
+            ctx.globalAlpha = 0.6;
+            const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+            ctx.beginPath();
+            ctx.arc(previewEndProj[0], previewEndProj[1], dotRadius, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+
+            // Draw dashed circle around last waypoint if max segment length is set
+            if (maxLength && radiusProj) {
+                ctx.save();
+                ctx.strokeStyle = pathBeingDrawn.color;
+                ctx.setLineDash([15 / effectiveScale, 10 / effectiveScale]);
+                ctx.lineWidth = 1 / effectiveScale;
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.arc(lastWaypointProj[0], lastWaypointProj[1], radiusProj, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.restore();
+
+                // Display distance from last waypoint to cursor (at cursor, not at preview end)
+                try {
+                    ctx.save();
+                    ctx.translate(currentMouseProjCoords[0], currentMouseProjCoords[1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+                    const label = `${distance.toFixed(0)} m`;
+                    ctx.fillStyle = isOverLimit ? '#ff5555' : '#ffffff';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'bottom';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeText(label, 10, -10);
+                    ctx.fillText(label, 10, -10);
+                    ctx.restore();
+                } catch (e) {
+                    // Ignore projection errors
+                }
+            }
+        }
+    }
+
     // Draw interactive handles for active image layer
     if (activeLayerId) {
       const activeImageLayer = layers.find(l => l.id === activeLayerId && l.type === 'image');
@@ -788,7 +920,7 @@ export const DataCanvas: React.FC = () => {
     }
 
     ctx.restore();
-  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner, calculateRectangleFromCellCorners, getRectangleCorners, primaryDataLayer, layers, activeLayerId]);
+  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner, calculateRectangleFromCellCorners, getRectangleCorners, primaryDataLayer, layers, activeLayerId, isAppendingWaypoints, activeArtifactId, pathCreationOptions]);
 
 
   useEffect(() => {
@@ -856,17 +988,41 @@ export const DataCanvas: React.FC = () => {
         setSelectedPixel(null);
     }
   }, [coordinateTransformer, layers, setHoveredCoords, setSelectedPixel]);
-  
-  const { activeArtifactId } = useAppContext();
-  
+
   const onMapClick = useCallback((coords: GeoCoordinates, projCoords: [number, number]) => {
     if (!coords) return;
 
     if (artifactCreationMode === 'path') {
-        const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path');
+        const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
         if (pathBeingDrawn) {
             // Add waypoint to existing path-in-progress
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: `WP${pathBeingDrawn.waypoints.length + 1}` };
+            let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+
+            // Clamp to max distance if configured
+            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+            if (maxLength && pathBeingDrawn.waypoints.length > 0) {
+                const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
+                const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+
+                // Calculate distance in projected space
+                const dx = projCoords[0] - lastWaypointProj[0];
+                const dy = projCoords[1] - lastWaypointProj[1];
+                const distProj = Math.sqrt(dx * dx + dy * dy);
+
+                // If beyond max distance, clamp to circle boundary
+                if (distProj > maxLength) {
+                    const ratio = maxLength / distProj;
+                    const clampedProjCoords: [number, number] = [
+                        lastWaypointProj[0] + dx * ratio,
+                        lastWaypointProj[1] + dy * ratio
+                    ];
+                    // Convert back to geographic coordinates
+                    const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+                    waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                }
+            }
+
+            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${pathBeingDrawn.waypoints.length + 1}` };
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
             // First click: create the path
@@ -916,9 +1072,35 @@ export const DataCanvas: React.FC = () => {
         }
       }
     } else if (isAppendingWaypoints) {
-      const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
+      const activeArtifact = artifacts.find(a => a.id === activeArtifactId) as PathArtifact | undefined;
       if (activeArtifact && activeArtifact.type === 'path') {
-          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: `WP${activeArtifact.waypoints.length + 1}` };
+          let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+
+          // Clamp to max distance if configured
+          const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+          if (maxLength && activeArtifact.waypoints.length > 0) {
+              const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
+              const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+
+              // Calculate distance in projected space
+              const dx = projCoords[0] - lastWaypointProj[0];
+              const dy = projCoords[1] - lastWaypointProj[1];
+              const distProj = Math.sqrt(dx * dx + dy * dy);
+
+              // If beyond max distance, clamp to circle boundary
+              if (distProj > maxLength) {
+                  const ratio = maxLength / distProj;
+                  const clampedProjCoords: [number, number] = [
+                      lastWaypointProj[0] + dx * ratio,
+                      lastWaypointProj[1] + dy * ratio
+                  ];
+                  // Convert back to geographic coordinates
+                  const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+                  waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+              }
+          }
+
+          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${activeArtifact.waypoints.length + 1}` };
           onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
     } else if (activeTool === 'measurement') {
@@ -944,7 +1126,7 @@ export const DataCanvas: React.FC = () => {
   }, [
       artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
       setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
-      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners
+      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners, pathCreationOptions, proj
   ]);
 
   const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {

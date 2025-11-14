@@ -286,5 +286,8 @@ export interface AppStateConfig {
     showSegmentLengths: boolean;
     labelFontSize: number;
   };
+  pathCreationOptions: {
+    defaultMaxSegmentLength: number | null; // in meters, null means no limit
+  };
   nightfallPlotYAxisRange: { min: number; max: number; };
 }

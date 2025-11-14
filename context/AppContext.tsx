@@ -52,6 +52,7 @@ interface AppContextType {
     isAppendingWaypoints: boolean;
     draggedInfo: { artifactId: string; waypointId?: string; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; } | null;
     artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
+    pathCreationOptions: { defaultMaxSegmentLength: number | null; };
     nightfallPlotYAxisRange: { min: number; max: number; };
     isCreatingExpression: boolean;
     
@@ -93,6 +94,7 @@ interface AppContextType {
     setIsAppendingWaypoints: React.Dispatch<React.SetStateAction<boolean>>;
     setDraggedInfo: React.Dispatch<React.SetStateAction<{ artifactId: string; waypointId?: string; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; } | null>>;
     setArtifactDisplayOptions: React.Dispatch<React.SetStateAction<{ waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }>>;
+    setPathCreationOptions: React.Dispatch<React.SetStateAction<{ defaultMaxSegmentLength: number | null; }>>;
     onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
     setIsCreatingExpression: React.Dispatch<React.SetStateAction<boolean>>;
 
@@ -188,6 +190,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       waypointDotSize: 8,
       showSegmentLengths: true,
       labelFontSize: 14,
+    });
+    const [pathCreationOptions, setPathCreationOptions] = useState({
+      defaultMaxSegmentLength: 200 as number | null, // in meters, null means no limit
     });
     const [nightfallPlotYAxisRange, setNightfallPlotYAxisRange] = useState<{ min: number; max: number; }>({ min: -15, max: 15 });
 
@@ -793,6 +798,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onFinishArtifactCreation = useCallback(() => {
       setArtifactCreationMode(null);
       setIsAppendingWaypoints(false);
+      setActiveArtifactId(null); // Clear active artifact to allow creating new paths
     }, []);
     
     const onStartAppendWaypoints = useCallback(() => {
@@ -892,6 +898,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               activeTool,
               artifacts: artifacts.map(a => ({...a})),
               artifactDisplayOptions,
+              pathCreationOptions,
               nightfallPlotYAxisRange,
           };
           
@@ -910,7 +917,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } finally {
           setIsLoading(null);
       }
-    }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions, nightfallPlotYAxisRange]);
+    }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions, pathCreationOptions, nightfallPlotYAxisRange]);
 
     const onImportConfig = useCallback((file: File) => {
       setIsLoading("Reading config file...");
@@ -1055,6 +1062,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
           }
           setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14 });
+          setPathCreationOptions(config.pathCreationOptions || { defaultMaxSegmentLength: 200 });
           setNightfallPlotYAxisRange(config.nightfallPlotYAxisRange || { min: -15, max: 15 });
 
       } catch (e) {
@@ -1132,6 +1140,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAppendingWaypoints,
         setDraggedInfo,
         setArtifactDisplayOptions,
+        pathCreationOptions,
+        setPathCreationOptions,
         onNightfallPlotYAxisRangeChange: setNightfallPlotYAxisRange,
         setIsCreatingExpression,
         clearHoverState,
