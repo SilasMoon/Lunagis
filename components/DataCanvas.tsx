@@ -69,7 +69,7 @@ export const DataCanvas: React.FC = () => {
     clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
-    isAppendingWaypoints, coordinateTransformer,
+    isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
     setActiveArtifactId, setArtifacts, setSelectedCells
   } = useAppContext();
 
@@ -99,6 +99,15 @@ export const DataCanvas: React.FC = () => {
   const [initialViewState, setInitialViewState] = useState<ViewState | null>(null);
   const [hoveredArtifactId, setHoveredArtifactId] = useState<string | null>(null);
   const [hoveredWaypointInfo, setHoveredWaypointInfo] = useState<{ artifactId: string; waypointId: string } | null>(null);
+  const [rectangleFirstCorner, setRectangleFirstCorner] = useState<[number, number] | null>(null);
+  const [currentMouseProjCoords, setCurrentMouseProjCoords] = useState<[number, number] | null>(null);
+
+  // Clear rectangle first corner when exiting rectangle creation mode
+  useEffect(() => {
+    if (artifactCreationMode !== 'rectangle') {
+      setRectangleFirstCorner(null);
+    }
+  }, [artifactCreationMode]);
 
   const combinedBounds = useMemo(() => {
     if (!primaryDataLayer && !baseMapLayer) return null;
@@ -354,7 +363,64 @@ export const DataCanvas: React.FC = () => {
     contexts.forEach(ctx => ctx.restore());
     if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
   }, [layers, timeIndex, showGraticule, debouncedGraticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor]);
-  
+
+  // Helper function to get the 4 corners of a rectangle artifact in projected coordinates
+  const getRectangleCorners = useCallback((artifact: RectangleArtifact): [number, number][] | null => {
+    if (!primaryDataLayer || !proj) return null;
+
+    const { width, height } = primaryDataLayer.dimensions;
+    const [lonMin, lonMax] = lonRange;
+    const [latMin, latMax] = latRange;
+
+    const c_tl = proj.forward([lonMin, latMax]);
+    const c_tr = proj.forward([lonMax, latMax]);
+    const c_bl = proj.forward([lonMin, latMin]);
+    const a = (c_tr[0] - c_tl[0]) / width;
+    const b = (c_tr[1] - c_tl[1]) / width;
+    const c = (c_bl[0] - c_tl[0]) / height;
+    const d = (c_bl[1] - c_tl[1]) / height;
+    const e = c_tl[0];
+    const f = c_tl[1];
+    const determinant = a * d - b * c;
+    if (Math.abs(determinant) < 1e-9) return null;
+
+    try {
+      // Convert center back to cell coordinates
+      const centerCellX = (d * (artifact.center[0] - e) - c * (artifact.center[1] - f)) / determinant;
+      const centerCellY = (a * (artifact.center[1] - f) - b * (artifact.center[0] - e)) / determinant;
+
+      // Calculate dimensions in cell units
+      // The stored width/height are in projected units, convert to cell units
+      const cellWidth = artifact.width / Math.sqrt(a * a + b * b);
+      const cellHeight = artifact.height / Math.sqrt(c * c + d * d);
+
+      // Calculate 4 corners in cell coordinates
+      const halfCellWidth = cellWidth / 2;
+      const halfCellHeight = cellHeight / 2;
+
+      // Round to integer cell coordinates to align with actual cell corners
+      const minCellX = Math.round(centerCellX - halfCellWidth);
+      const maxCellX = Math.round(centerCellX + halfCellWidth);
+      const minCellY = Math.round(centerCellY - halfCellHeight);
+      const maxCellY = Math.round(centerCellY + halfCellHeight);
+
+      const corners: [number, number][] = [
+        [minCellX, minCellY], // bottom-left
+        [maxCellX, minCellY], // bottom-right
+        [maxCellX, maxCellY], // top-right
+        [minCellX, maxCellY], // top-left
+      ];
+
+      // Convert corners to projected coordinates
+      return corners.map(([cx, cy]) => [
+        a * cx + c * cy + e,
+        b * cx + d * cy + f
+      ]);
+    } catch (error) {
+      return null;
+    }
+  }, [primaryDataLayer, proj, lonRange, latRange]);
+
   // Effect for drawing artifacts
   useEffect(() => {
     const canvas = artifactCanvasRef.current;
@@ -390,14 +456,17 @@ export const DataCanvas: React.FC = () => {
             ctx.arc(artifact.center[0], artifact.center[1], radiusInProjUnits, 0, 2 * Math.PI);
             ctx.stroke();
         } else if (artifact.type === 'rectangle') {
-            const w = artifact.width;
-            const h = artifact.height;
-            ctx.save();
-            ctx.translate(artifact.center[0], artifact.center[1]);
-            ctx.rotate(artifact.rotation * Math.PI / 180);
-            ctx.lineWidth = artifact.thickness / effectiveScale;
-            ctx.strokeRect(-w/2, -h/2, w, h);
-            ctx.restore();
+            const corners = getRectangleCorners(artifact);
+            if (corners && corners.length === 4) {
+                ctx.lineWidth = artifact.thickness / effectiveScale;
+                ctx.beginPath();
+                ctx.moveTo(corners[0][0], corners[0][1]);
+                ctx.lineTo(corners[1][0], corners[1][1]);
+                ctx.lineTo(corners[2][0], corners[2][1]);
+                ctx.lineTo(corners[3][0], corners[3][1]);
+                ctx.closePath();
+                ctx.stroke();
+            }
         } else if (artifact.type === 'path') {
             if (artifact.waypoints.length === 0) return;
             
@@ -504,8 +573,62 @@ export const DataCanvas: React.FC = () => {
         }
         ctx.restore();
     });
+
+    // Draw preview rectangle if in rectangle creation mode with first corner set
+    if (rectangleFirstCorner && currentMouseProjCoords && artifactCreationMode === 'rectangle' && snapToCellCorner && calculateRectangleFromCellCorners && primaryDataLayer) {
+        const snappedSecondCorner = snapToCellCorner(currentMouseProjCoords);
+        if (snappedSecondCorner) {
+            // Calculate rectangle parameters with correct orientation
+            const rectParams = calculateRectangleFromCellCorners(rectangleFirstCorner, snappedSecondCorner);
+
+            if (rectParams) {
+                // Create a temporary artifact to get its corners
+                const tempArtifact: RectangleArtifact = {
+                    id: 'preview',
+                    type: 'rectangle',
+                    name: 'Preview',
+                    visible: true,
+                    color: '#ff00ff',
+                    thickness: 2,
+                    center: rectParams.center,
+                    width: rectParams.width,
+                    height: rectParams.height,
+                    rotation: rectParams.rotation
+                };
+
+                const corners = getRectangleCorners(tempArtifact);
+
+                if (corners && corners.length === 4) {
+                    ctx.save();
+                    ctx.strokeStyle = '#ff00ff';
+                    ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
+                    ctx.lineWidth = 2 / effectiveScale;
+
+                    // Draw preview rectangle as quadrilateral
+                    ctx.beginPath();
+                    ctx.moveTo(corners[0][0], corners[0][1]);
+                    ctx.lineTo(corners[1][0], corners[1][1]);
+                    ctx.lineTo(corners[2][0], corners[2][1]);
+                    ctx.lineTo(corners[3][0], corners[3][1]);
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Draw corner markers at snapped positions
+                    ctx.save();
+                    ctx.fillStyle = '#ff00ff';
+                    const markerSize = 10 / effectiveScale;
+                    [rectangleFirstCorner, snappedSecondCorner].forEach(corner => {
+                        ctx.fillRect(corner[0] - markerSize/2, corner[1] - markerSize/2, markerSize, markerSize);
+                    });
+                    ctx.restore();
+                }
+            }
+        }
+    }
+
     ctx.restore();
-  }, [artifacts, viewState, proj, artifactDisplayOptions]);
+  }, [artifacts, viewState, proj, artifactDisplayOptions, rectangleFirstCorner, currentMouseProjCoords, artifactCreationMode, snapToCellCorner, calculateRectangleFromCellCorners, getRectangleCorners, primaryDataLayer]);
 
 
   useEffect(() => {
@@ -601,10 +724,36 @@ export const DataCanvas: React.FC = () => {
         setActiveArtifactId(newId);
         onFinishArtifactCreation();
       } else if (artifactCreationMode === 'rectangle') {
-        const newArtifact: RectangleArtifact = { id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`, visible: true, color: '#ff00ff', thickness: 2, center: projCoords, width: 1000, height: 1000, rotation: 0 };
-        setArtifacts(prev => [...prev, newArtifact]);
-        setActiveArtifactId(newId);
-        onFinishArtifactCreation();
+        if (!rectangleFirstCorner) {
+          // First click: Store the snapped first corner
+          const snappedCorner = snapToCellCorner ? snapToCellCorner(projCoords) : projCoords;
+          setRectangleFirstCorner(snappedCorner);
+        } else {
+          // Second click: Create rectangle from first corner to snapped second corner
+          const snappedSecondCorner = snapToCellCorner ? snapToCellCorner(projCoords) : projCoords;
+
+          // Calculate rectangle dimensions following cell grid orientation
+          if (calculateRectangleFromCellCorners) {
+            const rectParams = calculateRectangleFromCellCorners(rectangleFirstCorner, snappedSecondCorner);
+
+            // Only create rectangle if it has non-zero dimensions
+            if (rectParams && rectParams.width > 0 && rectParams.height > 0) {
+              const newArtifact: RectangleArtifact = {
+                id: newId, type: 'rectangle', name: `Rectangle ${artifacts.length + 1}`,
+                visible: true, color: '#ff00ff', thickness: 2,
+                center: rectParams.center,
+                width: rectParams.width,
+                height: rectParams.height,
+                rotation: rectParams.rotation
+              };
+              setArtifacts(prev => [...prev, newArtifact]);
+              setActiveArtifactId(newId);
+            }
+          }
+
+          setRectangleFirstCorner(null);
+          onFinishArtifactCreation();
+        }
       }
     } else if (isAppendingWaypoints) {
       const activeArtifact = artifacts.find(a => a.id === activeArtifactId);
@@ -633,8 +782,9 @@ export const DataCanvas: React.FC = () => {
       }
     }
   }, [
-      artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts, 
-      setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo
+      artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
+      setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
+      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners
   ]);
 
   const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
@@ -684,7 +834,54 @@ export const DataCanvas: React.FC = () => {
         setArtifacts(prev => prev.map(a => {
             if (a.id === draggedInfo.artifactId) {
                 if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
-                    return { ...a, center: [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy] };
+                    const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
+
+                    // Apply snapping for rectangles to maintain cell grid alignment
+                    if (a.type === 'rectangle' && snapToCellCorner && calculateRectangleFromCellCorners) {
+                        // Calculate the corners based on current center, width, height, and rotation
+                        const rotRad = a.rotation * Math.PI / 180;
+                        const cosR = Math.cos(rotRad);
+                        const sinR = Math.sin(rotRad);
+
+                        // Top-left corner in local coordinates
+                        const localTL = [-a.width / 2, -a.height / 2];
+                        // Rotate and translate to get projected coordinates
+                        const topLeftProj: [number, number] = [
+                            newCenter[0] + localTL[0] * cosR - localTL[1] * sinR,
+                            newCenter[1] + localTL[0] * sinR + localTL[1] * cosR
+                        ];
+
+                        // Snap top-left corner
+                        const snappedTopLeft = snapToCellCorner(topLeftProj);
+
+                        if (snappedTopLeft) {
+                            // Calculate bottom-right corner from the dimensions
+                            const localBR = [a.width / 2, a.height / 2];
+                            const bottomRightProj: [number, number] = [
+                                newCenter[0] + localBR[0] * cosR - localBR[1] * sinR,
+                                newCenter[1] + localBR[0] * sinR + localBR[1] * cosR
+                            ];
+
+                            // Snap bottom-right corner
+                            const snappedBottomRight = snapToCellCorner(bottomRightProj);
+
+                            if (snappedBottomRight) {
+                                // Recalculate rectangle with both corners snapped
+                                const rectParams = calculateRectangleFromCellCorners(snappedTopLeft, snappedBottomRight);
+                                if (rectParams) {
+                                    return {
+                                        ...a,
+                                        center: rectParams.center,
+                                        width: rectParams.width,
+                                        height: rectParams.height,
+                                        rotation: rectParams.rotation
+                                    };
+                                }
+                            }
+                        }
+                    }
+
+                    return { ...a, center: newCenter };
                 } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
                     const newWaypoints = a.waypoints.map((wp, i) => {
                         const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
@@ -702,7 +899,7 @@ export const DataCanvas: React.FC = () => {
             return a;
         }));
     }
-  }, [draggedInfo, proj, setArtifacts]);
+  }, [draggedInfo, proj, setArtifacts, snapToCellCorner, calculateRectangleFromCellCorners]);
 
   const onArtifactDragEnd = useCallback(() => {
     setDraggedInfo(null);
@@ -711,7 +908,8 @@ export const DataCanvas: React.FC = () => {
 
   const handleInteractionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-    
+    setCurrentMouseProjCoords(projCoords);
+
     if (!!draggedInfo && projCoords) {
         onArtifactDrag(projCoords);
         return;
@@ -788,10 +986,15 @@ export const DataCanvas: React.FC = () => {
     if (!projCoords) return;
 
     if (e.button === 0) { // Left mouse button
-        if (hoveredWaypointInfo) {
-            onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
-        } else if (hoveredArtifactId) {
-            onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
+        // Only allow artifact dragging when in artifact mode
+        if (activeTool === 'artifacts') {
+            if (hoveredWaypointInfo) {
+                onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
+            } else if (hoveredArtifactId) {
+                onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
+            } else {
+                isPanning.current = true;
+            }
         } else {
             isPanning.current = true;
         }
