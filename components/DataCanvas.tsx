@@ -794,9 +794,9 @@ export const DataCanvas: React.FC = () => {
                     const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
                     distance = calculateGeoDistance(lastWaypointGeo, [cursorGeo[0], cursorGeo[1]]);
 
-                    // If cursor is beyond max distance, clamp preview to circle boundary
-                    if (isOverLimit && distProj > 0) {
-                        // Calculate point on circle boundary in direction of cursor
+                    // Always clamp preview to circle boundary if cursor is beyond it
+                    if (distProj > radiusProj) {
+                        // Clamp to circle boundary in direction of cursor
                         const ratio = radiusProj / distProj;
                         previewEndProj = [
                             lastWaypointProj[0] + dx * ratio,
@@ -804,7 +804,7 @@ export const DataCanvas: React.FC = () => {
                         ];
                     }
                 } catch (e) {
-                    // Ignore calculation errors
+                    // Ignore calculation errors, keep preview at cursor
                 }
             }
 
