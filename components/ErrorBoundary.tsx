@@ -10,6 +10,7 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  copied: boolean;
 }
 
 /**
@@ -22,7 +23,8 @@ export class ErrorBoundary extends Component<Props, State> {
     this.state = {
       hasError: false,
       error: null,
-      errorInfo: null
+      errorInfo: null,
+      copied: false
     };
   }
 
@@ -136,11 +138,12 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={() => {
                   const errorText = `Error: ${this.state.error?.toString()}\n\nStack: ${this.state.errorInfo?.componentStack}`;
                   navigator.clipboard.writeText(errorText);
-                  alert('Error details copied to clipboard');
+                  this.setState({ copied: true });
+                  setTimeout(() => this.setState({ copied: false }), 2000);
                 }}
                 className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded font-medium transition-colors"
               >
-                Copy Error Details
+                {this.state.copied ? '✓ Copied!' : 'Copy Error Details'}
               </button>
             </div>
 

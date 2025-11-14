@@ -257,7 +257,7 @@ const formatLayerType = (type: Layer['type']): string => {
     }
 };
 
-const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => void; }> = ({ layer, isActive, onSelect }) => {
+const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => void; }>(({ layer, isActive, onSelect }) => {
     const {
         onUpdateLayer,
         onRemoveLayer,
@@ -509,7 +509,7 @@ const LayerItem: React.FC<{ layer: Layer; isActive: boolean; onSelect: () => voi
             )}
         </div>
     );
-};
+});
 
 const ExpressionEditor: React.FC = () => {
     const { layers, onCreateExpressionLayer, setIsCreatingExpression, isLoading } = useAppContext();
@@ -655,7 +655,7 @@ const LayersPanel: React.FC = () => {
     );
 };
 
-const ArtifactItem: React.FC<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }> = ({ artifact, isActive, onSelect }) => {
+const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
     const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
@@ -777,7 +777,7 @@ const ArtifactItem: React.FC<{ artifact: Artifact; isActive: boolean; onSelect: 
             )}
         </div>
     );
-};
+});
 
 
 const ArtifactsPanel: React.FC = () => {
