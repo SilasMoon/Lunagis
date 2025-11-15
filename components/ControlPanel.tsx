@@ -22,7 +22,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode; defaultOpen?
   const [isOpen, setIsOpen] = useState(defaultOpen);
   return (
     <div>
-      <h3 className="text-base font-medium text-gray-300 mb-2 bg-gray-900/50 p-2 rounded-md cursor-pointer flex justify-between items-center" onClick={() => setIsOpen(!isOpen)}>
+      <h3 className="text-sm font-medium text-gray-300 mb-2 bg-gray-900/50 p-2 rounded-md cursor-pointer flex justify-between items-center" onClick={() => setIsOpen(!isOpen)}>
         <span>{title}</span>
         <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
       </h3>
@@ -68,33 +68,33 @@ const AddLayerMenu: React.FC = () => {
 
     return (
       <div className="relative" ref={dropdownRef}>
-        <button onClick={() => setIsOpen(!isOpen)} disabled={!!isLoading} className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-all flex items-center justify-center gap-2">
+        <button onClick={() => setIsOpen(!isOpen)} disabled={!!isLoading} className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md text-xs transition-all flex items-center justify-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
             Add Layer
         </button>
         {isOpen && (
             <div className="absolute top-full left-0 mt-2 w-full bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10 p-3 space-y-2">
                 <input type="file" ref={npyInputRef} onChange={(e) => handleNpySelect(e, onAddDataLayer)} accept=".npy" style={{ display: 'none' }} />
-                <button onClick={() => npyInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">Data Layer (.npy)</button>
-                
+                <button onClick={() => npyInputRef.current?.click()} className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 rounded-md">Data Layer (.npy)</button>
+
                 <input type="file" ref={dteInputRef} onChange={(e) => handleNpySelect(e, onAddDteCommsLayer)} accept=".npy" style={{ display: 'none' }} />
-                <button onClick={() => dteInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">DTE Comms Layer (.npy)</button>
+                <button onClick={() => dteInputRef.current?.click()} className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 rounded-md">DTE Comms Layer (.npy)</button>
 
                 <input type="file" ref={lpfInputRef} onChange={(e) => handleNpySelect(e, onAddLpfCommsLayer)} accept=".npy" style={{ display: 'none' }} />
-                <button onClick={() => lpfInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">LPF Comms Layer (.npy)</button>
+                <button onClick={() => lpfInputRef.current?.click()} className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 rounded-md">LPF Comms Layer (.npy)</button>
 
                 <input type="file" ref={imageInputRef} onChange={handleImageSelect} accept=".png,.jpg,.jpeg" style={{ display: 'none' }} />
-                <button onClick={() => imageInputRef.current?.click()} className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded-md">Image Layer (.png, .jpg)</button>
+                <button onClick={() => imageInputRef.current?.click()} className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 rounded-md">Image Layer (.png, .jpg)</button>
 
                 <div className="border-t border-gray-700 pt-2 space-y-2">
-                    <p className="text-sm text-gray-400 px-3">Base Map Layer</p>
+                    <p className="text-xs text-gray-400 px-3">Base Map Layer</p>
                     <div className="grid grid-cols-2 gap-2">
                         <input type="file" ref={pngInputRef} onChange={(e) => setPendingPng(e.target.files?.[0] ?? null)} accept=".png" style={{ display: 'none' }} />
                         <button onClick={() => pngInputRef.current?.click()} className="w-full text-center px-3 py-2 text-xs bg-teal-700 hover:bg-teal-600 rounded-md truncate" title={pendingPng?.name}>{pendingPng ? pendingPng.name : 'Select .png'}</button>
                         <input type="file" ref={vrtInputRef} onChange={(e) => setPendingVrt(e.target.files?.[0] ?? null)} accept=".vrt" style={{ display: 'none' }} />
                         <button onClick={() => vrtInputRef.current?.click()} className="w-full text-center px-3 py-2 text-xs bg-purple-700 hover:bg-purple-600 rounded-md truncate" title={pendingVrt?.name}>{pendingVrt ? pendingVrt.name : 'Select .vrt'}</button>
                     </div>
-                    <button onClick={handleAddBaseMap} disabled={!pendingPng || !pendingVrt} className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-sm transition-all">Add Base Map</button>
+                    <button onClick={handleAddBaseMap} disabled={!pendingPng || !pendingVrt} className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-xs transition-all">Add Base Map</button>
                 </div>
             </div>
         )}
@@ -165,7 +165,7 @@ const CustomColormapEditor: React.FC<{
 
     return (
         <div className="space-y-3 p-3 bg-gray-900/30 rounded-md">
-            <h4 className="text-sm font-medium text-gray-300">Colormap Stops</h4>
+            <h4 className="text-xs font-medium text-gray-300">Colormap Stops</h4>
             <div className="space-y-2">
                 {stops.map((stop, index) => {
                     const { hex, alpha } = rgbaToHexAlpha(stop.color);
@@ -330,7 +330,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                     </button>
                 </div>
-                <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-sm">
+                <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-xs">
                     <p className="font-medium text-gray-200" title={layer.name}>{layer.name}</p>
                     <p className="text-xs text-gray-400">{formatLayerType(layer.type)}</p>
                     {layer.type === 'analysis' && layer.analysisType === 'expression' && layer.params.expression && (
@@ -347,12 +347,12 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
             {isActive && (
                 <div className="p-3 border-t border-gray-700 space-y-4 animate-fade-in">
                     <div>
-                        <label className="block text-sm font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
+                        <label className="block text-xs font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
                         <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdateLayer(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
                     {layer.type === 'image' && (
                         <div className="space-y-3 border-t border-gray-700 pt-3">
-                            <h4 className="text-sm font-medium text-gray-300">Transformation</h4>
+                            <h4 className="text-xs font-medium text-gray-300">Transformation</h4>
                             <div className="space-y-2">
                                 <div>
                                     <label className="block text-xs text-gray-400 mb-1">
@@ -472,7 +472,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                             }
                                         }, 'image/png');
                                     }}
-                                    className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                                    className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
                                 >
                                     Export Transformed Image
                                 </button>
@@ -482,12 +482,12 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                     {hasColormap && (
                         <>
                           <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Colormap</label>
+                            <label className="block text-xs font-medium text-gray-400 mb-1">Colormap</label>
                             <div className="flex items-center gap-2">
-                                <select value={layer.colormap} onChange={(e) => onUpdateLayer(layer.id, { colormap: e.target.value as ColorMapName })} className="flex-grow bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block p-2.5">
+                                <select value={layer.colormap} onChange={(e) => onUpdateLayer(layer.id, { colormap: e.target.value as ColorMapName })} className="flex-grow bg-gray-700 border border-gray-600 text-white text-xs rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block p-2.5">
                                   {COLOR_MAPS.map(name => (<option key={name} value={name}>{name}</option>))}
                                 </select>
-                                <label className="flex items-center gap-1.5 text-sm text-gray-400 cursor-pointer whitespace-nowrap">
+                                <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer whitespace-nowrap">
                                     <input 
                                         type="checkbox" 
                                         checked={!!layer.colormapInverted} 
@@ -519,7 +519,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                            )}
                            {layer.colormap !== 'Custom' && (
                                <div className="space-y-2 p-3 bg-gray-900/30 rounded-md">
-                                   <h4 className="text-sm font-medium text-gray-300">Transparency Thresholds</h4>
+                                   <h4 className="text-xs font-medium text-gray-300">Transparency Thresholds</h4>
                                    <div className="space-y-2">
                                        <div>
                                            <label className="block text-xs text-gray-400 mb-1">Lower ≤</label>
@@ -633,17 +633,17 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                     )}
                     {layer.type === 'data' && (
                         <div className="border-t border-gray-700 pt-3 space-y-2">
-                           <button onClick={() => onCalculateNightfallLayer(layer.id)} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">
+                           <button onClick={() => onCalculateNightfallLayer(layer.id)} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">
                              Calculate Nightfall Forecast
                            </button>
-                           <button onClick={() => onCalculateDaylightFractionLayer(layer.id)} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">
+                           <button onClick={() => onCalculateDaylightFractionLayer(layer.id)} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">
                              Calculate Daylight Fraction
                            </button>
                         </div>
                     )}
                     {isNightfall && (
                         <div className="border-t border-gray-700 pt-3 space-y-3">
-                            <h4 className="text-sm font-medium text-gray-300">Colormap Clipping</h4>
+                            <h4 className="text-xs font-medium text-gray-300">Colormap Clipping</h4>
                             <div>
                                 <label className="block text-xs text-gray-400">
                                     Clip colormap at: {
@@ -664,7 +664,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                     )}
                     {isExpression && (
                         <div className="border-t border-gray-700 pt-3 space-y-3">
-                            <h4 className="text-sm font-medium text-gray-300">Expression</h4>
+                            <h4 className="text-xs font-medium text-gray-300">Expression</h4>
                             {!editingExpression ? (
                                 <>
                                     <div className="bg-gray-900/40 p-2 rounded-md">
@@ -675,7 +675,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                     <button
                                         onClick={handleStartEditExpression}
                                         disabled={!!isLoading}
-                                        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                                        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
                                     >
                                         Edit Expression
                                     </button>
@@ -701,14 +701,14 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => setEditingExpression(false)}
-                                            className="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                                            className="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1.5 px-3 rounded-md text-xs"
                                         >
                                             Cancel
                                         </button>
                                         <button
                                             onClick={handleSaveExpression}
                                             disabled={!newExpression.trim() || !!isLoading}
-                                            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                                            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-xs"
                                         >
                                             {isLoading && isLoading.toLowerCase().includes('expression') ? 'Calculating...' : 'Apply'}
                                         </button>
@@ -744,8 +744,8 @@ const ExpressionEditor: React.FC = () => {
     const isComputing = !!isLoading && isLoading.toLowerCase().includes('expression');
 
     return (
-        <div className="p-3 bg-gray-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-4">
-            <h3 className="text-base font-medium text-cyan-300">Create Expression Layer</h3>
+        <div className="p-3 bg-gray-900/50 border border-cyan-700 rounded-md text-xs text-cyan-200 space-y-4">
+            <h3 className="text-sm font-medium text-cyan-300">Create Expression Layer</h3>
 
             {isComputing && (
                 <div className="p-4 bg-cyan-900/50 border border-cyan-500 rounded-md text-center space-y-3 animate-pulse">
@@ -796,14 +796,14 @@ const ExpressionEditor: React.FC = () => {
                 <button
                     onClick={() => setIsCreatingExpression(false)}
                     disabled={isComputing}
-                    className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-800 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                    className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-800 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-xs"
                 >
                     Cancel
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={!name.trim() || !expression.trim() || isComputing}
-                  className="bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-sm"
+                  className="bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-1.5 px-3 rounded-md text-xs"
                 >
                   {isComputing ? 'Computing...' : 'Create'}
                 </button>
@@ -833,7 +833,7 @@ const LayersPanel: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-cyan-300">Layer Management</h2>
+            <h2 className="text-base font-semibold text-cyan-300">Layer Management</h2>
             <AddLayerMenu />
             {!hasDataLayers && (
                 <div className="p-2 bg-yellow-900/30 border border-yellow-600/50 rounded-md text-xs text-yellow-200">
@@ -843,12 +843,12 @@ const LayersPanel: React.FC = () => {
             <button
                 onClick={() => setIsCreatingExpression(true)}
                 disabled={!!isLoading || !hasDataLayers}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-md text-sm transition-all flex items-center justify-center gap-2"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-md text-xs transition-all flex items-center justify-center gap-2"
                 title={!hasDataLayers ? "Load a data layer first" : "Create a layer from an expression"}
             >
                 Add Expression Layer
             </button>
-            {isLoading && <div className="text-sm text-cyan-300 text-center p-2 bg-gray-900/50 rounded-md">{isLoading}</div>}
+            {isLoading && <div className="text-xs text-cyan-300 text-center p-2 bg-gray-900/50 rounded-md">{isLoading}</div>}
             <div className="space-y-2">
                 {layers.length > 0 ? (
                     [...layers].reverse().map((layer: Layer) => (
@@ -860,7 +860,7 @@ const LayersPanel: React.FC = () => {
                         />
                     ))
                 ) : (
-                    <p className="text-sm text-gray-500 text-center p-4">No layers loaded.</p>
+                    <p className="text-xs text-gray-500 text-center p-4">No layers loaded.</p>
                 )}
             </div>
         </div>
@@ -905,7 +905,7 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                 <button onClick={() => handleCommonUpdate('visible', !artifact.visible)} title={artifact.visible ? 'Hide' : 'Show'} className="text-gray-400 hover:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" style={{ opacity: artifact.visible ? 1 : 0.3 }} /></svg>
                 </button>
-                <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-sm">
+                <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-xs">
                     <p className="font-medium text-gray-200" title={artifact.name}>{artifact.name}</p>
                     <p className="text-xs text-gray-400">{artifact.type.charAt(0).toUpperCase() + artifact.type.slice(1)}</p>
                 </div>
@@ -915,7 +915,7 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                 <button onClick={() => onRemoveArtifact(artifact.id)} title="Remove" className="text-gray-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
             </div>
             {isActive && (
-                <div className="p-3 border-t border-gray-700 space-y-4 text-sm animate-fade-in">
+                <div className="p-3 border-t border-gray-700 space-y-4 text-xs animate-fade-in">
                     <Section title="General" defaultOpen={true}>
                         <div className="flex items-center justify-between">
                             <label className="font-medium text-gray-300">Name</label>
@@ -1011,34 +1011,34 @@ const ArtifactsPanel: React.FC = () => {
     if (!isDataLoaded) {
         return (
           <div>
-            <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
-            <p className="text-sm text-gray-400 mt-2">Load a basemap or data layer to add artifacts.</p>
+            <h2 className="text-base font-semibold text-cyan-300">Artifacts</h2>
+            <p className="text-xs text-gray-400 mt-2">Load a basemap or data layer to add artifacts.</p>
           </div>
         );
     }
-  
+
     return (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-cyan-300">Artifacts</h2>
+          <h2 className="text-base font-semibold text-cyan-300">Artifacts</h2>
           {artifactCreationMode === 'path' ? (
-            <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-sm text-cyan-200 space-y-3">
+            <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-xs text-cyan-200 space-y-3">
                 <p><strong>Drawing Path:</strong> Click on the map to add waypoints. Press 'Esc' or click finish when done.</p>
-                <button onClick={onFinishArtifactCreation} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Drawing</button>
+                <button onClick={onFinishArtifactCreation} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1.5 px-3 rounded-md text-xs transition-all">Finish Drawing</button>
             </div>
           ) : isAppendingWaypoints ? (
-            <div className="p-3 bg-teal-900/50 border border-teal-700 rounded-md text-sm text-teal-200 space-y-3">
+            <div className="p-3 bg-teal-900/50 border border-teal-700 rounded-md text-xs text-teal-200 space-y-3">
                 <p><strong>Appending to Path:</strong> Click on the map to add new waypoints. Press 'Esc' or click finish to stop.</p>
-                <button onClick={onFinishArtifactCreation} className="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-1.5 px-3 rounded-md text-sm transition-all">Finish Appending</button>
+                <button onClick={onFinishArtifactCreation} className="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-1.5 px-3 rounded-md text-xs transition-all">Finish Appending</button>
             </div>
           ) : (
             <>
-                <p className="text-sm text-gray-400">Add and manage annotations on the map. Click a button below, then click on the map to place an artifact.</p>
+                <p className="text-xs text-gray-400">Add and manage annotations on the map. Click a button below, then click on the map to place an artifact.</p>
 
                 {/* Path Creation Settings */}
                 <Section title="Path Creation Settings" defaultOpen={false}>
                     <div className="space-y-2">
                         <label className="flex flex-col gap-1">
-                            <span className="text-sm text-gray-300">Max Segment Length (m):</span>
+                            <span className="text-xs text-gray-300">Max Segment Length (m):</span>
                             <input
                                 type="number"
                                 min="0"
@@ -1058,9 +1058,9 @@ const ArtifactsPanel: React.FC = () => {
                 </Section>
 
                 <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Circle</button>
-                    <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Rect</button>
-                    <button onClick={() => setArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-sm transition-all text-center">Add Path</button>
+                    <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Circle</button>
+                    <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Rect</button>
+                    <button onClick={() => setArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Path</button>
                 </div>
             </>
           )}
@@ -1076,7 +1076,7 @@ const ArtifactsPanel: React.FC = () => {
                 />
               ))
             ) : (
-              <p className="text-sm text-gray-500 text-center p-4">No artifacts created.</p>
+              <p className="text-xs text-gray-500 text-center p-4">No artifacts created.</p>
             )}
           </div>
         </div>
@@ -1093,38 +1093,38 @@ const MeasurementPanel: React.FC = () => {
         onClearSelection
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer;
-    
+
     if (!isDataLoaded) {
         return (
           <div>
-            <h2 className="text-lg font-semibold text-cyan-300">Measurement</h2>
-            <p className="text-sm text-gray-400 mt-2">Load a data layer to select cells.</p>
+            <h2 className="text-base font-semibold text-cyan-300">Measurement</h2>
+            <p className="text-xs text-gray-400 mt-2">Load a data layer to select cells.</p>
           </div>
         );
     }
 
     return (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-cyan-300">Cell Selection</h2>
-          <p className="text-sm text-gray-400">Click on the map to select or deselect individual cells.</p>
+          <h2 className="text-base font-semibold text-cyan-300">Cell Selection</h2>
+          <p className="text-xs text-gray-400">Click on the map to select or deselect individual cells.</p>
           <Section title="Selection Tools" defaultOpen={true}>
             <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-300">Selected cells:</span>
+                <span className="text-xs text-gray-300">Selected cells:</span>
                 <span className="font-mono text-cyan-300">{selectedCells.length}</span>
             </div>
             <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-300">Highlight Color</label>
-                <input 
-                    type="color" 
-                    value={selectionColor} 
-                    onChange={(e) => setSelectionColor(e.target.value)} 
-                    className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" 
+                <label className="text-xs font-medium text-gray-300">Highlight Color</label>
+                <input
+                    type="color"
+                    value={selectionColor}
+                    onChange={(e) => setSelectionColor(e.target.value)}
+                    className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer"
                 />
             </div>
-            <button 
-                onClick={onClearSelection} 
+            <button
+                onClick={onClearSelection}
                 disabled={selectedCells.length === 0}
-                className="w-full bg-red-600 hover:bg-red-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                className="w-full bg-red-600 hover:bg-red-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
             >
                 Clear Selection
             </button>
@@ -1167,30 +1167,30 @@ const ConfigurationPanel: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-cyan-300">Configuration</h2>
+            <h2 className="text-base font-semibold text-cyan-300">Configuration</h2>
             
             <Section title="Session Management" defaultOpen={true}>
               <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
               <div className="flex items-center gap-2">
-                  <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Import Config</button>
-                  <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-sm transition-all">Export Config</button>
+                  <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">Import Config</button>
+                  <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">Export Config</button>
               </div>
             </Section>
-            
-            {!isDataLoaded ? <p className="text-sm text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
+
+            {!isDataLoaded ? <p className="text-xs text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
                 <>
                   {isNightfallActive && (
                       <Section title="Plot Options" defaultOpen={true}>
-                          <h4 className="text-sm font-medium text-gray-300 mb-2">Nightfall Plot Y-Axis Range</h4>
+                          <h4 className="text-xs font-medium text-gray-300 mb-2">Nightfall Plot Y-Axis Range</h4>
                           <div className="flex items-center gap-2">
                               <label className="text-xs text-gray-400">Min (days)</label>
                               <input type="number" step="1" value={nightfallPlotYAxisRange.min}
                                   onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, min: Number(e.target.value) })}
-                                  className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                                  className="w-full bg-gray-700 text-white text-xs rounded-md p-1 border border-gray-600" />
                               <label className="text-xs text-gray-400">Max (days)</label>
                               <input type="number" step="1" value={nightfallPlotYAxisRange.max}
                                   onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, max: Number(e.target.value) })}
-                                  className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                                  className="w-full bg-gray-700 text-white text-xs rounded-md p-1 border border-gray-600" />
                           </div>
                       </Section>
                   )}
@@ -1199,7 +1199,7 @@ const ConfigurationPanel: React.FC = () => {
                           <button
                               onClick={onTogglePlay}
                               disabled={!isPlaying && !isPaused && (!timeRange || timeRange.start >= timeRange.end)}
-                              className="flex items-center justify-center gap-2 w-28 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-sm transition-all"
+                              className="flex items-center justify-center gap-2 w-28 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
                               title={isPlaying ? "Stop" : isPaused ? "Resume Playback" : (!timeRange || timeRange.start >= timeRange.end ? "Select a time range on the slider to enable playback" : "Play")}
                           >
                               {isPlaying ? <StopIcon /> : <PlayIcon />}
@@ -1224,30 +1224,30 @@ const ConfigurationPanel: React.FC = () => {
                     <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGraticule} onChange={(e) => setShowGraticule(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Graticule</span></label>
                     {showGraticule && (
                       <div className="pt-3">
-                        <label className="block text-sm font-medium text-gray-400">Density: {graticuleDensity.toFixed(1)}x</label>
+                        <label className="block text-xs font-medium text-gray-400">Density: {graticuleDensity.toFixed(1)}x</label>
                         <input type="range" min="0.2" max="5" step="0.1" value={graticuleDensity} onChange={(e) => setGraticuleDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                       </div>
                     )}
                   </Section>
                   <Section title="Artifact Display Options">
                       <div>
-                          <label className="block text-sm font-medium text-gray-400">Waypoint Dot Size: {artifactDisplayOptions.waypointDotSize}px</label>
-                          <input type="range" min="2" max="20" step="1" 
+                          <label className="block text-xs font-medium text-gray-400">Waypoint Dot Size: {artifactDisplayOptions.waypointDotSize}px</label>
+                          <input type="range" min="2" max="20" step="1"
                               value={artifactDisplayOptions.waypointDotSize}
                               onChange={(e) => setArtifactDisplayOptions({ ...artifactDisplayOptions, waypointDotSize: Number(e.target.value) })}
                               className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
                           />
                       </div>
                        <div>
-                          <label className="block text-sm font-medium text-gray-400">Label Font Size: {artifactDisplayOptions.labelFontSize}px</label>
-                          <input type="range" min="8" max="24" step="1" 
+                          <label className="block text-xs font-medium text-gray-400">Label Font Size: {artifactDisplayOptions.labelFontSize}px</label>
+                          <input type="range" min="8" max="24" step="1"
                               value={artifactDisplayOptions.labelFontSize}
                               onChange={(e) => setArtifactDisplayOptions({ ...artifactDisplayOptions, labelFontSize: Number(e.target.value) })}
                               className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1"
                           />
                       </div>
-                      <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
-                          <input type="checkbox" 
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-300">
+                          <input type="checkbox"
                               checked={artifactDisplayOptions.showSegmentLengths}
                               onChange={(e) => setArtifactDisplayOptions({ ...artifactDisplayOptions, showSegmentLengths: e.target.checked })}
                               className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" />
@@ -1259,18 +1259,18 @@ const ConfigurationPanel: React.FC = () => {
                     {showGrid && (
                         <div className="pt-3 space-y-3 border-t border-gray-700/50 mt-3">
                             <div>
-                                <label className="block text-sm font-medium text-gray-400">Spacing: {gridSpacing}m</label>
+                                <label className="block text-xs font-medium text-gray-400">Spacing: {gridSpacing}m</label>
                                 <input type="range" min="10" max="1000" step="10" value={gridSpacing} onChange={(e) => setGridSpacing(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                             </div>
                             <div className="flex items-center justify-between">
-                                <label className="text-sm font-medium text-gray-400">Color</label>
+                                <label className="text-xs font-medium text-gray-400">Color</label>
                                 <input type="color" value={gridColor.slice(0, 7)} onChange={(e) => setGridColor(e.target.value + '80')} className="w-10 h-8 p-0 border-none rounded-md bg-transparent cursor-pointer" />
                             </div>
                         </div>
                     )}
                   </Section>
                   <Section title="Selected Pixel" defaultOpen={true}>
-                    <div className="text-sm space-y-2">
+                    <div className="text-xs space-y-2">
                        <div className="flex justify-between"><span className="text-gray-400">Pixel (X, Y):</span><span className="font-mono text-green-400">{selectedPixel ? `${selectedPixel.x}, ${selectedPixel.y}`: '---'}</span></div>
                     </div>
                   </Section>
