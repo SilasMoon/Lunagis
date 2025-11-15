@@ -1186,11 +1186,11 @@ const ConfigurationPanel: React.FC = () => {
                               <label className="text-xs text-gray-400">Min (days)</label>
                               <input type="number" step="1" value={nightfallPlotYAxisRange.min}
                                   onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, min: Number(e.target.value) })}
-                                  className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                                  className="w-full bg-gray-700 text-white text-xs rounded-md p-1 border border-gray-600" />
                               <label className="text-xs text-gray-400">Max (days)</label>
                               <input type="number" step="1" value={nightfallPlotYAxisRange.max}
                                   onChange={e => onNightfallPlotYAxisRangeChange({ ...nightfallPlotYAxisRange, max: Number(e.target.value) })}
-                                  className="w-full bg-gray-700 text-white text-sm rounded-md p-1 border border-gray-600" />
+                                  className="w-full bg-gray-700 text-white text-xs rounded-md p-1 border border-gray-600" />
                           </div>
                       </Section>
                   )}
