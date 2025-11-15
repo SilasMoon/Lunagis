@@ -1,7 +1,7 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React from 'react';
 import type { Tool } from '../types';
-import logoUrl from '../public/LunaGis_logo.svg?url';
+import logoUrl from '../utils/LunaGis_logo.svg?url';
 
 interface ToolBarProps {
   activeTool: Tool;
