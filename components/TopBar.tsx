@@ -59,8 +59,8 @@ const ArtifactsIcon = () => (
 
 export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect }) => (
   <aside className="bg-gray-800/50 border-r border-gray-700 py-2 w-24 flex-shrink-0 flex flex-col items-center gap-4" role="navigation" aria-label="Main navigation">
-    <div className="my-2 w-full flex items-center justify-center overflow-visible" aria-label="Lunagis logo">
-        <img src={logoUrl} alt="LunaGis" className="h-auto object-contain" style={{width: '120px'}} />
+    <div className="mt-2 mb-1 w-full flex items-center justify-center overflow-visible" aria-label="Lunagis logo">
+        <img src={logoUrl} alt="LunaGis" className="h-auto object-contain" style={{width: '180px'}} />
     </div>
     <ToolButton label="Layers" icon={<LayersIcon />} isActive={activeTool === 'layers'} onClick={() => onToolSelect('layers')} />
     <ToolButton label="Artifacts" icon={<ArtifactsIcon />} isActive={activeTool === 'artifacts'} onClick={() => onToolSelect('artifacts')} />
