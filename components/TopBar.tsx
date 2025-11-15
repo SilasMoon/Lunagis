@@ -59,9 +59,7 @@ const ArtifactsIcon = () => (
 export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect }) => (
   <aside className="bg-gray-800/50 border-r border-gray-700 p-2 w-20 flex-shrink-0 flex flex-col items-center gap-4" role="navigation" aria-label="Main navigation">
     <div className="my-2" aria-label="Lunagis logo">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-cyan-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.332 8.027a6.012 6.012 0 011.912-2.706C6.512 5.73 6.974 6 7.5 6A1.5 1.5 0 019 7.5V8a2 2 0 004 0 2 2 0 011.527-1.912 6.01 6.01 0 012.186 5.332A6.002 6.002 0 0110 16a6.002 6.002 0 01-5.668-7.973z" clipRule="evenodd" />
-        </svg>
+        <img src="/utils/LunaGis_logo.svg" alt="LunaGis Logo" className="h-12 w-12" />
     </div>
     <ToolButton label="Layers" icon={<LayersIcon />} isActive={activeTool === 'layers'} onClick={() => onToolSelect('layers')} />
     <ToolButton label="Artifacts" icon={<ArtifactsIcon />} isActive={activeTool === 'artifacts'} onClick={() => onToolSelect('artifacts')} />
