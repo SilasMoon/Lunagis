@@ -18,6 +18,7 @@ import {
 interface WaypointEditModalProps {
   isOpen: boolean;
   waypoint: Waypoint;
+  defaultColor: string; // Default color from the path artifact
   onClose: () => void;
   onSave: (updates: Partial<Waypoint>) => void;
 }
@@ -40,13 +41,15 @@ const AVAILABLE_SYMBOLS: { name: string | null; icon: LucideIcon | null; label: 
 export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
   isOpen,
   waypoint,
+  defaultColor,
   onClose,
   onSave,
 }) => {
   const [activitySymbol, setActivitySymbol] = useState<string | null>(waypoint.activitySymbol || null);
   const [activityLabel, setActivityLabel] = useState(waypoint.activityLabel || '');
   const [activitySymbolSize, setActivitySymbolSize] = useState(waypoint.activitySymbolSize || 24);
-  const [activitySymbolColor, setActivitySymbolColor] = useState(waypoint.activitySymbolColor || '#ef4444');
+  const [activitySymbolColor, setActivitySymbolColor] = useState(waypoint.activitySymbolColor || defaultColor);
+  const [activityOffset, setActivityOffset] = useState(waypoint.activityOffset !== undefined ? waypoint.activityOffset : 40);
   const [description, setDescription] = useState(waypoint.description || '');
 
   if (!isOpen) return null;
@@ -57,6 +60,7 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
       activityLabel: activityLabel || undefined,
       activitySymbolSize: activitySymbol ? activitySymbolSize : undefined,
       activitySymbolColor: activitySymbol ? activitySymbolColor : undefined,
+      activityOffset: activitySymbol ? activityOffset : undefined,
       description,
     });
     onClose();
@@ -181,27 +185,50 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
             )}
           </div>
 
-          {/* Activity Symbol Size and Color */}
+          {/* Activity Symbol Configuration */}
           {activitySymbol && (
-            <div className="grid grid-cols-2 gap-4">
-              {/* Symbol Size */}
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Symbol Size
-                </label>
-                <input
-                  type="range"
-                  min="16"
-                  max="48"
-                  step="2"
-                  value={activitySymbolSize}
-                  onChange={(e) => setActivitySymbolSize(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>Small</span>
-                  <span className="font-mono">{activitySymbolSize}px</span>
-                  <span>Large</span>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Symbol Size */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Symbol Size
+                  </label>
+                  <input
+                    type="range"
+                    min="16"
+                    max="48"
+                    step="2"
+                    value={activitySymbolSize}
+                    onChange={(e) => setActivitySymbolSize(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>Small</span>
+                    <span className="font-mono">{activitySymbolSize}px</span>
+                    <span>Large</span>
+                  </div>
+                </div>
+
+                {/* Perpendicular Offset */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Offset Distance
+                  </label>
+                  <input
+                    type="range"
+                    min="20"
+                    max="100"
+                    step="5"
+                    value={activityOffset}
+                    onChange={(e) => setActivityOffset(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>Near</span>
+                    <span className="font-mono">{activityOffset}px</span>
+                    <span>Far</span>
+                  </div>
                 </div>
               </div>
 
@@ -222,7 +249,7 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
                     value={activitySymbolColor}
                     onChange={(e) => setActivitySymbolColor(e.target.value)}
                     className="flex-1 bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500 font-mono text-sm"
-                    placeholder="#ef4444"
+                    placeholder={defaultColor}
                   />
                 </div>
               </div>

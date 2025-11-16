@@ -58,15 +58,56 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
       {artifacts.map((artifact) => {
         if (!artifact.visible || artifact.type !== 'path') return null;
 
-        return artifact.waypoints.map((waypoint) => {
+        return artifact.waypoints.map((waypoint, waypointIndex) => {
           if (!waypoint.activitySymbol) return null;
 
           try {
-            const projPos = proj.forward(waypoint.geoPosition);
-            const [canvasX, canvasY] = projToCanvas(projPos as [number, number]);
+            const projPos = proj.forward(waypoint.geoPosition) as [number, number];
+            const [canvasX, canvasY] = projToCanvas(projPos);
 
-            const defaultOffset: [number, number] = [0, -40];
-            const offset = waypoint.activityOffset || defaultOffset;
+            // Calculate perpendicular offset based on outgoing segment
+            let offsetX = 0;
+            let offsetY = -40; // Default: upward
+
+            const offsetDistance = waypoint.activityOffset !== undefined ? waypoint.activityOffset : 40;
+
+            if (artifact.waypoints.length > 1) {
+              let segmentDirection: [number, number] | null = null;
+
+              // Try to use outgoing segment (to next waypoint)
+              if (waypointIndex < artifact.waypoints.length - 1) {
+                const nextWaypoint = artifact.waypoints[waypointIndex + 1];
+                const nextProjPos = proj.forward(nextWaypoint.geoPosition) as [number, number];
+                const dx = nextProjPos[0] - projPos[0];
+                const dy = nextProjPos[1] - projPos[1];
+                const magnitude = Math.sqrt(dx * dx + dy * dy);
+                if (magnitude > 0) {
+                  segmentDirection = [dx / magnitude, dy / magnitude];
+                }
+              }
+              // Fallback: use incoming segment (from previous waypoint)
+              else if (waypointIndex > 0) {
+                const prevWaypoint = artifact.waypoints[waypointIndex - 1];
+                const prevProjPos = proj.forward(prevWaypoint.geoPosition) as [number, number];
+                const dx = projPos[0] - prevProjPos[0];
+                const dy = projPos[1] - prevProjPos[1];
+                const magnitude = Math.sqrt(dx * dx + dy * dy);
+                if (magnitude > 0) {
+                  segmentDirection = [dx / magnitude, dy / magnitude];
+                }
+              }
+
+              // Calculate perpendicular direction (rotate 90° counterclockwise)
+              if (segmentDirection) {
+                const [dirX, dirY] = segmentDirection;
+                const perpX = -dirY; // Perpendicular in screen space (canvas Y is inverted)
+                const perpY = dirX;
+
+                offsetX = perpX * offsetDistance;
+                offsetY = perpY * offsetDistance;
+              }
+            }
+
             const size = waypoint.activitySymbolSize || 24;
             const color = waypoint.activitySymbolColor || artifact.color;
 
@@ -78,8 +119,8 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                 key={`${artifact.id}-${waypoint.id}-activity`}
                 className="absolute"
                 style={{
-                  left: `${canvasX + offset[0]}px`,
-                  top: `${canvasY + offset[1]}px`,
+                  left: `${canvasX + offsetX}px`,
+                  top: `${canvasY + offsetY}px`,
                   transform: 'translate(-50%, -50%)',
                 }}
               >

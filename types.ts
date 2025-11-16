@@ -150,7 +150,7 @@ export interface Waypoint {
   activityLabel?: string; // Label for the activity
   activitySymbolSize?: number; // Size in pixels (default: 24)
   activitySymbolColor?: string; // Hex color (default: artifact color)
-  activityOffset?: [number, number]; // Offset in pixels from waypoint [x, y]
+  activityOffset?: number; // Distance in pixels perpendicular to outgoing segment (default: 40)
   description?: string; // Optional description
 }
 

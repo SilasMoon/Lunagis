@@ -1901,14 +1901,19 @@ export const DataCanvas: React.FC = () => {
         showActivitySymbols={artifactDisplayOptions.showActivitySymbols}
       />
       <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} />
-      {editingWaypoint && (
-        <WaypointEditModal
-          isOpen={true}
-          waypoint={editingWaypoint.waypoint}
-          onClose={() => setEditingWaypoint(null)}
-          onSave={handleWaypointEditSave}
-        />
-      )}
+      {editingWaypoint && (() => {
+        const artifact = artifacts.find(a => a.id === editingWaypoint.artifactId);
+        const defaultColor = artifact?.color || '#ef4444';
+        return (
+          <WaypointEditModal
+            isOpen={true}
+            waypoint={editingWaypoint.waypoint}
+            defaultColor={defaultColor}
+            onClose={() => setEditingWaypoint(null)}
+            onSave={handleWaypointEditSave}
+          />
+        );
+      })()}
       {hoveredWaypointInfo && (() => {
         const artifact = artifacts.find(a => a.id === hoveredWaypointInfo.artifactId);
         const waypoint = artifact && artifact.type === 'path' ? artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId) : null;
