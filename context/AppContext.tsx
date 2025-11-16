@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { parseNpy } from '../services/npyParser';
 import { parseVrt } from '../services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer } from '../types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer, Event } from '../types';
 import { indexToDate } from '../utils/time';
 import * as analysisService from '../services/analysisService';
 import { useToast } from '../components/Toast';
@@ -57,6 +57,8 @@ interface AppContextType {
     pathCreationOptions: { defaultMaxSegmentLength: number | null; };
     nightfallPlotYAxisRange: { min: number; max: number; };
     isCreatingExpression: boolean;
+    events: Event[];
+    activeEventId: string | null;
     
     // Derived State
     baseMapLayer: BaseMapLayer | undefined;
@@ -101,6 +103,11 @@ interface AppContextType {
     setPathCreationOptions: React.Dispatch<React.SetStateAction<{ defaultMaxSegmentLength: number | null; }>>;
     onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
     setIsCreatingExpression: React.Dispatch<React.SetStateAction<boolean>>;
+    setEvents: React.Dispatch<React.SetStateAction<Event[]>>;
+    setActiveEventId: React.Dispatch<React.SetStateAction<string | null>>;
+    onUpdateEvent: (id: string, updates: Partial<Event>) => void;
+    onRemoveEvent: (id: string) => void;
+    onAddEvent: (event: Event) => void;
 
     clearHoverState: () => void;
     onAddDataLayer: (file: File) => void;
@@ -203,6 +210,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [nightfallPlotYAxisRange, setNightfallPlotYAxisRange] = useState<{ min: number; max: number; }>({ min: -15, max: 15 });
 
     const [isCreatingExpression, setIsCreatingExpression] = useState(false);
+
+    const [events, setEvents] = useState<Event[]>([]);
+    const [activeEventId, setActiveEventId] = useState<string | null>(null);
 
     const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
     const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
@@ -844,6 +854,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (activeArtifactId === id) setActiveArtifactId(null);
     }, [activeArtifactId]);
 
+    const onUpdateEvent = useCallback((id: string, updates: Partial<Event>) => {
+      setEvents(prev => prev.map(e => (e.id === id ? { ...e, ...updates } as Event : e)));
+    }, []);
+
+    const onRemoveEvent = useCallback((id: string) => {
+      setEvents(prev => prev.filter(e => e.id !== id));
+      if (activeEventId === id) setActiveEventId(null);
+    }, [activeEventId]);
+
+    const onAddEvent = useCallback((event: Event) => {
+      setEvents(prev => [...prev, event]);
+      setActiveEventId(event.id);
+    }, []);
+
     const onClearSelection = useCallback(() => { setSelectedCells([]); }, []);
 
     const onZoomToSelection = useCallback(() => {
@@ -924,6 +948,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               artifactDisplayOptions,
               pathCreationOptions,
               nightfallPlotYAxisRange,
+              events: events.map(e => ({...e})),
           };
           
           const jsonString = JSON.stringify(config, null, 2);
@@ -989,7 +1014,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           Array.from(files).forEach(f => fileMap.set(f.name, f));
 
           // Reset state
-          setLayers([]); setTimeRange(null); setTimeZoomDomain(null); setViewState(null); setSelectedCells([]); setArtifacts([]);
+          setLayers([]); setTimeRange(null); setTimeZoomDomain(null); setViewState(null); setSelectedCells([]); setArtifacts([]); setEvents([]);
 
           let newLayers: Layer[] = [];
 
@@ -1083,6 +1108,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSelectionColor(config.selectionColor);
           setActiveTool(config.activeTool);
           setArtifacts(config.artifacts || []);
+          setEvents(config.events || []);
           if (config.timeZoomDomain) {
               setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
           }
@@ -1132,6 +1158,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         artifactDisplayOptions,
         nightfallPlotYAxisRange,
         isCreatingExpression,
+        events,
+        activeEventId,
         baseMapLayer,
         primaryDataLayer,
         activeLayer,
@@ -1173,6 +1201,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPathCreationOptions,
         onNightfallPlotYAxisRangeChange: setNightfallPlotYAxisRange,
         setIsCreatingExpression,
+        setEvents,
+        setActiveEventId,
+        onUpdateEvent,
+        onRemoveEvent,
+        onAddEvent,
         clearHoverState,
         onAddDataLayer,
         onAddDteCommsLayer,

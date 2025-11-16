@@ -31,7 +31,7 @@ export interface ViewState {
 
 export type TimeRange = { start: number; end: number };
 export type TimeDomain = [Date, Date];
-export type Tool = 'layers' | 'measurement' | 'config' | 'artifacts';
+export type Tool = 'layers' | 'measurement' | 'config' | 'artifacts' | 'events';
 
 export type ColorStop = { value: number; color: string; };
 
@@ -181,6 +181,19 @@ export type Artifact = CircleArtifact | RectangleArtifact | PathArtifact;
 // Serializable artifacts are the same as the main ones since coords are arrays
 export type SerializableArtifact = Artifact;
 
+// --- Event Types ---
+
+export interface Event {
+  id: string;
+  name: string;
+  description: string;
+  dateIndex: number; // Time index in the dataset
+  visible: boolean;
+  color: string;
+}
+
+export type SerializableEvent = Event;
+
 
 // --- Serializable Types for Session Import/Export ---
 
@@ -290,4 +303,5 @@ export interface AppStateConfig {
     defaultMaxSegmentLength: number | null; // in meters, null means no limit
   };
   nightfallPlotYAxisRange: { min: number; max: number; };
+  events: SerializableEvent[];
 }

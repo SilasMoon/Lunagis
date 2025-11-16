@@ -13,7 +13,8 @@ export const TimeSlider: React.FC = () => {
     currentDateIndex,
     setCurrentDateIndex,
     handleManualTimeRangeChange,
-    timeZoomDomain
+    timeZoomDomain,
+    events
   } = useAppContext();
   
   const isDataLoaded = !!primaryDataLayer;
@@ -89,8 +90,8 @@ export const TimeSlider: React.FC = () => {
 
       const grabThreshold = 20;
 
-      // Prioritize current cursor if it's closest and within threshold
-      if (distToCurrent < grabThreshold && distToCurrent < distToStart && distToCurrent < distToEnd) {
+      // Prioritize current cursor if it's closest or equal distance (handles overlapping case)
+      if (distToCurrent < grabThreshold && distToCurrent <= distToStart && distToCurrent <= distToEnd) {
         setDraggingHandle('current');
       } else if (distToStart < distToEnd && distToStart < grabThreshold) {
         setDraggingHandle('start');
@@ -184,40 +185,78 @@ export const TimeSlider: React.FC = () => {
   const currentX = currentDateIndex !== null ? xScale(indexToDate(currentDateIndex)) : 0;
 
   return (
-    <section className="bg-gray-800/70 backdrop-blur-sm border-t border-gray-700 w-full flex-shrink-0 z-40 h-[50px]">
+    <section className="bg-gray-800/70 backdrop-blur-sm border-t border-gray-700 w-full flex-shrink-0 z-40 h-[85px]">
         <div ref={containerRef} className="w-full h-full relative">
             <svg
               ref={svgRef}
               width={width}
-              height={50}
+              height={85}
               className={`absolute inset-0 ${isDataLoaded ? 'cursor-ew-resize' : 'opacity-50'}`}
               onMouseDown={(e) => handleInteraction(e, true)}>
-                <line x1={MARGIN.left} y1={25} x2={width - MARGIN.right} y2={25} stroke="#4A5568" strokeWidth="2" />
+                <line x1={MARGIN.left} y1={55} x2={width - MARGIN.right} y2={55} stroke="#4A5568" strokeWidth="2" />
 
                 {isDataLoaded && ticks.map(({ date, label, isMajor }) => {
                 const x = xScale(date);
                 return (
                     <g key={date.toISOString()}>
-                    <line x1={x} y1={isMajor ? 15 : 20} x2={x} y2={35} stroke={"#A0AEC0"} strokeWidth="1" />
-                    {label && ( <text x={x} y={12} fill="#90CDF4" fontSize="10" textAnchor="middle">{label}</text> )}
+                    <line x1={x} y1={isMajor ? 45 : 50} x2={x} y2={65} stroke={"#A0AEC0"} strokeWidth="1" />
+                    {label && ( <text x={x} y={42} fill="#90CDF4" fontSize="10" textAnchor="middle">{label}</text> )}
                     </g>
                 )
                 })}
 
+                {isDataLoaded && events.filter(e => e.visible).map(event => {
+                const eventDate = indexToDate(event.dateIndex);
+                const eventX = xScale(eventDate);
+                // Split event name into 2 lines of 12 characters each
+                const line1 = event.name.substring(0, 12);
+                const line2 = event.name.substring(12, 24);
+                return (
+                    <g key={event.id}>
+                        <line x1={eventX} y1={30} x2={eventX} y2={75} stroke={event.color} strokeWidth="2" strokeDasharray="4,2" />
+                        <circle cx={eventX} cy={55} r="4" fill={event.color} stroke="#1A202C" strokeWidth="1.5" />
+                        <text
+                            x={eventX}
+                            y={12}
+                            fill={event.color}
+                            fontSize="10"
+                            fontWeight="600"
+                            textAnchor="middle"
+                            className="pointer-events-none"
+                        >
+                            {line1}
+                        </text>
+                        {line2 && (
+                            <text
+                                x={eventX}
+                                y={24}
+                                fill={event.color}
+                                fontSize="10"
+                                fontWeight="600"
+                                textAnchor="middle"
+                                className="pointer-events-none"
+                            >
+                                {line2}
+                            </text>
+                        )}
+                    </g>
+                );
+                })}
+
                 {isDataLoaded && timeRange && width > 0 && (
                     <g>
-                        <rect x={startX} y="21" width={endX - startX} height="8" fill="rgba(79, 209, 197, 0.5)" />
-                        <line x1={startX} y1={10} x2={startX} y2={40} stroke="#4FD1C5" strokeWidth="2" />
-                        <circle cx={startX} cy={25} r="6" fill="#4FD1C5" stroke="#1A202C" strokeWidth="2" />
-                        <line x1={endX} y1={10} x2={endX} y2={40} stroke="#4FD1C5" strokeWidth="2" />
-                        <circle cx={endX} cy={25} r="6" fill="#4FD1C5" stroke="#1A202C" strokeWidth="2" />
+                        <rect x={startX} y="51" width={endX - startX} height="8" fill="rgba(79, 209, 197, 0.5)" />
+                        <line x1={startX} y1={35} x2={startX} y2={75} stroke="#4FD1C5" strokeWidth="2" />
+                        <circle cx={startX} cy={55} r="6" fill="#4FD1C5" stroke="#1A202C" strokeWidth="2" />
+                        <line x1={endX} y1={35} x2={endX} y2={75} stroke="#4FD1C5" strokeWidth="2" />
+                        <circle cx={endX} cy={55} r="6" fill="#4FD1C5" stroke="#1A202C" strokeWidth="2" />
                     </g>
                 )}
 
                 {isDataLoaded && currentDateIndex !== null && width > 0 && (
                     <g>
-                        <line x1={currentX} y1={10} x2={currentX} y2={40} stroke="#EF4444" strokeWidth="2" />
-                        <circle cx={currentX} cy={25} r="6" fill="#EF4444" stroke="#1A202C" strokeWidth="2" />
+                        <line x1={currentX} y1={35} x2={currentX} y2={75} stroke="#EF4444" strokeWidth="2" />
+                        <circle cx={currentX} cy={55} r="6" fill="#EF4444" stroke="#1A202C" strokeWidth="2" />
                     </g>
                 )}
             </svg>
