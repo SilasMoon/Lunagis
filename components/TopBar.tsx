@@ -6,6 +6,7 @@ import logoUrl from '../utils/LunaGis_logo.svg?url';
 interface ToolBarProps {
   activeTool: Tool;
   onToolSelect: (tool: Tool) => void;
+  onUserManualClick?: () => void;
 }
 
 interface ToolButtonProps {
@@ -63,7 +64,13 @@ const EventsIcon = () => (
     </svg>
 );
 
-export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect }) => (
+const UserManualIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+    </svg>
+);
+
+export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect, onUserManualClick }) => (
   <aside className="bg-gray-800/50 border-r border-gray-700 py-2 flex-shrink-0 flex flex-col items-center gap-4" style={{width: '75x'}} role="navigation" aria-label="Main navigation">
     <div className="w-full flex items-center justify-center" aria-label="Lunagis logo">
         <img src={logoUrl} alt="LunaGis" className="h-auto object-contain" style={{width: '50px'}} />
@@ -73,5 +80,21 @@ export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect }) =>
     <ToolButton label="Events" icon={<EventsIcon />} isActive={activeTool === 'events'} onClick={() => onToolSelect('events')} />
     <ToolButton label="Measure" icon={<MeasurementIcon />} isActive={activeTool === 'measurement'} onClick={() => onToolSelect('measurement')} />
     <ToolButton label="Config" icon={<ConfigIcon />} isActive={activeTool === 'config'} onClick={() => onToolSelect('config')} />
+
+    {/* Spacer to push User Manual button to bottom */}
+    <div className="flex-grow" />
+
+    {/* User Manual Button */}
+    {onUserManualClick && (
+      <button
+        onClick={onUserManualClick}
+        title="User Manual"
+        aria-label="User Manual"
+        className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-cyan-700/50 hover:text-cyan-300 border border-gray-700 hover:border-cyan-600"
+      >
+        <UserManualIcon />
+        <span className="text-xs mt-1">Manual</span>
+      </button>
+    )}
   </aside>
 );
