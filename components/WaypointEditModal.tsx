@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Waypoint } from '../types';
 import {
   Drill,
@@ -56,6 +56,22 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
   const [activitySymbolColor, setActivitySymbolColor] = useState(waypoint.activitySymbolColor || defaultColor);
   const [activityOffset, setActivityOffset] = useState(waypoint.activityOffset !== undefined ? waypoint.activityOffset : 35);
   const [description, setDescription] = useState(waypoint.description || '');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isDropdownOpen]);
 
   if (!isOpen) return null;
 
@@ -141,38 +157,72 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Activity Symbol
             </label>
-            <div className="relative">
-              <select
-                value={activitySymbol || ''}
-                onChange={(e) => setActivitySymbol(e.target.value || null)}
-                className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500 appearance-none pr-10"
+            <div className="relative" ref={dropdownRef}>
+              {/* Custom dropdown button */}
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 hover:border-gray-500 focus:outline-none focus:border-blue-500 flex items-center justify-between"
               >
-                {AVAILABLE_SYMBOLS.map((symbol) => (
-                  <option key={symbol.name || 'none'} value={symbol.name || ''}>
-                    {symbol.label}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const selectedSymbol = AVAILABLE_SYMBOLS.find(s => s.name === activitySymbol);
+                    const Icon = selectedSymbol?.icon;
+                    return (
+                      <>
+                        {Icon && (
+                          <Icon
+                            className="w-5 h-5"
+                            style={{ color: activitySymbolColor }}
+                            strokeWidth={2}
+                          />
+                        )}
+                        <span>{selectedSymbol?.label || 'None'}</span>
+                      </>
+                    );
+                  })()}
+                </div>
                 <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
-              </div>
-            </div>
-            {activitySymbol && (() => {
-              const selectedSymbol = AVAILABLE_SYMBOLS.find(s => s.name === activitySymbol);
-              const Icon = selectedSymbol?.icon;
-              return Icon ? (
-                <div className="mt-3 p-3 bg-gray-700/50 rounded-lg border border-gray-600 flex items-center gap-3">
-                  <Icon
-                    className="w-8 h-8"
-                    style={{ color: activitySymbolColor }}
-                    strokeWidth={2}
-                  />
-                  <span className="text-sm text-gray-300">Preview: {selectedSymbol?.label}</span>
+              </button>
+
+              {/* Dropdown menu */}
+              {isDropdownOpen && (
+                <div className="absolute z-10 w-full mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                  {AVAILABLE_SYMBOLS.map((symbol) => {
+                    const Icon = symbol.icon;
+                    const isSelected = activitySymbol === symbol.name;
+                    return (
+                      <button
+                        key={symbol.name || 'none'}
+                        type="button"
+                        onClick={() => {
+                          setActivitySymbol(symbol.name);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-600 transition-colors ${
+                          isSelected ? 'bg-blue-600/20' : ''
+                        }`}
+                      >
+                        <div className="w-6 h-6 flex items-center justify-center">
+                          {Icon && (
+                            <Icon
+                              className="w-5 h-5"
+                              style={{ color: isSelected ? activitySymbolColor : '#9ca3af' }}
+                              strokeWidth={2}
+                            />
+                          )}
+                        </div>
+                        <span className={`text-sm ${isSelected ? 'text-blue-400' : 'text-gray-300'}`}>
+                          {symbol.label}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : null;
-            })()}
+              )}
+            </div>
           </div>
 
           {/* Activity Label */}

@@ -135,23 +135,30 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                   const incomingDir: [number, number] = [dx1 / mag1, dy1 / mag1];
                   const outgoingDir: [number, number] = [dx2 / mag2, dy2 / mag2];
 
-                  // The sum of two unit vectors bisects the INNER angle between them
-                  const innerBisectorX = incomingDir[0] + outgoingDir[0];
-                  const innerBisectorY = incomingDir[1] + outgoingDir[1];
+                  // Calculate angles to determine which side has the larger angle
+                  const angleIncoming = Math.atan2(incomingDir[1], incomingDir[0]);
+                  const angleOutgoing = Math.atan2(outgoingDir[1], outgoingDir[0]);
 
-                  // The OUTER angle is the larger of the two angles formed by the segments
-                  // The outer angle bisector points in the opposite direction of the inner bisector
-                  // This is because they are 180° apart
-                  const outerBisectorX = -innerBisectorX;
-                  const outerBisectorY = -innerBisectorY;
+                  // Angle difference (normalized to [0, 2π))
+                  let angleDiff = angleOutgoing - angleIncoming;
+                  if (angleDiff < 0) angleDiff += 2 * Math.PI;
 
-                  const bisectorMag = Math.sqrt(outerBisectorX * outerBisectorX + outerBisectorY * outerBisectorY);
+                  // The sum of two unit vectors bisects the angle between them
+                  let bisectorX = incomingDir[0] + outgoingDir[0];
+                  let bisectorY = incomingDir[1] + outgoingDir[1];
+
+                  // If the CCW angle is < π, the outer (larger) angle is on the other side
+                  // So we negate the bisector to point toward the larger angle
+                  if (angleDiff < Math.PI) {
+                    bisectorX = -bisectorX;
+                    bisectorY = -bisectorY;
+                  }
+
+                  const bisectorMag = Math.sqrt(bisectorX * bisectorX + bisectorY * bisectorY);
 
                   if (bisectorMag > 0) {
-                    const normalizedX = outerBisectorX / bisectorMag;
-                    const normalizedY = outerBisectorY / bisectorMag;
-                    // Rotate 90° counterclockwise for consistency with first/last waypoint logic
-                    directionVector = [-normalizedY, normalizedX];
+                    // For middle waypoints, position ALONG the bisector (no 90° rotation)
+                    directionVector = [bisectorX / bisectorMag, bisectorY / bisectorMag];
                   }
                 }
               }
@@ -173,6 +180,12 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
             const directionVector = offsetX !== 0 || offsetY !== 0
               ? [offsetX / offsetDistance, offsetY / offsetDistance]
               : [0, -1]; // fallback
+
+            // Calculate rotation angle for label (perpendicular to direction vector)
+            // Perpendicular = rotate 90° CCW: [-dy, dx]
+            const perpX = -directionVector[1];
+            const perpY = directionVector[0];
+            const rotationAngle = Math.atan2(perpY, perpX) * (180 / Math.PI);
 
             return (
               <React.Fragment key={`${artifact.id}-${waypoint.id}-activity`}>
@@ -198,7 +211,7 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                     style={{
                       left: `${canvasX + offsetX + directionVector[0] * labelOffset}px`,
                       top: `${canvasY + offsetY + directionVector[1] * labelOffset}px`,
-                      transform: 'translate(-50%, -50%)',
+                      transform: `translate(-50%, -50%) rotate(${rotationAngle}deg)`,
                     }}
                   >
                     <span
