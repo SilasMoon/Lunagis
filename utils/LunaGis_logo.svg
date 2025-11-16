@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
    version="1.0"
-   width="455.81949pt"
-   height="541.8833pt"
-   viewBox="0 0 455.81949 541.8833"
+   width="521pt"
+   height="570pt"
+   viewBox="-32.5 -20 521 570"
    preserveAspectRatio="xMidYMid"
    id="svg25"
    sodipodi:docname="LunaGis logo.svg"
@@ -34,7 +34,7 @@
      showgrid="true"
      inkscape:zoom="0.94116211"
      inkscape:cx="306.53593"
-     inkscape:cy="364.44306"
+     inkscape:cy="363.9118"
      inkscape:window-width="2560"
      inkscape:window-height="1566"
      inkscape:window-x="-11"
@@ -44,7 +44,7 @@
     <inkscape:grid
        id="grid25"
        units="pt"
-       originx="-282.09804"
+       originx="-282.09805"
        originy="-240.65993"
        spacingx="0.99999997"
        spacingy="0.99999997"
@@ -160,12 +160,12 @@
      aria-label="LunaGis"
      sodipodi:nodetypes="cccccccccccscsccscccssccccccscccsccccccccscsccccccssccscccsccsssscscscscccccscscccccscscscccccccssccssscccccccccccccccccscssccccccscscccccscscccccscssccccs" />
   <rect
-     style="fill:none;stroke-width:0.75"
+     style="fill:none;fill-opacity:1;stroke-width:0.769597"
      id="rect1"
-     width="455.81949"
-     height="541.8833"
-     x="-5.6843419e-14"
-     y="0"
+     width="521"
+     height="570.57123"
+     x="-32.5"
+     y="-18.687937"
      ry="0"
      rx="57.375851" />
 </svg>
