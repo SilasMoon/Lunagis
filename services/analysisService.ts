@@ -43,7 +43,8 @@ export const calculateExpressionLayer = async (
         const { time, height, width } = firstDataLayer.dimensions;
         const result = evaluateExpression(expression, {});
         const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(result)));
-        return { dataset: resultDataset, range: { min: 0, max: 1 }, dimensions: { time, height, width } };
+        // Use the constant value as both min and max
+        return { dataset: resultDataset, range: { min: result, max: result }, dimensions: { time, height, width } };
     }
 
     const firstLayer = sourceLayers[0];
@@ -113,7 +114,25 @@ export const calculateExpressionLayer = async (
         onProgress('Calculating expression... 100%');
     }
 
-    const result = { dataset: resultDataset, range: { min: 0, max: 1 }, dimensions: { time, height, width } };
+    // Calculate actual min/max range from the result dataset
+    let min = Infinity;
+    let max = -Infinity;
+    for (let t = 0; t < time; t++) {
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const value = resultDataset[t][y][x];
+                if (value < min) min = value;
+                if (value > max) max = value;
+            }
+        }
+    }
+
+    // Handle edge case where all values are the same
+    if (min === max) {
+        max = min + 1;
+    }
+
+    const result = { dataset: resultDataset, range: { min, max }, dimensions: { time, height, width } };
 
     // Store result in cache
     analysisCache.setExpression(cacheKey, result);

@@ -5,6 +5,9 @@ interface Token {
   value: string | number;
 }
 
+// Epsilon for floating-point comparisons to handle precision issues
+const EPSILON = 1e-10;
+
 const OPERATORS: { [key: string]: { precedence: number; associativity: 'Left' | 'Right' } } = {
   '>': { precedence: 2, associativity: 'Left' },
   '>=': { precedence: 2, associativity: 'Left' },
@@ -123,7 +126,11 @@ function evaluateRPN(rpnQueue: Token[], context: { [key: string]: number }): num
                 case '>=': stack.push(a >= b ? 1 : 0); break;
                 case '<': stack.push(a < b ? 1 : 0); break;
                 case '<=': stack.push(a <= b ? 1 : 0); break;
-                case '==': stack.push(a == b ? 1 : 0); break;
+                case '==':
+                    // Use epsilon-based comparison for floating-point numbers
+                    // to handle precision issues (e.g., 0.1 + 0.2 === 0.3 is false)
+                    stack.push(Math.abs((a as number) - (b as number)) < EPSILON ? 1 : 0);
+                    break;
                 case 'AND': stack.push(a && b ? 1 : 0); break;
                 case 'OR': stack.push(a || b ? 1 : 0); break;
                 default: throw new Error(`Unknown operator: ${token.value}`);
