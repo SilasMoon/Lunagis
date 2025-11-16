@@ -13,7 +13,8 @@ export const TimeSlider: React.FC = () => {
     currentDateIndex,
     setCurrentDateIndex,
     handleManualTimeRangeChange,
-    timeZoomDomain
+    timeZoomDomain,
+    events
   } = useAppContext();
   
   const isDataLoaded = !!primaryDataLayer;
@@ -202,6 +203,28 @@ export const TimeSlider: React.FC = () => {
                     {label && ( <text x={x} y={12} fill="#90CDF4" fontSize="10" textAnchor="middle">{label}</text> )}
                     </g>
                 )
+                })}
+
+                {isDataLoaded && events.filter(e => e.visible).map(event => {
+                const eventDate = indexToDate(event.dateIndex);
+                const eventX = xScale(eventDate);
+                return (
+                    <g key={event.id}>
+                        <line x1={eventX} y1={10} x2={eventX} y2={40} stroke={event.color} strokeWidth="2" strokeDasharray="4,2" />
+                        <circle cx={eventX} cy={25} r="4" fill={event.color} stroke="#1A202C" strokeWidth="1.5" />
+                        <text
+                            x={eventX}
+                            y={8}
+                            fill={event.color}
+                            fontSize="9"
+                            fontWeight="600"
+                            textAnchor="middle"
+                            className="pointer-events-none"
+                        >
+                            {event.name}
+                        </text>
+                    </g>
+                );
                 })}
 
                 {isDataLoaded && timeRange && width > 0 && (
