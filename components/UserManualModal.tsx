@@ -271,6 +271,204 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                             </div>
                         </section>
 
+                        {/* Advanced Analysis Features */}
+                        <section>
+                            <h3 className="text-xl font-semibold text-cyan-300 mb-3 flex items-center">
+                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                Advanced Analysis Features
+                            </h3>
+                            <div className="space-y-3">
+                                <p className="text-xs text-gray-400">
+                                    Lunagis includes specialized analysis tools for binary day/night data layers. These tools help analyze daylight patterns and forecast nightfall periods.
+                                </p>
+
+                                {/* Nightfall Forecast */}
+                                <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                    <h4 className="font-semibold text-cyan-400 mb-2 text-sm">Nightfall Forecast</h4>
+                                    <p className="text-xs text-gray-400 mb-3">
+                                        Predicts the duration of upcoming nightfall periods across the entire time series.
+                                        Available as a button on any data layer with binary day/night values (1=day, 0=night).
+                                    </p>
+
+                                    <div className="space-y-2">
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">How It Works</h5>
+                                            <p className="text-xs text-gray-500 mb-2">
+                                                The algorithm uses a two-pass approach to detect and forecast nightfall periods:
+                                            </p>
+                                            <ol className="text-xs text-gray-500 space-y-1 list-decimal list-inside pl-2">
+                                                <li><strong className="text-gray-400">Pass 1:</strong> Scans the entire time series to identify all night periods (continuous sequences where value = 0)</li>
+                                                <li><strong className="text-gray-400">Pass 2:</strong> For each timestep, assigns the duration of the relevant night period:
+                                                    <ul className="list-disc list-inside pl-4 mt-1 space-y-0.5">
+                                                        <li><span className="text-cyan-400">During daytime</span> (value=1): Assigns <strong>positive</strong> duration (in hours) until the next nightfall begins</li>
+                                                        <li><span className="text-purple-400">During nighttime</span> (value=0): Assigns <strong>negative</strong> duration (in hours) representing time elapsed into current nightfall</li>
+                                                    </ul>
+                                                </li>
+                                            </ol>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Output Values</h5>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li><strong className="text-green-400">Positive values:</strong> Hours until next nightfall (during day periods)</li>
+                                                <li><strong className="text-red-400">Negative values:</strong> Hours into current nightfall (during night periods)</li>
+                                                <li><strong className="text-gray-400">Zero:</strong> No more night periods ahead in the time series</li>
+                                            </ul>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Visualization</h5>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li>Creates a new time-varying analysis layer (3D: time × height × width)</li>
+                                                <li>Default colormap uses custom color stops optimized for ±14 day ranges</li>
+                                                <li>Cyan colors indicate nighttime periods, yellow shows transition points</li>
+                                                <li>Results are cached for performance</li>
+                                            </ul>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Use Cases</h5>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li>Planning activities around daylight availability</li>
+                                                <li>Identifying locations with extended night periods</li>
+                                                <li>Analyzing polar day/night patterns</li>
+                                                <li>Forecasting darkness duration for energy or agricultural applications</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Daylight Fraction */}
+                                <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                    <h4 className="font-semibold text-cyan-400 mb-2 text-sm">Daylight Fraction</h4>
+                                    <p className="text-xs text-gray-400 mb-3">
+                                        Calculates the percentage of time each location experiences daylight over a selected time range.
+                                        Available as a button on any data layer with binary day/night values (1=day, 0=night).
+                                    </p>
+
+                                    <div className="space-y-2">
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Calculation Formula</h5>
+                                            <div className="bg-gray-950/50 p-2 rounded border border-gray-800 font-mono text-xs text-cyan-300 my-2">
+                                                Daylight Fraction (%) = (dayHours / totalHours) × 100
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                                Where <code className="bg-gray-800 px-1 rounded">dayHours</code> is the count of timesteps with value=1 (daylight)
+                                                and <code className="bg-gray-800 px-1 rounded">totalHours</code> is the total timesteps in the selected time range.
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">How It Works</h5>
+                                            <ol className="text-xs text-gray-500 space-y-1 list-decimal list-inside pl-2">
+                                                <li>For each pixel location (x, y), scan through all timesteps in the current time range</li>
+                                                <li>Count how many timesteps have value = 1 (daylight)</li>
+                                                <li>Divide by total timesteps and multiply by 100 to get percentage</li>
+                                                <li>Store result in a 2D output slice (no time dimension)</li>
+                                            </ol>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Output Values</h5>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li><strong className="text-gray-400">Range:</strong> 0% to 100%</li>
+                                                <li><strong className="text-gray-400">0%:</strong> Location never experienced daylight during time range</li>
+                                                <li><strong className="text-gray-400">100%:</strong> Location had continuous daylight during time range</li>
+                                                <li><strong className="text-gray-400">50%:</strong> Equal amounts of day and night</li>
+                                            </ul>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Hover Details</h5>
+                                            <p className="text-xs text-gray-500 mb-1">
+                                                When hovering over a Daylight Fraction layer, detailed statistics are calculated in real-time:
+                                            </p>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li>Overall daylight percentage</li>
+                                                <li>Total daylight and night hours</li>
+                                                <li>Number of day periods (continuous daylight sequences)</li>
+                                                <li>Longest and shortest day periods (in hours)</li>
+                                                <li>Number of night periods (continuous darkness sequences)</li>
+                                                <li>Longest and shortest night periods (in hours)</li>
+                                            </ul>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Visualization</h5>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li>Creates a static 2D analysis layer (height × width only)</li>
+                                                <li>Output is a single snapshot aggregating the selected time range</li>
+                                                <li>Automatically recalculates when you change the time range</li>
+                                                <li>Results are cached per time range for performance</li>
+                                            </ul>
+                                        </div>
+
+                                        <div>
+                                            <h5 className="font-semibold text-cyan-400 text-xs mb-1">Use Cases</h5>
+                                            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
+                                                <li>Analyzing daylight availability for solar energy potential</li>
+                                                <li>Identifying optimal locations based on daylight requirements</li>
+                                                <li>Comparing seasonal variations in daylight distribution</li>
+                                                <li>Agricultural planning and crop selection based on light exposure</li>
+                                                <li>Urban planning and building placement optimization</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Comparison Table */}
+                                <div className="bg-gradient-to-br from-gray-900/80 to-gray-950/80 p-4 rounded-lg border border-gray-700">
+                                    <h4 className="font-semibold text-cyan-400 mb-3 text-sm">Quick Comparison</h4>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b border-gray-700">
+                                                    <th className="text-left py-2 px-2 text-cyan-300">Feature</th>
+                                                    <th className="text-left py-2 px-2 text-cyan-300">Nightfall Forecast</th>
+                                                    <th className="text-left py-2 px-2 text-cyan-300">Daylight Fraction</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="text-gray-400">
+                                                <tr className="border-b border-gray-800">
+                                                    <td className="py-2 px-2 font-semibold">Output Type</td>
+                                                    <td className="py-2 px-2">3D time-varying</td>
+                                                    <td className="py-2 px-2">2D static slice</td>
+                                                </tr>
+                                                <tr className="border-b border-gray-800">
+                                                    <td className="py-2 px-2 font-semibold">Values</td>
+                                                    <td className="py-2 px-2">Hours (±)</td>
+                                                    <td className="py-2 px-2">Percentage (0-100%)</td>
+                                                </tr>
+                                                <tr className="border-b border-gray-800">
+                                                    <td className="py-2 px-2 font-semibold">Purpose</td>
+                                                    <td className="py-2 px-2">Predict future nightfall</td>
+                                                    <td className="py-2 px-2">Analyze daylight availability</td>
+                                                </tr>
+                                                <tr className="border-b border-gray-800">
+                                                    <td className="py-2 px-2 font-semibold">Time Range</td>
+                                                    <td className="py-2 px-2">Full time series</td>
+                                                    <td className="py-2 px-2">Current selection</td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="py-2 px-2 font-semibold">Updates</td>
+                                                    <td className="py-2 px-2">Static after creation</td>
+                                                    <td className="py-2 px-2">Auto-updates with time range</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div className="bg-blue-900/20 p-3 rounded-lg border border-blue-700/50">
+                                    <p className="text-xs text-blue-200">
+                                        <strong>Note:</strong> Both analysis tools require source data layers with binary values where 1 represents daylight and 0 represents nightfall/darkness.
+                                    </p>
+                                </div>
+                            </div>
+                        </section>
+
                         {/* Time Navigation */}
                         <section>
                             <h3 className="text-xl font-semibold text-cyan-300 mb-3 flex items-center">
