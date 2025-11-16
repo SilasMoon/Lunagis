@@ -2,17 +2,19 @@ import React, { useState } from 'react';
 import { Waypoint } from '../types';
 import {
   Drill,
-  Pause,
+  CirclePause,
   Target,
   Flag,
   Satellite,
-  Crosshair,
-  Moon,
+  SatelliteDish,
   Sunset,
-  MessageCircle,
-  Binoculars,
+  BatteryMedium,
+  TrafficCone,
+  ListChecks,
+  Camera,
+  SquareActivity,
+  Waypoints,
   LucideIcon,
-  XCircle,
 } from 'lucide-react';
 
 interface WaypointEditModalProps {
@@ -25,17 +27,20 @@ interface WaypointEditModalProps {
 
 // Available activity symbols with their icons
 const AVAILABLE_SYMBOLS: { name: string | null; icon: LucideIcon | null; label: string }[] = [
-  { name: null, icon: XCircle, label: 'None' },
-  { name: 'drill', icon: Drill, label: 'Drill' },
-  { name: 'pause', icon: Pause, label: 'Pause' },
-  { name: 'target', icon: Target, label: 'Target' },
-  { name: 'flag', icon: Flag, label: 'Flag' },
-  { name: 'satellite', icon: Satellite, label: 'Satellite' },
-  { name: 'crosshair', icon: Crosshair, label: 'Crosshair' },
-  { name: 'moon', icon: Moon, label: 'Moon' },
-  { name: 'sunset', icon: Sunset, label: 'Sunset' },
-  { name: 'message', icon: MessageCircle, label: 'Message' },
-  { name: 'binoculars', icon: Binoculars, label: 'Binoculars' },
+  { name: null, icon: null, label: 'None' },
+  { name: 'sunset', icon: Sunset, label: 'hibernation' },
+  { name: 'battery-medium', icon: BatteryMedium, label: 'charging' },
+  { name: 'circle-pause', icon: CirclePause, label: 'pause' },
+  { name: 'flag', icon: Flag, label: 'objective' },
+  { name: 'target', icon: Target, label: 'target' },
+  { name: 'traffic-cone', icon: TrafficCone, label: 'commissioning' },
+  { name: 'list-checks', icon: ListChecks, label: 'checkout' },
+  { name: 'camera', icon: Camera, label: 'imaging' },
+  { name: 'satellite-dish', icon: SatelliteDish, label: 'comms' },
+  { name: 'satellite', icon: Satellite, label: 'LPF comms' },
+  { name: 'square-activity', icon: SquareActivity, label: 'science station' },
+  { name: 'drill', icon: Drill, label: 'drill' },
+  { name: 'waypoints', icon: Waypoints, label: 'wisdom scan' },
 ];
 
 export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
@@ -49,7 +54,7 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
   const [activityLabel, setActivityLabel] = useState(waypoint.activityLabel || '');
   const [activitySymbolSize, setActivitySymbolSize] = useState(waypoint.activitySymbolSize || 24);
   const [activitySymbolColor, setActivitySymbolColor] = useState(waypoint.activitySymbolColor || defaultColor);
-  const [activityOffset, setActivityOffset] = useState(waypoint.activityOffset !== undefined ? waypoint.activityOffset : 40);
+  const [activityOffset, setActivityOffset] = useState(waypoint.activityOffset !== undefined ? waypoint.activityOffset : 35);
   const [description, setDescription] = useState(waypoint.description || '');
 
   if (!isOpen) return null;
@@ -133,36 +138,41 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
 
           {/* Activity Symbol Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-3">
+            <label className="block text-sm font-medium text-gray-300 mb-2">
               Activity Symbol
             </label>
-            <div className="grid grid-cols-6 gap-2">
-              {AVAILABLE_SYMBOLS.map((symbol) => {
-                const Icon = symbol.icon;
-                const isSelected = activitySymbol === symbol.name;
-                return (
-                  <button
-                    key={symbol.name || 'none'}
-                    onClick={() => setActivitySymbol(symbol.name)}
-                    className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'border-blue-500 bg-blue-500/20'
-                        : 'border-gray-600 bg-gray-700/50 hover:border-gray-500'
-                    }`}
-                    title={symbol.label}
-                  >
-                    {Icon && (
-                      <Icon
-                        className="w-6 h-6"
-                        style={{ color: isSelected ? activitySymbolColor : '#9ca3af' }}
-                        strokeWidth={2}
-                      />
-                    )}
-                    <span className="text-xs text-gray-400">{symbol.label}</span>
-                  </button>
-                );
-              })}
+            <div className="relative">
+              <select
+                value={activitySymbol || ''}
+                onChange={(e) => setActivitySymbol(e.target.value || null)}
+                className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500 appearance-none pr-10"
+              >
+                {AVAILABLE_SYMBOLS.map((symbol) => (
+                  <option key={symbol.name || 'none'} value={symbol.name || ''}>
+                    {symbol.label}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
+            {activitySymbol && (() => {
+              const selectedSymbol = AVAILABLE_SYMBOLS.find(s => s.name === activitySymbol);
+              const Icon = selectedSymbol?.icon;
+              return Icon ? (
+                <div className="mt-3 p-3 bg-gray-700/50 rounded-lg border border-gray-600 flex items-center gap-3">
+                  <Icon
+                    className="w-8 h-8"
+                    style={{ color: activitySymbolColor }}
+                    strokeWidth={2}
+                  />
+                  <span className="text-sm text-gray-300">Preview: {selectedSymbol?.label}</span>
+                </div>
+              ) : null;
+            })()}
           </div>
 
           {/* Activity Label */}

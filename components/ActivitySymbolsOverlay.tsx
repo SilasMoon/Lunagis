@@ -2,29 +2,35 @@ import React from 'react';
 import { PathArtifact, Waypoint } from '../types';
 import {
   Drill,
-  Pause,
+  CirclePause,
   Target,
   Flag,
   Satellite,
-  Crosshair,
-  Moon,
+  SatelliteDish,
   Sunset,
-  MessageCircle,
-  Binoculars,
+  BatteryMedium,
+  TrafficCone,
+  ListChecks,
+  Camera,
+  SquareActivity,
+  Waypoints,
   LucideIcon,
 } from 'lucide-react';
 
 const SYMBOL_COMPONENTS: Record<string, LucideIcon> = {
-  drill: Drill,
-  pause: Pause,
-  target: Target,
-  flag: Flag,
-  satellite: Satellite,
-  crosshair: Crosshair,
-  moon: Moon,
-  sunset: Sunset,
-  message: MessageCircle,
-  binoculars: Binoculars,
+  'sunset': Sunset,
+  'battery-medium': BatteryMedium,
+  'circle-pause': CirclePause,
+  'flag': Flag,
+  'target': Target,
+  'traffic-cone': TrafficCone,
+  'list-checks': ListChecks,
+  'camera': Camera,
+  'satellite-dish': SatelliteDish,
+  'satellite': Satellite,
+  'square-activity': SquareActivity,
+  'drill': Drill,
+  'waypoints': Waypoints,
 };
 
 interface ActivitySymbolsOverlayProps {
@@ -67,9 +73,9 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
 
             // Calculate perpendicular offset based on outgoing segment IN CANVAS SPACE
             let offsetX = 0;
-            let offsetY = -40; // Default: upward
+            let offsetY = -35; // Default: upward
 
-            const offsetDistance = waypoint.activityOffset !== undefined ? waypoint.activityOffset : 40;
+            const offsetDistance = waypoint.activityOffset !== undefined ? waypoint.activityOffset : 35;
 
             if (artifact.waypoints.length > 1) {
               let directionVector: [number, number] | null = null;
@@ -162,23 +168,39 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
             const IconComponent = SYMBOL_COMPONENTS[waypoint.activitySymbol];
             if (!IconComponent) return null;
 
+            // Label is positioned further along the same direction vector
+            const labelOffset = size / 2 + 20; // Extra offset for label beyond icon
+            const directionVector = offsetX !== 0 || offsetY !== 0
+              ? [offsetX / offsetDistance, offsetY / offsetDistance]
+              : [0, -1]; // fallback
+
             return (
-              <div
-                key={`${artifact.id}-${waypoint.id}-activity`}
-                className="absolute"
-                style={{
-                  left: `${canvasX + offsetX}px`,
-                  top: `${canvasY + offsetY}px`,
-                  transform: 'translate(-50%, -50%)',
-                }}
-              >
-                <div className="flex flex-col items-center gap-1">
+              <React.Fragment key={`${artifact.id}-${waypoint.id}-activity`}>
+                {/* Icon */}
+                <div
+                  className="absolute"
+                  style={{
+                    left: `${canvasX + offsetX}px`,
+                    top: `${canvasY + offsetY}px`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
                   <IconComponent
                     size={size}
                     color={color}
                     strokeWidth={2}
                   />
-                  {waypoint.activityLabel && (
+                </div>
+                {/* Label - positioned further along the same direction */}
+                {waypoint.activityLabel && (
+                  <div
+                    className="absolute"
+                    style={{
+                      left: `${canvasX + offsetX + directionVector[0] * labelOffset}px`,
+                      top: `${canvasY + offsetY + directionVector[1] * labelOffset}px`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                  >
                     <span
                       className="text-xs font-semibold whitespace-nowrap"
                       style={{
@@ -188,9 +210,9 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                     >
                       {waypoint.activityLabel}
                     </span>
-                  )}
-                </div>
-              </div>
+                  </div>
+                )}
+              </React.Fragment>
             );
           } catch (e) {
             return null;
