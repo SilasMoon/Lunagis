@@ -43,7 +43,7 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                 Lunagis is a powerful temporal data visualization platform designed for analyzing and exploring
                                 geospatial and time-series data. It provides an intuitive interface for loading, visualizing,
                                 and analyzing data across time dimensions with support for multiple data layers, custom artifacts,
-                                events, and advanced measurement tools.
+                                events, and cell selection tools.
                             </p>
                         </section>
 
@@ -85,10 +85,10 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                     <p className="text-xs text-gray-400 mb-2">Manage data visualization layers including data layers, analysis layers, and image overlays.</p>
                                     <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
                                         <li>Add/remove data layers (.npy files)</li>
-                                        <li>Create analysis layers with expressions</li>
-                                        <li>Import image overlays (.png, .vrt)</li>
+                                        <li>Create analysis layers with boolean expressions</li>
+                                        <li>Import image overlays (.png, .jpg) and base maps (.vrt)</li>
                                         <li>Adjust opacity and visibility</li>
-                                        <li>Configure color scales and ranges</li>
+                                        <li>Configure color scales and value ranges</li>
                                     </ul>
                                 </div>
 
@@ -114,7 +114,7 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                         <li>Assign custom names and colors</li>
                                         <li>View events on timeline and plots</li>
                                         <li>Navigate to event timestamps</li>
-                                        <li>Export/import event data</li>
+                                        <li>Events saved with session data</li>
                                     </ul>
                                 </div>
 
@@ -123,13 +123,13 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                     <h4 className="font-semibold text-cyan-400 mb-2 text-sm flex items-center">
                                         <kbd className="bg-gray-700 px-2 py-0.5 rounded text-xs mr-2">4</kbd> Measure
                                     </h4>
-                                    <p className="text-xs text-gray-400 mb-2">Advanced measurement and data extraction tools.</p>
+                                    <p className="text-xs text-gray-400 mb-2">Cell selection tools for data inspection.</p>
                                     <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
-                                        <li>Point value inspection</li>
-                                        <li>Distance and area measurements</li>
-                                        <li>Profile line extraction</li>
-                                        <li>Statistical analysis of regions</li>
-                                        <li>Export measurement data</li>
+                                        <li>Click cells to select/deselect</li>
+                                        <li>Multi-cell selection mode</li>
+                                        <li>Customize selection color</li>
+                                        <li>Clear all selections</li>
+                                        <li>View selected cell data in time series plot</li>
                                     </ul>
                                 </div>
 
@@ -140,11 +140,11 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                     </h4>
                                     <p className="text-xs text-gray-400 mb-2">Session management and display configuration options.</p>
                                     <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
-                                        <li>Save/load session state</li>
-                                        <li>Configure playback settings</li>
+                                        <li>Save/load session state to JSON</li>
+                                        <li>Configure playback speed (1-30 FPS)</li>
                                         <li>Adjust display preferences</li>
                                         <li>Manage project settings</li>
-                                        <li>Export visualization snapshots</li>
+                                        <li>Session includes layers, artifacts, and events</li>
                                     </ul>
                                 </div>
                             </div>
@@ -167,11 +167,19 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                             <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">1</kbd>
                                         </li>
                                         <li className="flex items-center justify-between">
-                                            <span className="text-gray-400">Measure Panel</span>
+                                            <span className="text-gray-400">Pan Tool</span>
+                                            <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">2</kbd>
+                                        </li>
+                                        <li className="flex items-center justify-between">
+                                            <span className="text-gray-400">Zoom Tool</span>
+                                            <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">3</kbd>
+                                        </li>
+                                        <li className="flex items-center justify-between">
+                                            <span className="text-gray-400">Cell Select</span>
                                             <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">4</kbd>
                                         </li>
                                         <li className="flex items-center justify-between">
-                                            <span className="text-gray-400">Config Panel</span>
+                                            <span className="text-gray-400">Multi-Cell Select</span>
                                             <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">5</kbd>
                                         </li>
                                     </ul>
@@ -191,14 +199,6 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                         <li className="flex items-center justify-between">
                                             <span className="text-gray-400">Previous Time Step</span>
                                             <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">←</kbd>
-                                        </li>
-                                        <li className="flex items-center justify-between">
-                                            <span className="text-gray-400">First Time Step</span>
-                                            <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Home</kbd>
-                                        </li>
-                                        <li className="flex items-center justify-between">
-                                            <span className="text-gray-400">Last Time Step</span>
-                                            <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">End</kbd>
                                         </li>
                                     </ul>
                                 </div>
@@ -231,14 +231,14 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                 <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                                     <h4 className="font-semibold text-cyan-400 mb-2 text-sm">Analysis Layers</h4>
                                     <p className="text-xs text-gray-400 mb-2">
-                                        Create derived layers using mathematical expressions on existing data layers.
+                                        Create derived layers using boolean and comparison expressions on existing data layers.
                                     </p>
                                     <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
-                                        <li>Supports arithmetic operations: +, -, *, /, ^</li>
-                                        <li>Mathematical functions: sqrt, abs, log, sin, cos, etc.</li>
+                                        <li>Comparison operators: &gt;, &gt;=, &lt;, &lt;=, ==</li>
+                                        <li>Logical operators: AND, OR, NOT</li>
                                         <li>Reference layers by name in expressions</li>
-                                        <li>Real-time calculation and visualization</li>
-                                        <li>Example: "sqrt(layer1^2 + layer2^2)"</li>
+                                        <li>Results shown as true/false (1/0) values</li>
+                                        <li>Example: "layer1 &gt; 50 AND layer2 &lt; 100"</li>
                                     </ul>
                                 </div>
 
@@ -248,10 +248,24 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                         Customize how data values are mapped to colors for optimal visualization.
                                     </p>
                                     <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
-                                        <li>Choose from multiple color map presets</li>
+                                        <li>Choose from multiple color map presets (Viridis, Plasma, Inferno, Magma, Cividis, Turbo, Grayscale)</li>
                                         <li>Set custom min/max value ranges</li>
-                                        <li>Auto-scale based on visible data</li>
+                                        <li>Create custom color scales with threshold mode</li>
+                                        <li>Invert color maps</li>
                                         <li>Adjust opacity for layer blending</li>
+                                    </ul>
+                                </div>
+
+                                <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                    <h4 className="font-semibold text-cyan-400 mb-2 text-sm">Image Overlays</h4>
+                                    <p className="text-xs text-gray-400 mb-2">
+                                        Import georeferenced images and standalone image overlays.
+                                    </p>
+                                    <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
+                                        <li>Image layers: .png, .jpg files as standalone overlays</li>
+                                        <li>Base map layers: .vrt files with .png for georeferenced images</li>
+                                        <li>Adjust opacity and layer order</li>
+                                        <li>Toggle visibility independently</li>
                                     </ul>
                                 </div>
                             </div>
@@ -272,10 +286,9 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                 <ul className="text-xs text-gray-500 space-y-1.5 list-disc list-inside">
                                     <li><strong className="text-gray-400">Manual Navigation:</strong> Click and drag the slider handle to move to any time step</li>
                                     <li><strong className="text-gray-400">Playback Mode:</strong> Press Space or click the play button to automatically advance through time</li>
-                                    <li><strong className="text-gray-400">Step Navigation:</strong> Use arrow keys to move one step forward or backward</li>
-                                    <li><strong className="text-gray-400">Jump to Endpoints:</strong> Use Home/End keys to jump to first/last time step</li>
-                                    <li><strong className="text-gray-400">Playback Speed:</strong> Adjust in Config panel for faster or slower playback</li>
-                                    <li><strong className="text-gray-400">Loop Mode:</strong> Enable in Config panel to continuously loop through time</li>
+                                    <li><strong className="text-gray-400">Step Navigation:</strong> Use arrow keys (← →) to move one step forward or backward</li>
+                                    <li><strong className="text-gray-400">Playback Speed:</strong> Adjust speed in Config panel (1-30 FPS) for faster or slower playback</li>
+                                    <li><strong className="text-gray-400">Auto-Loop:</strong> Playback automatically loops back to the beginning when reaching the end</li>
                                 </ul>
                             </div>
                         </section>
@@ -290,7 +303,7 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                             </h3>
                             <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                                 <p className="text-xs text-gray-400 mb-3">
-                                    Save your entire workspace state including layers, artifacts, events, and configuration
+                                    Save your entire workspace configuration including layers, artifacts, events, and settings
                                     to resume work later.
                                 </p>
                                 <div className="space-y-2">
@@ -298,8 +311,9 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                         <h5 className="font-semibold text-cyan-400 text-xs mb-1">Saving Sessions</h5>
                                         <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
                                             <li>Click "Save Session" in the Config panel</li>
-                                            <li>Downloads a .json file with all session state</li>
-                                            <li>Data files (.npy) must be saved separately</li>
+                                            <li>Downloads a .json file with all session configuration</li>
+                                            <li>Includes layer metadata, artifacts, events, and display settings</li>
+                                            <li>Note: Data files (.npy) must be saved separately and re-imported</li>
                                         </ul>
                                     </div>
                                     <div>
@@ -307,8 +321,8 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                         <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside pl-2">
                                             <li>Click "Load Session" in the Config panel</li>
                                             <li>Select the .json session file</li>
-                                            <li>Provide referenced data files when prompted</li>
-                                            <li>All settings and annotations will be restored</li>
+                                            <li>Provide referenced data files (.npy) when prompted</li>
+                                            <li>All settings, artifacts, and events will be restored</li>
                                         </ul>
                                     </div>
                                 </div>
@@ -339,7 +353,7 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                     </li>
                                     <li className="flex items-start">
                                         <span className="text-cyan-400 mr-2">•</span>
-                                        <span><strong>Events:</strong> Use events to mark important temporal milestones for easy navigation.</span>
+                                        <span><strong>Events:</strong> Use events to mark important temporal milestones for easy navigation and reference.</span>
                                     </li>
                                     <li className="flex items-start">
                                         <span className="text-cyan-400 mr-2">•</span>
@@ -347,7 +361,11 @@ export const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClos
                                     </li>
                                     <li className="flex items-start">
                                         <span className="text-cyan-400 mr-2">•</span>
-                                        <span><strong>Save Often:</strong> Save your session regularly to preserve your work and annotations.</span>
+                                        <span><strong>Save Often:</strong> Save your session regularly to preserve your work. Remember to keep your data files organized.</span>
+                                    </li>
+                                    <li className="flex items-start">
+                                        <span className="text-cyan-400 mr-2">•</span>
+                                        <span><strong>Cell Selection:</strong> Use the Measure tool to select cells and view their values over time in the time series plot.</span>
                                     </li>
                                 </ul>
                             </div>
