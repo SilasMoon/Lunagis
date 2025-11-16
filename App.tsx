@@ -1,11 +1,12 @@
 // Fix: Removed invalid file header which was causing parsing errors.
-import React from 'react';
+import React, { useState } from 'react';
 import { ToolBar } from './components/TopBar';
 import { SidePanel } from './components/ControlPanel';
 import { DataCanvas } from './components/DataCanvas';
 import { TimeSlider } from './components/TimeSlider';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { ImportFilesModal } from './components/ImportFilesModal';
+import { UserManualModal } from './components/UserManualModal';
 import { useAppContext } from './context/AppContext';
 import { StatusBar } from './components/StatusBar';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -25,6 +26,9 @@ const App: React.FC = () => {
     handleManualTimeRangeChange,
     timeRange
   } = useAppContext();
+
+  // User Manual modal state
+  const [showUserManual, setShowUserManual] = useState(false);
 
   // Parse progress from loading message (e.g., "Calculating... 45%")
   const loadingProgress = React.useMemo(() => {
@@ -98,12 +102,13 @@ const App: React.FC = () => {
   return (
     <div className="h-screen bg-gray-900 text-gray-200 flex flex-row font-sans overflow-hidden">
       {importRequest && <ImportFilesModal requiredFiles={importRequest.requiredFiles} onCancel={() => setImportRequest(null)} onConfirm={(files) => handleRestoreSession(importRequest.config, files)} />}
+      <UserManualModal isOpen={showUserManual} onClose={() => setShowUserManual(false)} />
       <ProgressOverlay
         show={!!isLoading}
         message={isLoading || ''}
         progress={loadingProgress}
       />
-      <ToolBar activeTool={activeTool} onToolSelect={onToolSelect} />
+      <ToolBar activeTool={activeTool} onToolSelect={onToolSelect} onUserManualClick={() => setShowUserManual(true)} />
       
       <SidePanel />
       
