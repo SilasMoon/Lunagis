@@ -1,7 +1,7 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 // Fix: Import useState, useRef, useEffect, and useMemo from React to resolve hook-related errors.
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, Event } from '../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, ActivityArtifact, ActivitySymbolType, Waypoint, DteCommsLayer, LpfCommsLayer, Event } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
@@ -868,7 +868,7 @@ const LayersPanel: React.FC = () => {
 };
 
 const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
-    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useAppContext();
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, setArtifacts, artifacts, proj } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
@@ -893,9 +893,40 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
         newWaypoints[wpIndex] = { ...newWaypoints[wpIndex], geoPosition: newPos };
         onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
-    
+
     const handleRemoveWaypoint = (path: PathArtifact, wpIndex: number) => {
         const newWaypoints = path.waypoints.filter((_, i) => i !== wpIndex);
+        onUpdateArtifact(path.id, { waypoints: newWaypoints });
+    };
+
+    const handleConvertToActivity = (path: PathArtifact, wpIndex: number) => {
+        if (!proj) return;
+
+        const waypoint = path.waypoints[wpIndex];
+
+        // Convert waypoint's geographic position to projected coordinates
+        const projectedPos = proj.forward(waypoint.geoPosition) as [number, number];
+
+        // Create new activity artifact
+        const newActivityId = `activity-${Date.now()}`;
+        const newActivity: ActivityArtifact = {
+            id: newActivityId,
+            type: 'activity',
+            name: waypoint.label || `Activity ${artifacts.length + 1}`,
+            visible: true,
+            color: path.color, // Use path color
+            thickness: 2,
+            position: projectedPos,
+            symbolType: 'waypoint', // Default to waypoint symbol
+            description: ''
+        };
+
+        // Add the new activity to artifacts list
+        setArtifacts(prev => [...prev, newActivity]);
+
+        // Update the waypoint to link to the activity
+        const newWaypoints = [...path.waypoints];
+        newWaypoints[wpIndex] = { ...waypoint, activityId: newActivityId };
         onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
 
@@ -968,7 +999,7 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                                         <div key={wp.id} className="bg-gray-900/40 p-1.5 rounded-md space-y-1.5">
                                             <div className="flex items-center gap-2">
                                                 <span className="font-mono text-gray-400">{i + 1}.</span>
-                                                <input type="text" value={wp.label} 
+                                                <input type="text" value={wp.label}
                                                     onChange={e => handleWaypointUpdate(artifact as PathArtifact, i, { label: e.target.value })}
                                                     className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-sm" placeholder="Label" />
                                                 <button onClick={() => handleRemoveWaypoint(artifact as PathArtifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
@@ -979,11 +1010,77 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                                                 <input type="number" step="any" value={wp.geoPosition[0]} onChange={e => handleWaypointGeoChange(artifact as PathArtifact, i, 'lon', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lon" title="Longitude" />
                                                 <input type="number" step="any" value={wp.geoPosition[1]} onChange={e => handleWaypointGeoChange(artifact as PathArtifact, i, 'lat', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lat" title="Latitude" />
                                             </div>
+                                            {!wp.activityId && (
+                                                <div className="pl-6">
+                                                    <button
+                                                        onClick={() => handleConvertToActivity(artifact as PathArtifact, i)}
+                                                        className="w-full bg-green-700 hover:bg-green-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
+                                                        title="Convert this waypoint to an activity"
+                                                    >
+                                                        → Convert to Activity
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {wp.activityId && (
+                                                <div className="pl-6 text-xs text-green-400 flex items-center gap-1">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                    </svg>
+                                                    Linked to activity
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
                             </Section>
                         </>
+                    )}
+
+                    {artifact.type === 'activity' && (
+                        <Section title="Activity Properties" defaultOpen={true}>
+                            <div>
+                                <label className="block font-medium text-gray-300 mb-2">Symbol Type</label>
+                                <select
+                                    value={(artifact as ActivityArtifact).symbolType}
+                                    onChange={e => onUpdateArtifact(artifact.id, { symbolType: e.target.value as ActivitySymbolType })}
+                                    className="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 text-xs"
+                                >
+                                    <optgroup label="Tactical">
+                                        <option value="target">🎯 Target</option>
+                                        <option value="drill">🔩 Drill</option>
+                                        <option value="marker">📍 Marker</option>
+                                        <option value="waypoint">💎 Waypoint</option>
+                                    </optgroup>
+                                    <optgroup label="Structures">
+                                        <option value="camp">⛺ Camp</option>
+                                        <option value="tent">⛺ Tent</option>
+                                        <option value="building">🏢 Building</option>
+                                        <option value="tower">🗼 Tower</option>
+                                        <option value="antenna">📡 Antenna</option>
+                                    </optgroup>
+                                    <optgroup label="Markers">
+                                        <option value="flag">🚩 Flag</option>
+                                        <option value="star">⭐ Star</option>
+                                    </optgroup>
+                                    <optgroup label="Shapes">
+                                        <option value="diamond">◆ Diamond</option>
+                                        <option value="triangle">▲ Triangle</option>
+                                        <option value="square">■ Square</option>
+                                        <option value="circle">● Circle</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block font-medium text-gray-300 mb-1">Description</label>
+                                <textarea
+                                    value={(artifact as ActivityArtifact).description}
+                                    onChange={e => onUpdateArtifact(artifact.id, { description: e.target.value })}
+                                    className="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 text-xs resize-none"
+                                    placeholder="Add description..."
+                                    rows={3}
+                                />
+                            </div>
+                        </Section>
                     )}
                 </div>
             )}
@@ -1057,10 +1154,11 @@ const ArtifactsPanel: React.FC = () => {
                     </div>
                 </Section>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Circle</button>
                     <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Rect</button>
                     <button onClick={() => setArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Path</button>
+                    <button onClick={() => setArtifactCreationMode('activity')} className="bg-green-700 hover:bg-green-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Activity</button>
                 </div>
             </>
           )}

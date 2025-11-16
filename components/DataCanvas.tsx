@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, ImageLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, ImageLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact, ActivityArtifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
@@ -77,6 +77,342 @@ const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
+};
+
+/**
+ * Render activity symbol on canvas
+ * All symbols are drawn with anchor point at bottom/center for precise positioning
+ * Larger size (~40 units) for better visibility
+ */
+const renderActivitySymbol = (
+  ctx: CanvasRenderingContext2D,
+  symbolType: string,
+  size: number = 40
+) => {
+  ctx.save();
+
+  switch (symbolType) {
+    case 'target':
+      // Professional target with crosshair - anchor at center
+      ctx.lineWidth = 2.5;
+      // Outer circle
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.4, size * 0.5, 0, 2 * Math.PI);
+      ctx.stroke();
+      // Middle circle
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.4, size * 0.32, 0, 2 * Math.PI);
+      ctx.stroke();
+      // Inner circle
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.4, size * 0.16, 0, 2 * Math.PI);
+      ctx.fill();
+      // Crosshair lines
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.7, -size * 0.4);
+      ctx.lineTo(size * 0.7, -size * 0.4);
+      ctx.moveTo(0, -size * 0.4 - size * 0.7);
+      ctx.lineTo(0, -size * 0.4 + size * 0.7);
+      ctx.stroke();
+      break;
+
+    case 'drill':
+      // Professional drill bit - anchor at bottom point
+      ctx.lineWidth = 2;
+      // Drill bit triangle
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom point (anchor)
+      ctx.lineTo(-size * 0.25, -size * 0.4);
+      ctx.lineTo(size * 0.25, -size * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Drill shaft (wider)
+      ctx.fillRect(-size * 0.15, -size * 0.8, size * 0.3, size * 0.4);
+      ctx.strokeRect(-size * 0.15, -size * 0.8, size * 0.3, size * 0.4);
+      // Drill top (mechanism)
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.8, size * 0.2, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      // Detail lines on shaft
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.15, -size * 0.6);
+      ctx.lineTo(size * 0.15, -size * 0.6);
+      ctx.stroke();
+      break;
+
+    case 'camp':
+    case 'tent':
+      // Tent with better proportions - anchor at bottom
+      ctx.lineWidth = 2;
+      const tentW = size * 0.8;
+      const tentH = size * 0.7;
+      // Left side
+      ctx.beginPath();
+      ctx.moveTo(-tentW / 2, 0);
+      ctx.lineTo(0, -tentH);
+      ctx.lineTo(0, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Right side
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -tentH);
+      ctx.lineTo(tentW / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Tent pole
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -tentH);
+      ctx.stroke();
+      // Entry flap
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -tentH * 0.3);
+      ctx.lineTo(-size * 0.1, -tentH * 0.1);
+      ctx.lineTo(size * 0.1, -tentH * 0.1);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+
+    case 'building':
+      // Building/structure - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const buildW = size * 0.6;
+      const buildH = size * 0.8;
+      // Main structure
+      ctx.fillRect(-buildW / 2, -buildH, buildW, buildH);
+      ctx.strokeRect(-buildW / 2, -buildH, buildW, buildH);
+      // Roof
+      ctx.beginPath();
+      ctx.moveTo(-buildW / 2 - size * 0.1, -buildH);
+      ctx.lineTo(0, -buildH - size * 0.25);
+      ctx.lineTo(buildW / 2 + size * 0.1, -buildH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Windows
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(-buildW * 0.3, -buildH * 0.7, buildW * 0.25, buildW * 0.25);
+      ctx.fillRect(buildW * 0.05, -buildH * 0.7, buildW * 0.25, buildW * 0.25);
+      ctx.fillRect(-buildW * 0.3, -buildH * 0.4, buildW * 0.25, buildW * 0.25);
+      ctx.fillRect(buildW * 0.05, -buildH * 0.4, buildW * 0.25, buildW * 0.25);
+      break;
+
+    case 'tower':
+      // Tower/antenna tower - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const towerW = size * 0.5;
+      const towerH = size * 1.0;
+      // Tower structure (trapezoid)
+      ctx.beginPath();
+      ctx.moveTo(-towerW / 2, 0);
+      ctx.lineTo(-towerW * 0.2, -towerH);
+      ctx.lineTo(towerW * 0.2, -towerH);
+      ctx.lineTo(towerW / 2, 0);
+      ctx.closePath();
+      ctx.stroke();
+      // Cross beams
+      for (let i = 0.25; i <= 0.75; i += 0.25) {
+        ctx.beginPath();
+        const y = -towerH * i;
+        const w = towerW * (1 - i * 0.6);
+        ctx.moveTo(-w / 2, y);
+        ctx.lineTo(w / 2, y);
+        ctx.stroke();
+      }
+      // Diagonal supports
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-towerW / 2, 0);
+      ctx.lineTo(towerW * 0.2, -towerH);
+      ctx.moveTo(towerW / 2, 0);
+      ctx.lineTo(-towerW * 0.2, -towerH);
+      ctx.stroke();
+      break;
+
+    case 'antenna':
+      // Radio antenna - anchor at bottom
+      ctx.lineWidth = 3;
+      const antH = size * 1.0;
+      // Main pole
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -antH);
+      ctx.stroke();
+      // Top element
+      ctx.beginPath();
+      ctx.arc(0, -antH, size * 0.12, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      // Antenna elements (crossbars)
+      ctx.lineWidth = 2;
+      const elements = [0.7, 0.5, 0.3];
+      elements.forEach(pos => {
+        const y = -antH * pos;
+        const w = size * 0.35 * pos;
+        ctx.beginPath();
+        ctx.moveTo(-w, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      });
+      // Base
+      ctx.fillRect(-size * 0.15, -size * 0.05, size * 0.3, size * 0.05);
+      break;
+
+    case 'waypoint':
+      // Diamond waypoint - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const wpW = size * 0.5;
+      const wpH = size * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom
+      ctx.lineTo(wpW, -wpH * 0.5);
+      ctx.lineTo(0, -wpH);
+      ctx.lineTo(-wpW, -wpH * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Inner diamond
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(0, -wpH * 0.25);
+      ctx.lineTo(wpW * 0.5, -wpH * 0.5);
+      ctx.lineTo(0, -wpH * 0.75);
+      ctx.lineTo(-wpW * 0.5, -wpH * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      break;
+
+    case 'marker':
+      // Map pin marker - anchor at bottom point
+      ctx.lineWidth = 2.5;
+      const markerR = size * 0.35;
+      const markerH = size * 0.9;
+      // Circle head
+      ctx.beginPath();
+      ctx.arc(0, -markerH + markerR, markerR, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      // Point
+      ctx.beginPath();
+      ctx.moveTo(-markerR * 0.4, -markerH + markerR * 1.4);
+      ctx.lineTo(0, 0); // Bottom point (anchor)
+      ctx.lineTo(markerR * 0.4, -markerH + markerR * 1.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Inner circle
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.arc(0, -markerH + markerR, markerR * 0.5, 0, 2 * Math.PI);
+      ctx.fill();
+      break;
+
+    case 'flag':
+      // Flag on pole - anchor at bottom
+      ctx.lineWidth = 3;
+      const flagH = size * 1.0;
+      const flagW = size * 0.55;
+      const flagHeight = size * 0.4;
+      // Pole
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -flagH);
+      ctx.stroke();
+      // Flag (wavy)
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -flagH);
+      ctx.lineTo(flagW, -flagH + flagHeight * 0.2);
+      ctx.quadraticCurveTo(flagW * 0.7, -flagH + flagHeight * 0.5, flagW, -flagH + flagHeight * 0.6);
+      ctx.lineTo(0, -flagH + flagHeight);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'star':
+      // 5-pointed star - anchor at center
+      ctx.lineWidth = 2;
+      const starR = size * 0.45;
+      const starPoints = 5;
+      ctx.beginPath();
+      for (let i = 0; i < starPoints * 2; i++) {
+        const angle = (i * Math.PI) / starPoints - Math.PI / 2;
+        const r = i % 2 === 0 ? starR : starR * 0.4;
+        const x = Math.cos(angle) * r;
+        const y = -size * 0.45 + Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'diamond':
+      // Diamond shape - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const diaW = size * 0.55;
+      const diaH = size * 0.75;
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom
+      ctx.lineTo(diaW, -diaH * 0.4);
+      ctx.lineTo(0, -diaH);
+      ctx.lineTo(-diaW, -diaH * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'triangle':
+      // Equilateral triangle - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const triW = size * 0.65;
+      const triH = size * 0.75;
+      ctx.beginPath();
+      ctx.moveTo(-triW / 2, 0); // Bottom left
+      ctx.lineTo(triW / 2, 0); // Bottom right
+      ctx.lineTo(0, -triH); // Top
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'square':
+      // Square - anchor at bottom center
+      ctx.lineWidth = 2.5;
+      const sqSize = size * 0.6;
+      ctx.fillRect(-sqSize / 2, -sqSize, sqSize, sqSize);
+      ctx.strokeRect(-sqSize / 2, -sqSize, sqSize, sqSize);
+      break;
+
+    case 'circle':
+      // Circle - anchor at center
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.4, size * 0.4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    default:
+      // Default: filled circle
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.4, size * 0.4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+  }
+
+  ctx.restore();
 };
 
 const LoadingSpinner: React.FC = () => (
@@ -786,25 +1122,55 @@ export const DataCanvas: React.FC = () => {
             
             // Draw dots and labels
             projectedWaypoints.forEach((pwp) => {
-                // Draw dot
-                ctx.beginPath();
-                const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
-                ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
-                ctx.fill();
+                // Check if this waypoint is linked to an activity
+                const linkedActivity = pwp.activityId ? artifacts.find(a => a.id === pwp.activityId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
 
-                // Draw label
-                ctx.save();
-                ctx.translate(pwp.projPos![0], pwp.projPos![1]);
-                ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-                ctx.fillStyle = '#ffffff'; // White label for contrast
-                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'bottom';
-                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                ctx.lineWidth = 2.5;
-                ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
-                ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
-                ctx.restore();
+                if (linkedActivity) {
+                    // Render activity symbol instead of waypoint dot
+                    ctx.save();
+                    ctx.translate(pwp.projPos![0], pwp.projPos![1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+                    // Use activity color and thickness
+                    ctx.strokeStyle = linkedActivity.color;
+                    ctx.fillStyle = linkedActivity.color;
+                    ctx.lineWidth = linkedActivity.thickness;
+
+                    // Render activity symbol
+                    renderActivitySymbol(ctx, linkedActivity.symbolType, 40);
+
+                    // Draw waypoint label below activity symbol
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeText(pwp.label, 0, 10);
+                    ctx.fillText(pwp.label, 0, 10);
+
+                    ctx.restore();
+                } else {
+                    // Draw normal waypoint dot
+                    ctx.beginPath();
+                    const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+                    ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    // Draw label
+                    ctx.save();
+                    ctx.translate(pwp.projPos![0], pwp.projPos![1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+                    ctx.fillStyle = '#ffffff'; // White label for contrast
+                    ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
+                    ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
+                    ctx.restore();
+                }
             });
 
             // Draw segment lengths
@@ -850,23 +1216,57 @@ export const DataCanvas: React.FC = () => {
                     ctx.restore();
                 }
             }
-        }
-        
-        ctx.save();
-        const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : artifact.center;
-        if (centerPos) {
-            ctx.translate(centerPos[0], centerPos[1]);
+        } else if (artifact.type === 'activity') {
+            // Draw activity symbol
+            ctx.save();
+            ctx.translate(artifact.position[0], artifact.position[1]);
             ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+            // Set line width and styles for symbol
+            ctx.lineWidth = artifact.thickness;
+            ctx.strokeStyle = artifact.color;
             ctx.fillStyle = artifact.color;
-            ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-            ctx.lineWidth = 3;
-            ctx.strokeText(artifact.name, 0, -10);
-            ctx.fillText(artifact.name, 0, -10);
+
+            // Render the symbol (size 40 units in screen space)
+            renderActivitySymbol(ctx, artifact.symbolType, 40);
+
+            // Draw name below symbol (positioned to avoid overlap)
+            // Symbol height is ~40 units, so position text at y=10 (well below symbol)
+            if (artifact.name) {
+                ctx.save();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                ctx.lineWidth = 2.5;
+                ctx.strokeText(artifact.name, 0, 10);
+                ctx.fillText(artifact.name, 0, 10);
+                ctx.restore();
+            }
+
+            ctx.restore();
         }
-        ctx.restore();
+
+        // Draw artifact name (for non-activity artifacts)
+        // Activity artifacts already have their name drawn with the symbol above
+        if (artifact.type !== 'activity') {
+            ctx.save();
+            const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : artifact.center;
+            if (centerPos) {
+                ctx.translate(centerPos[0], centerPos[1]);
+                ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+                ctx.fillStyle = artifact.color;
+                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                ctx.lineWidth = 3;
+                ctx.strokeText(artifact.name, 0, -10);
+                ctx.fillText(artifact.name, 0, -10);
+            }
+            ctx.restore();
+        }
     });
 
     // Draw preview rectangle if in rectangle creation mode with first corner set
@@ -1188,38 +1588,74 @@ export const DataCanvas: React.FC = () => {
         const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
         if (pathBeingDrawn) {
             // Add waypoint to existing path-in-progress
+
+            // Check if clicking on an activity artifact
+            const clickedActivity = hoveredArtifactId ? artifacts.find(a => a.id === hoveredArtifactId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
+
             let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+            let linkedActivityId: string | undefined = undefined;
 
-            // Clamp to max distance if configured
-            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-            if (maxLength && pathBeingDrawn.waypoints.length > 0) {
-                const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
-                const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+            if (clickedActivity) {
+                // Use activity's position for the waypoint
+                const activityGeo = proj4('EPSG:4326', proj).inverse(clickedActivity.position);
+                waypointGeoPosition = [activityGeo[0], activityGeo[1]];
+                linkedActivityId = clickedActivity.id;
+            } else {
+                // Clamp to max distance if configured
+                const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+                if (maxLength && pathBeingDrawn.waypoints.length > 0) {
+                    const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
+                    const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
 
-                // Calculate distance in projected space
-                const dx = projCoords[0] - lastWaypointProj[0];
-                const dy = projCoords[1] - lastWaypointProj[1];
-                const distProj = Math.sqrt(dx * dx + dy * dy);
+                    // Calculate distance in projected space
+                    const dx = projCoords[0] - lastWaypointProj[0];
+                    const dy = projCoords[1] - lastWaypointProj[1];
+                    const distProj = Math.sqrt(dx * dx + dy * dy);
 
-                // If beyond max distance, clamp to circle boundary
-                if (distProj > maxLength) {
-                    const ratio = maxLength / distProj;
-                    const clampedProjCoords: [number, number] = [
-                        lastWaypointProj[0] + dx * ratio,
-                        lastWaypointProj[1] + dy * ratio
-                    ];
-                    // Convert back to geographic coordinates
-                    const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
-                    waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                    // If beyond max distance, clamp to circle boundary
+                    if (distProj > maxLength) {
+                        const ratio = maxLength / distProj;
+                        const clampedProjCoords: [number, number] = [
+                            lastWaypointProj[0] + dx * ratio,
+                            lastWaypointProj[1] + dy * ratio
+                        ];
+                        // Convert back to geographic coordinates
+                        const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+                        waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                    }
                 }
             }
 
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${pathBeingDrawn.waypoints.length + 1}` };
+            const newWaypoint: Waypoint = {
+                id: `wp-${Date.now()}`,
+                geoPosition: waypointGeoPosition,
+                label: `WP${pathBeingDrawn.waypoints.length + 1}`,
+                activityId: linkedActivityId
+            };
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
             // First click: create the path
             const newId = `path-${Date.now()}`;
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: 'WP1' };
+
+            // Check if clicking on an activity artifact
+            const clickedActivity = hoveredArtifactId ? artifacts.find(a => a.id === hoveredArtifactId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
+
+            let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+            let linkedActivityId: string | undefined = undefined;
+
+            if (clickedActivity) {
+                // Use activity's position for the waypoint
+                const activityGeo = proj4('EPSG:4326', proj).inverse(clickedActivity.position);
+                waypointGeoPosition = [activityGeo[0], activityGeo[1]];
+                linkedActivityId = clickedActivity.id;
+            }
+
+            const newWaypoint: Waypoint = {
+                id: `wp-${Date.now()}`,
+                geoPosition: waypointGeoPosition,
+                label: 'WP1',
+                activityId: linkedActivityId
+            };
             const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
             setArtifacts(prev => [...prev, newArtifact]);
             setActiveArtifactId(newId);
@@ -1262,37 +1698,68 @@ export const DataCanvas: React.FC = () => {
           setRectangleFirstCorner(null);
           onFinishArtifactCreation();
         }
+      } else if (artifactCreationMode === 'activity') {
+        const newArtifact: ActivityArtifact = {
+          id: newId,
+          type: 'activity',
+          name: `Activity ${artifacts.length + 1}`,
+          visible: true,
+          color: '#00ff00',
+          thickness: 2,
+          position: projCoords,
+          symbolType: 'target', // Default symbol
+          description: ''
+        };
+        setArtifacts(prev => [...prev, newArtifact]);
+        setActiveArtifactId(newId);
+        onFinishArtifactCreation();
       }
     } else if (isAppendingWaypoints) {
       const activeArtifact = artifacts.find(a => a.id === activeArtifactId) as PathArtifact | undefined;
       if (activeArtifact && activeArtifact.type === 'path') {
+          // Check if clicking on an activity artifact
+          const clickedActivity = hoveredArtifactId ? artifacts.find(a => a.id === hoveredArtifactId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
+
           let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+          let linkedActivityId: string | undefined = undefined;
 
-          // Clamp to max distance if configured
-          const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-          if (maxLength && activeArtifact.waypoints.length > 0) {
-              const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
-              const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+          if (clickedActivity) {
+              // Use activity's position for the waypoint
+              const activityGeo = proj4('EPSG:4326', proj).inverse(clickedActivity.position);
+              waypointGeoPosition = [activityGeo[0], activityGeo[1]];
+              linkedActivityId = clickedActivity.id;
+          } else {
+              // Clamp to max distance if configured
+              const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+              if (maxLength && activeArtifact.waypoints.length > 0) {
+                  const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
+                  const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
 
-              // Calculate distance in projected space
-              const dx = projCoords[0] - lastWaypointProj[0];
-              const dy = projCoords[1] - lastWaypointProj[1];
-              const distProj = Math.sqrt(dx * dx + dy * dy);
+                  // Calculate distance in projected space
+                  const dx = projCoords[0] - lastWaypointProj[0];
+                  const dy = projCoords[1] - lastWaypointProj[1];
+                  const distProj = Math.sqrt(dx * dx + dy * dy);
 
-              // If beyond max distance, clamp to circle boundary
-              if (distProj > maxLength) {
-                  const ratio = maxLength / distProj;
-                  const clampedProjCoords: [number, number] = [
-                      lastWaypointProj[0] + dx * ratio,
-                      lastWaypointProj[1] + dy * ratio
-                  ];
-                  // Convert back to geographic coordinates
-                  const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
-                  waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                  // If beyond max distance, clamp to circle boundary
+                  if (distProj > maxLength) {
+                      const ratio = maxLength / distProj;
+                      const clampedProjCoords: [number, number] = [
+                          lastWaypointProj[0] + dx * ratio,
+                          lastWaypointProj[1] + dy * ratio
+                      ];
+                      // Convert back to geographic coordinates
+                      const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+                      waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                  }
               }
           }
 
-          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${activeArtifact.waypoints.length + 1}` };
+          const newWaypoint: Waypoint = {
+              id: `wp-${Date.now()}`,
+              geoPosition: waypointGeoPosition,
+              label: `WP${activeArtifact.waypoints.length + 1}`,
+              activityId: linkedActivityId
+          };
           onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
     } else if (activeTool === 'measurement') {
@@ -1348,6 +1815,8 @@ export const DataCanvas: React.FC = () => {
     } else {
         if (artifact.type === 'circle' || artifact.type === 'rectangle') {
             setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.center });
+        } else if (artifact.type === 'activity') {
+            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.position });
         } else if (artifact.type === 'path') {
             const initialWaypointProjPositions = artifact.waypoints.map(wp => proj.forward(wp.geoPosition));
             setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
@@ -1380,7 +1849,7 @@ export const DataCanvas: React.FC = () => {
 
         setArtifacts(prev => prev.map(a => {
             if (a.id === draggedInfo.artifactId) {
-                if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
+                if ((a.type === 'circle' || a.type === 'rectangle' || a.type === 'activity') && draggedInfo.initialCenter) {
                     const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
 
                     // Apply snapping for rectangles to maintain cell grid alignment
@@ -1428,7 +1897,12 @@ export const DataCanvas: React.FC = () => {
                         }
                     }
 
-                    return { ...a, center: newCenter };
+                    // Update position for activity, center for others
+                    if (a.type === 'activity') {
+                        return { ...a, position: newCenter };
+                    } else {
+                        return { ...a, center: newCenter };
+                    }
                 } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
                     const newWaypoints = a.waypoints.map((wp, i) => {
                         const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
@@ -1589,6 +2063,11 @@ export const DataCanvas: React.FC = () => {
                     const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
                     const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
                     if (Math.abs(rotatedX) <= w / 2 && Math.abs(rotatedY) <= h / 2) artifactHit = true;
+                } else if (artifact.type === 'activity') {
+                    // Hit test for activity symbol - use a radius of ~30 projected units
+                    const symbolHitRadius = 30 / effectiveScale;
+                    const dist = Math.sqrt(Math.pow(projCoords[0] - artifact.position[0], 2) + Math.pow(projCoords[1] - artifact.position[1], 2));
+                    if (dist <= symbolHitRadius) artifactHit = true;
                 } else if (artifact.type === 'path') {}
                 if (artifactHit) {
                     newHoveredArtifactId = artifact.id;

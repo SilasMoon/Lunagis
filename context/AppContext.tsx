@@ -50,7 +50,7 @@ interface AppContextType {
     importRequest: { config: AppStateConfig; requiredFiles: string[]; } | null;
     artifacts: Artifact[];
     activeArtifactId: string | null;
-    artifactCreationMode: "circle" | "rectangle" | "path" | null;
+    artifactCreationMode: "circle" | "rectangle" | "path" | "activity" | null;
     isAppendingWaypoints: boolean;
     draggedInfo: { artifactId: string; waypointId?: string; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; } | null;
     artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
@@ -96,7 +96,7 @@ interface AppContextType {
     setImportRequest: React.Dispatch<React.SetStateAction<{ config: AppStateConfig; requiredFiles: string[]; } | null>>;
     setArtifacts: React.Dispatch<React.SetStateAction<Artifact[]>>;
     setActiveArtifactId: React.Dispatch<React.SetStateAction<string | null>>;
-    setArtifactCreationMode: React.Dispatch<React.SetStateAction<"circle" | "rectangle" | "path" | null>>;
+    setArtifactCreationMode: React.Dispatch<React.SetStateAction<"circle" | "rectangle" | "path" | "activity" | null>>;
     setIsAppendingWaypoints: React.Dispatch<React.SetStateAction<boolean>>;
     setDraggedInfo: React.Dispatch<React.SetStateAction<{ artifactId: string; waypointId?: string; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; } | null>>;
     setArtifactDisplayOptions: React.Dispatch<React.SetStateAction<{ waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }>>;
