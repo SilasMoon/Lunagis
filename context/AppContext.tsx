@@ -655,7 +655,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const sourceLayer = layers.find(l => l.id === sourceLayerId) as DataLayer | undefined;
       if (!sourceLayer || !timeRange) return;
 
-      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions);
+      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions, sourceLayer.id);
       
       const resultDataset: DataSet = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
 
@@ -756,7 +756,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (l.type === 'analysis' && l.analysisType === 'daylight_fraction') {
                   const sourceLayer = currentLayers.find(src => src.id === l.sourceLayerId) as DataLayer | undefined;
                   if (sourceLayer) {
-                      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions);
+                      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions, sourceLayer.id);
                       const newDataset = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
                       hasChanged = true;
                       return { ...l, dataset: newDataset, range };
@@ -1059,7 +1059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                           calculatedDataset = dataset;
                       } else { // daylight_fraction
                           const calcTimeRange = config.timeRange || { start: 0, end: sourceLayer.dimensions.time - 1};
-                          const { slice } = analysisService.calculateDaylightFraction(sourceLayer.dataset, calcTimeRange, sourceLayer.dimensions);
+                          const { slice } = analysisService.calculateDaylightFraction(sourceLayer.dataset, calcTimeRange, sourceLayer.dimensions, sourceLayer.id);
                           calculatedDataset = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
                       }
                       finalAnalysisLayer = { ...sLayer, dataset: calculatedDataset };
