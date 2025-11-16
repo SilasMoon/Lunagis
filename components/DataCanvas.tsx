@@ -122,6 +122,32 @@ export const DataCanvas: React.FC = () => {
   // Using optimized doubly-linked list implementation for O(1) operations
   const offscreenCanvasCache = useRef(new OptimizedCanvasLRUCache(50, 500)).current;
 
+  // Calculate combined bounds for all layers - defined before graticule cache to avoid initialization issues
+  const combinedBounds = useMemo(() => {
+    if (!primaryDataLayer && !baseMapLayer) return null;
+    let dataProjBounds = null;
+    if (primaryDataLayer && proj) {
+        const [lonMin, lonMax] = lonRange; const [latMin, latMax] = latRange;
+        const corners = [[lonMin, latMin], [lonMax, latMin], [lonMax, latMax], [lonMin, latMax]].map(c => proj.forward(c));
+        dataProjBounds = {
+            minX: Math.min(...corners.map(c => c[0])), maxX: Math.max(...corners.map(c => c[0])),
+            minY: Math.min(...corners.map(c => c[1])), maxY: Math.max(...corners.map(c => c[1])),
+        };
+    }
+
+    let baseMapProjBounds = null;
+    if (baseMapLayer) {
+        const gt = baseMapLayer.vrt.geoTransform;
+        baseMapProjBounds = { minX: gt[0], maxX: gt[0] + baseMapLayer.vrt.width * gt[1], minY: gt[3] + baseMapLayer.vrt.height * gt[5], maxY: gt[3] };
+    }
+
+    if (dataProjBounds && baseMapProjBounds) return {
+        minX: Math.min(dataProjBounds.minX, baseMapProjBounds.minX), maxX: Math.max(dataProjBounds.maxX, baseMapProjBounds.maxX),
+        minY: Math.min(dataProjBounds.minY, baseMapProjBounds.minY), maxY: Math.max(dataProjBounds.maxY, baseMapProjBounds.maxY),
+    };
+    return dataProjBounds || baseMapProjBounds;
+  }, [primaryDataLayer, baseMapLayer, proj, lonRange, latRange]);
+
   // Cache graticule projected points - only recalculates when layers/projection/density change
   const graticuleLinesCache = useMemo(() => {
     if (!proj || !combinedBounds || !debouncedGraticuleDensity || debouncedGraticuleDensity <= 0) return null;
@@ -242,31 +268,6 @@ export const DataCanvas: React.FC = () => {
     }
   }, [artifactCreationMode]);
 
-  const combinedBounds = useMemo(() => {
-    if (!primaryDataLayer && !baseMapLayer) return null;
-    let dataProjBounds = null;
-    if (primaryDataLayer && proj) {
-        const [lonMin, lonMax] = lonRange; const [latMin, latMax] = latRange;
-        const corners = [[lonMin, latMin], [lonMax, latMin], [lonMax, latMax], [lonMin, latMax]].map(c => proj.forward(c));
-        dataProjBounds = {
-            minX: Math.min(...corners.map(c => c[0])), maxX: Math.max(...corners.map(c => c[0])),
-            minY: Math.min(...corners.map(c => c[1])), maxY: Math.max(...corners.map(c => c[1])),
-        };
-    }
-    
-    let baseMapProjBounds = null;
-    if (baseMapLayer) {
-        const gt = baseMapLayer.vrt.geoTransform;
-        baseMapProjBounds = { minX: gt[0], maxX: gt[0] + baseMapLayer.vrt.width * gt[1], minY: gt[3] + baseMapLayer.vrt.height * gt[5], maxY: gt[3] };
-    }
-    
-    if (dataProjBounds && baseMapProjBounds) return {
-        minX: Math.min(dataProjBounds.minX, baseMapProjBounds.minX), maxX: Math.max(dataProjBounds.maxX, baseMapProjBounds.maxX),
-        minY: Math.min(dataProjBounds.minY, baseMapProjBounds.minY), maxY: Math.max(dataProjBounds.maxY, baseMapProjBounds.maxY),
-    };
-    return dataProjBounds || baseMapProjBounds;
-  }, [primaryDataLayer, baseMapLayer, proj, lonRange, latRange]);
-
   useEffect(() => {
     const canvas = graticuleCanvasRef.current;
     if (!combinedBounds || !canvas || (viewState && initialViewCalculated.current)) return;
@@ -290,6 +291,8 @@ export const DataCanvas: React.FC = () => {
   const canvasToProjCoords = useCallback((canvasX: number, canvasY: number): [number, number] | null => {
     const canvas = graticuleCanvasRef.current;
     if (!canvas || !viewState) return null;
+    // Validate canvas has been properly sized before using dimensions
+    if (canvas.width === 0 || canvas.height === 0) return null;
     const dpr = window.devicePixelRatio || 1;
     const { center, scale } = viewState;
     const projX = (canvasX * dpr - canvas.width / 2) / (scale * dpr) + center[0];
@@ -408,13 +411,15 @@ export const DataCanvas: React.FC = () => {
     const dpr = window.devicePixelRatio || 1;
     
     [baseCanvas, dataCanvas, graticuleCanvas].forEach(canvas => {
-      const { clientWidth, clientHeight } = canvas.parentElement!;
+      if (!canvas.parentElement) return; // Guard against null parentElement
+      const { clientWidth, clientHeight } = canvas.parentElement;
       canvas.width = clientWidth * dpr; canvas.height = clientHeight * dpr;
     });
 
-    const baseCtx = baseCanvas.getContext('2d')!;
-    const dataCtx = dataCanvas.getContext('2d')!;
-    const gratCtx = graticuleCanvas.getContext('2d')!;
+    const baseCtx = baseCanvas.getContext('2d');
+    const dataCtx = dataCanvas.getContext('2d');
+    const gratCtx = graticuleCanvas.getContext('2d');
+    if (!baseCtx || !dataCtx || !gratCtx) return; // Guard against null contexts
     const contexts = [baseCtx, dataCtx, gratCtx];
 
     const { center, scale } = viewState;
@@ -718,10 +723,12 @@ export const DataCanvas: React.FC = () => {
     };
 
     const dpr = window.devicePixelRatio || 1;
-    const { clientWidth, clientHeight } = canvas.parentElement!;
+    if (!canvas.parentElement) return; // Guard against null parentElement
+    const { clientWidth, clientHeight } = canvas.parentElement;
     canvas.width = clientWidth * dpr;
     canvas.height = clientHeight * dpr;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return; // Guard against null context
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     const { center, scale } = viewState;
@@ -1084,11 +1091,13 @@ export const DataCanvas: React.FC = () => {
     if (!canvas || !viewState || !primaryDataLayer || !proj) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const { clientWidth, clientHeight } = canvas.parentElement!;
+    if (!canvas.parentElement) return; // Guard against null parentElement
+    const { clientWidth, clientHeight } = canvas.parentElement;
     canvas.width = clientWidth * dpr;
     canvas.height = clientHeight * dpr;
 
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return; // Guard against null context
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (selectedCells.length === 0 && !selectedCellForPlot) return;
