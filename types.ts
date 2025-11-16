@@ -176,14 +176,13 @@ export interface PathArtifact extends ArtifactBase {
   waypoints: Waypoint[];
 }
 
-export type ActivitySymbolType = 'target' | 'drill' | 'camp' | 'waypoint' | 'marker' | 'flag';
+export type ActivitySymbolType = 'target' | 'drill' | 'camp' | 'tent' | 'building' | 'tower' | 'antenna' | 'waypoint' | 'marker' | 'flag' | 'star' | 'diamond' | 'triangle' | 'square' | 'circle';
 
 export interface ActivityArtifact extends ArtifactBase {
   type: 'activity';
   position: [number, number]; // Projected coordinates [x, y]
   symbolType: ActivitySymbolType;
-  label: string;
-  labelVisible: boolean;
+  description: string;
 }
 
 export type Artifact = CircleArtifact | RectangleArtifact | PathArtifact | ActivityArtifact;

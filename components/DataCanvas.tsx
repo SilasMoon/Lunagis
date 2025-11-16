@@ -81,133 +81,333 @@ const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]
 
 /**
  * Render activity symbol on canvas
- * All symbols are drawn centered at (0, 0) with a consistent size of ~20 units
- * The anchor point for all symbols is at the center bottom for precise positioning
+ * All symbols are drawn with anchor point at bottom/center for precise positioning
+ * Larger size (~40 units) for better visibility
  */
 const renderActivitySymbol = (
   ctx: CanvasRenderingContext2D,
   symbolType: string,
-  size: number = 20
+  size: number = 40
 ) => {
   ctx.save();
 
   switch (symbolType) {
     case 'target':
-      // Concentric circles target - anchor at center
+      // Professional target with crosshair - anchor at center
+      ctx.lineWidth = 2.5;
+      // Outer circle
       ctx.beginPath();
-      ctx.arc(0, 0, size * 0.5, 0, 2 * Math.PI);
+      ctx.arc(0, -size * 0.4, size * 0.5, 0, 2 * Math.PI);
       ctx.stroke();
+      // Middle circle
       ctx.beginPath();
-      ctx.arc(0, 0, size * 0.3, 0, 2 * Math.PI);
+      ctx.arc(0, -size * 0.4, size * 0.32, 0, 2 * Math.PI);
       ctx.stroke();
+      // Inner circle
       ctx.beginPath();
-      ctx.arc(0, 0, size * 0.1, 0, 2 * Math.PI);
+      ctx.arc(0, -size * 0.4, size * 0.16, 0, 2 * Math.PI);
       ctx.fill();
-      // Crosshair
+      // Crosshair lines
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(-size * 0.6, 0);
-      ctx.lineTo(size * 0.6, 0);
-      ctx.moveTo(0, -size * 0.6);
-      ctx.lineTo(0, size * 0.6);
+      ctx.moveTo(-size * 0.7, -size * 0.4);
+      ctx.lineTo(size * 0.7, -size * 0.4);
+      ctx.moveTo(0, -size * 0.4 - size * 0.7);
+      ctx.lineTo(0, -size * 0.4 + size * 0.7);
       ctx.stroke();
       break;
 
     case 'drill':
-      // Drill bit symbol - anchor at bottom point
-      const drillWidth = size * 0.4;
-      const drillHeight = size * 0.8;
-      // Triangle for drill bit
+      // Professional drill bit - anchor at bottom point
+      ctx.lineWidth = 2;
+      // Drill bit triangle
       ctx.beginPath();
       ctx.moveTo(0, 0); // Bottom point (anchor)
-      ctx.lineTo(-drillWidth / 2, -drillHeight * 0.6);
-      ctx.lineTo(drillWidth / 2, -drillHeight * 0.6);
+      ctx.lineTo(-size * 0.25, -size * 0.4);
+      ctx.lineTo(size * 0.25, -size * 0.4);
       ctx.closePath();
       ctx.fill();
-      // Drill shaft
-      ctx.fillRect(-drillWidth * 0.25, -drillHeight, drillWidth * 0.5, drillHeight * 0.4);
-      // Top circle
+      ctx.stroke();
+      // Drill shaft (wider)
+      ctx.fillRect(-size * 0.15, -size * 0.8, size * 0.3, size * 0.4);
+      ctx.strokeRect(-size * 0.15, -size * 0.8, size * 0.3, size * 0.4);
+      // Drill top (mechanism)
       ctx.beginPath();
-      ctx.arc(0, -drillHeight, drillWidth * 0.35, 0, 2 * Math.PI);
+      ctx.arc(0, -size * 0.8, size * 0.2, 0, 2 * Math.PI);
       ctx.fill();
+      ctx.stroke();
+      // Detail lines on shaft
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.15, -size * 0.6);
+      ctx.lineTo(size * 0.15, -size * 0.6);
+      ctx.stroke();
       break;
 
     case 'camp':
-      // Tent/camp symbol - anchor at bottom center
-      const tentWidth = size * 0.7;
-      const tentHeight = size * 0.6;
+    case 'tent':
+      // Tent with better proportions - anchor at bottom
+      ctx.lineWidth = 2;
+      const tentW = size * 0.8;
+      const tentH = size * 0.7;
+      // Left side
       ctx.beginPath();
-      ctx.moveTo(0, 0); // Bottom center (anchor)
-      ctx.lineTo(-tentWidth / 2, 0);
-      ctx.lineTo(0, -tentHeight);
+      ctx.moveTo(-tentW / 2, 0);
+      ctx.lineTo(0, -tentH);
+      ctx.lineTo(0, 0);
       ctx.closePath();
       ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(tentWidth / 2, 0);
-      ctx.lineTo(0, -tentHeight);
-      ctx.closePath();
-      ctx.fill();
-      // Center line
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(0, -tentHeight);
       ctx.stroke();
+      // Right side
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -tentH);
+      ctx.lineTo(tentW / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Tent pole
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -tentH);
+      ctx.stroke();
+      // Entry flap
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -tentH * 0.3);
+      ctx.lineTo(-size * 0.1, -tentH * 0.1);
+      ctx.lineTo(size * 0.1, -tentH * 0.1);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+
+    case 'building':
+      // Building/structure - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const buildW = size * 0.6;
+      const buildH = size * 0.8;
+      // Main structure
+      ctx.fillRect(-buildW / 2, -buildH, buildW, buildH);
+      ctx.strokeRect(-buildW / 2, -buildH, buildW, buildH);
+      // Roof
+      ctx.beginPath();
+      ctx.moveTo(-buildW / 2 - size * 0.1, -buildH);
+      ctx.lineTo(0, -buildH - size * 0.25);
+      ctx.lineTo(buildW / 2 + size * 0.1, -buildH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Windows
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(-buildW * 0.3, -buildH * 0.7, buildW * 0.25, buildW * 0.25);
+      ctx.fillRect(buildW * 0.05, -buildH * 0.7, buildW * 0.25, buildW * 0.25);
+      ctx.fillRect(-buildW * 0.3, -buildH * 0.4, buildW * 0.25, buildW * 0.25);
+      ctx.fillRect(buildW * 0.05, -buildH * 0.4, buildW * 0.25, buildW * 0.25);
+      break;
+
+    case 'tower':
+      // Tower/antenna tower - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const towerW = size * 0.5;
+      const towerH = size * 1.0;
+      // Tower structure (trapezoid)
+      ctx.beginPath();
+      ctx.moveTo(-towerW / 2, 0);
+      ctx.lineTo(-towerW * 0.2, -towerH);
+      ctx.lineTo(towerW * 0.2, -towerH);
+      ctx.lineTo(towerW / 2, 0);
+      ctx.closePath();
+      ctx.stroke();
+      // Cross beams
+      for (let i = 0.25; i <= 0.75; i += 0.25) {
+        ctx.beginPath();
+        const y = -towerH * i;
+        const w = towerW * (1 - i * 0.6);
+        ctx.moveTo(-w / 2, y);
+        ctx.lineTo(w / 2, y);
+        ctx.stroke();
+      }
+      // Diagonal supports
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-towerW / 2, 0);
+      ctx.lineTo(towerW * 0.2, -towerH);
+      ctx.moveTo(towerW / 2, 0);
+      ctx.lineTo(-towerW * 0.2, -towerH);
+      ctx.stroke();
+      break;
+
+    case 'antenna':
+      // Radio antenna - anchor at bottom
+      ctx.lineWidth = 3;
+      const antH = size * 1.0;
+      // Main pole
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -antH);
+      ctx.stroke();
+      // Top element
+      ctx.beginPath();
+      ctx.arc(0, -antH, size * 0.12, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      // Antenna elements (crossbars)
+      ctx.lineWidth = 2;
+      const elements = [0.7, 0.5, 0.3];
+      elements.forEach(pos => {
+        const y = -antH * pos;
+        const w = size * 0.35 * pos;
+        ctx.beginPath();
+        ctx.moveTo(-w, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      });
+      // Base
+      ctx.fillRect(-size * 0.15, -size * 0.05, size * 0.3, size * 0.05);
       break;
 
     case 'waypoint':
-      // Diamond/rhombus - anchor at bottom point
-      const wpSize = size * 0.5;
+      // Diamond waypoint - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const wpW = size * 0.5;
+      const wpH = size * 0.8;
       ctx.beginPath();
-      ctx.moveTo(0, 0); // Bottom (anchor)
-      ctx.lineTo(wpSize, -wpSize * 0.7);
-      ctx.lineTo(0, -wpSize * 1.4);
-      ctx.lineTo(-wpSize, -wpSize * 0.7);
+      ctx.moveTo(0, 0); // Bottom
+      ctx.lineTo(wpW, -wpH * 0.5);
+      ctx.lineTo(0, -wpH);
+      ctx.lineTo(-wpW, -wpH * 0.5);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      // Inner diamond
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(0, -wpH * 0.25);
+      ctx.lineTo(wpW * 0.5, -wpH * 0.5);
+      ctx.lineTo(0, -wpH * 0.75);
+      ctx.lineTo(-wpW * 0.5, -wpH * 0.5);
+      ctx.closePath();
+      ctx.fill();
       break;
 
     case 'marker':
-      // Map pin/marker - anchor at bottom point
-      const pinRadius = size * 0.35;
-      const pinHeight = size * 0.8;
-      // Circle top
+      // Map pin marker - anchor at bottom point
+      ctx.lineWidth = 2.5;
+      const markerR = size * 0.35;
+      const markerH = size * 0.9;
+      // Circle head
       ctx.beginPath();
-      ctx.arc(0, -pinHeight + pinRadius, pinRadius, 0, 2 * Math.PI);
+      ctx.arc(0, -markerH + markerR, markerR, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
-      // Point bottom
+      // Point
       ctx.beginPath();
-      ctx.moveTo(-pinRadius * 0.5, -pinHeight + pinRadius * 1.5);
+      ctx.moveTo(-markerR * 0.4, -markerH + markerR * 1.4);
       ctx.lineTo(0, 0); // Bottom point (anchor)
-      ctx.lineTo(pinRadius * 0.5, -pinHeight + pinRadius * 1.5);
+      ctx.lineTo(markerR * 0.4, -markerH + markerR * 1.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Inner circle
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.arc(0, -markerH + markerR, markerR * 0.5, 0, 2 * Math.PI);
       ctx.fill();
       break;
 
     case 'flag':
-      // Flag symbol - anchor at bottom of pole
-      const poleHeight = size * 0.9;
-      const flagWidth = size * 0.5;
-      const flagHeight = size * 0.35;
+      // Flag on pole - anchor at bottom
+      ctx.lineWidth = 3;
+      const flagH = size * 1.0;
+      const flagW = size * 0.55;
+      const flagHeight = size * 0.4;
       // Pole
       ctx.beginPath();
-      ctx.moveTo(0, 0); // Bottom (anchor)
-      ctx.lineTo(0, -poleHeight);
-      ctx.lineWidth = 2;
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -flagH);
       ctx.stroke();
-      // Flag
+      // Flag (wavy)
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(0, -poleHeight);
-      ctx.lineTo(flagWidth, -poleHeight + flagHeight / 2);
-      ctx.lineTo(0, -poleHeight + flagHeight);
+      ctx.moveTo(0, -flagH);
+      ctx.lineTo(flagW, -flagH + flagHeight * 0.2);
+      ctx.quadraticCurveTo(flagW * 0.7, -flagH + flagHeight * 0.5, flagW, -flagH + flagHeight * 0.6);
+      ctx.lineTo(0, -flagH + flagHeight);
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'star':
+      // 5-pointed star - anchor at center
+      ctx.lineWidth = 2;
+      const starR = size * 0.45;
+      const starPoints = 5;
+      ctx.beginPath();
+      for (let i = 0; i < starPoints * 2; i++) {
+        const angle = (i * Math.PI) / starPoints - Math.PI / 2;
+        const r = i % 2 === 0 ? starR : starR * 0.4;
+        const x = Math.cos(angle) * r;
+        const y = -size * 0.45 + Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'diamond':
+      // Diamond shape - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const diaW = size * 0.55;
+      const diaH = size * 0.75;
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom
+      ctx.lineTo(diaW, -diaH * 0.4);
+      ctx.lineTo(0, -diaH);
+      ctx.lineTo(-diaW, -diaH * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'triangle':
+      // Equilateral triangle - anchor at bottom
+      ctx.lineWidth = 2.5;
+      const triW = size * 0.65;
+      const triH = size * 0.75;
+      ctx.beginPath();
+      ctx.moveTo(-triW / 2, 0); // Bottom left
+      ctx.lineTo(triW / 2, 0); // Bottom right
+      ctx.lineTo(0, -triH); // Top
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'square':
+      // Square - anchor at bottom center
+      ctx.lineWidth = 2.5;
+      const sqSize = size * 0.6;
+      ctx.fillRect(-sqSize / 2, -sqSize, sqSize, sqSize);
+      ctx.strokeRect(-sqSize / 2, -sqSize, sqSize, sqSize);
+      break;
+
+    case 'circle':
+      // Circle - anchor at center
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.4, size * 0.4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
       break;
 
     default:
-      // Default: simple circle - anchor at center
+      // Default: filled circle
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(0, 0, size * 0.4, 0, 2 * Math.PI);
+      ctx.arc(0, -size * 0.4, size * 0.4, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
   }
@@ -997,11 +1197,12 @@ export const DataCanvas: React.FC = () => {
             ctx.strokeStyle = artifact.color;
             ctx.fillStyle = artifact.color;
 
-            // Render the symbol (size 20 units in screen space)
-            renderActivitySymbol(ctx, artifact.symbolType, 20);
+            // Render the symbol (size 40 units in screen space)
+            renderActivitySymbol(ctx, artifact.symbolType, 40);
 
-            // Draw label if visible
-            if (artifact.labelVisible && artifact.label) {
+            // Draw name below symbol (positioned to avoid overlap)
+            // Symbol height is ~40 units, so position text at y=10 (well below symbol)
+            if (artifact.name) {
                 ctx.save();
                 ctx.fillStyle = '#ffffff';
                 ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
@@ -1009,29 +1210,33 @@ export const DataCanvas: React.FC = () => {
                 ctx.textBaseline = 'top';
                 ctx.strokeStyle = 'rgba(0,0,0,0.8)';
                 ctx.lineWidth = 2.5;
-                ctx.strokeText(artifact.label, 0, 25);
-                ctx.fillText(artifact.label, 0, 25);
+                ctx.strokeText(artifact.name, 0, 10);
+                ctx.fillText(artifact.name, 0, 10);
                 ctx.restore();
             }
 
             ctx.restore();
         }
 
-        ctx.save();
-        const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : (artifact.type === 'activity' ? artifact.position : artifact.center);
-        if (centerPos) {
-            ctx.translate(centerPos[0], centerPos[1]);
-            ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-            ctx.fillStyle = artifact.color;
-            ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-            ctx.lineWidth = 3;
-            ctx.strokeText(artifact.name, 0, -10);
-            ctx.fillText(artifact.name, 0, -10);
+        // Draw artifact name (for non-activity artifacts)
+        // Activity artifacts already have their name drawn with the symbol above
+        if (artifact.type !== 'activity') {
+            ctx.save();
+            const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : artifact.center;
+            if (centerPos) {
+                ctx.translate(centerPos[0], centerPos[1]);
+                ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+                ctx.fillStyle = artifact.color;
+                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                ctx.lineWidth = 3;
+                ctx.strokeText(artifact.name, 0, -10);
+                ctx.fillText(artifact.name, 0, -10);
+            }
+            ctx.restore();
         }
-        ctx.restore();
     });
 
     // Draw preview rectangle if in rectangle creation mode with first corner set
@@ -1437,8 +1642,7 @@ export const DataCanvas: React.FC = () => {
           thickness: 2,
           position: projCoords,
           symbolType: 'target', // Default symbol
-          label: '',
-          labelVisible: true
+          description: ''
         };
         setArtifacts(prev => [...prev, newArtifact]);
         setActiveArtifactId(newId);

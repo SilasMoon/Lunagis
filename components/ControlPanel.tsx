@@ -988,38 +988,46 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
 
                     {artifact.type === 'activity' && (
                         <Section title="Activity Properties" defaultOpen={true}>
-                            <div className="flex items-center justify-between">
-                                <label className="font-medium text-gray-300">Symbol</label>
+                            <div>
+                                <label className="block font-medium text-gray-300 mb-2">Symbol Type</label>
                                 <select
                                     value={(artifact as ActivityArtifact).symbolType}
                                     onChange={e => onUpdateArtifact(artifact.id, { symbolType: e.target.value as ActivitySymbolType })}
-                                    className="w-32 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-xs"
+                                    className="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 text-xs"
                                 >
-                                    <option value="target">Target</option>
-                                    <option value="drill">Drill</option>
-                                    <option value="camp">Camp</option>
-                                    <option value="waypoint">Waypoint</option>
-                                    <option value="marker">Marker</option>
-                                    <option value="flag">Flag</option>
+                                    <optgroup label="Tactical">
+                                        <option value="target">🎯 Target</option>
+                                        <option value="drill">🔩 Drill</option>
+                                        <option value="marker">📍 Marker</option>
+                                        <option value="waypoint">💎 Waypoint</option>
+                                    </optgroup>
+                                    <optgroup label="Structures">
+                                        <option value="camp">⛺ Camp</option>
+                                        <option value="tent">⛺ Tent</option>
+                                        <option value="building">🏢 Building</option>
+                                        <option value="tower">🗼 Tower</option>
+                                        <option value="antenna">📡 Antenna</option>
+                                    </optgroup>
+                                    <optgroup label="Markers">
+                                        <option value="flag">🚩 Flag</option>
+                                        <option value="star">⭐ Star</option>
+                                    </optgroup>
+                                    <optgroup label="Shapes">
+                                        <option value="diamond">◆ Diamond</option>
+                                        <option value="triangle">▲ Triangle</option>
+                                        <option value="square">■ Square</option>
+                                        <option value="circle">● Circle</option>
+                                    </optgroup>
                                 </select>
                             </div>
-                            <div className="flex items-center justify-between">
-                                <label className="font-medium text-gray-300">Label</label>
-                                <input
-                                    type="text"
-                                    value={(artifact as ActivityArtifact).label}
-                                    onChange={e => onUpdateArtifact(artifact.id, { label: e.target.value })}
-                                    className="w-40 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-xs"
-                                    placeholder="Activity label"
-                                />
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <label className="font-medium text-gray-300">Show Label</label>
-                                <input
-                                    type="checkbox"
-                                    checked={(artifact as ActivityArtifact).labelVisible}
-                                    onChange={e => onUpdateArtifact(artifact.id, { labelVisible: e.target.checked })}
-                                    className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                            <div>
+                                <label className="block font-medium text-gray-300 mb-1">Description</label>
+                                <textarea
+                                    value={(artifact as ActivityArtifact).description}
+                                    onChange={e => onUpdateArtifact(artifact.id, { description: e.target.value })}
+                                    className="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 text-xs resize-none"
+                                    placeholder="Add description..."
+                                    rows={3}
                                 />
                             </div>
                         </Section>
