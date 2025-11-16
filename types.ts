@@ -146,6 +146,12 @@ export interface Waypoint {
   id: string;
   geoPosition: [number, number]; // [lon, lat]
   label: string;
+  activitySymbol?: string; // Lucide icon name for activity
+  activityLabel?: string; // Label for the activity
+  activitySymbolSize?: number; // Size in pixels (default: 24)
+  activitySymbolColor?: string; // Hex color (default: artifact color)
+  activityOffset?: number; // Distance in pixels perpendicular to outgoing segment (default: 35)
+  description?: string; // Optional description
 }
 
 export interface ArtifactBase {
@@ -298,6 +304,7 @@ export interface AppStateConfig {
     waypointDotSize: number;
     showSegmentLengths: boolean;
     labelFontSize: number;
+    showActivitySymbols: boolean;
   };
   pathCreationOptions: {
     defaultMaxSegmentLength: number | null; // in meters, null means no limit

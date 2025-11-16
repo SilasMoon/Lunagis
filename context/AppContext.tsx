@@ -52,8 +52,8 @@ interface AppContextType {
     activeArtifactId: string | null;
     artifactCreationMode: "circle" | "rectangle" | "path" | null;
     isAppendingWaypoints: boolean;
-    draggedInfo: { artifactId: string; waypointId?: string; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; } | null;
-    artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; };
+    draggedInfo: { artifactId: string; waypointId?: string; isActivitySymbol?: boolean; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; initialActivityOffset?: number; } | null;
+    artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; showActivitySymbols: boolean; };
     pathCreationOptions: { defaultMaxSegmentLength: number | null; };
     nightfallPlotYAxisRange: { min: number; max: number; };
     isCreatingExpression: boolean;
@@ -98,8 +98,8 @@ interface AppContextType {
     setActiveArtifactId: React.Dispatch<React.SetStateAction<string | null>>;
     setArtifactCreationMode: React.Dispatch<React.SetStateAction<"circle" | "rectangle" | "path" | null>>;
     setIsAppendingWaypoints: React.Dispatch<React.SetStateAction<boolean>>;
-    setDraggedInfo: React.Dispatch<React.SetStateAction<{ artifactId: string; waypointId?: string; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; } | null>>;
-    setArtifactDisplayOptions: React.Dispatch<React.SetStateAction<{ waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; }>>;
+    setDraggedInfo: React.Dispatch<React.SetStateAction<{ artifactId: string; waypointId?: string; isActivitySymbol?: boolean; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; initialActivityOffset?: number; } | null>>;
+    setArtifactDisplayOptions: React.Dispatch<React.SetStateAction<{ waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; showActivitySymbols: boolean; }>>;
     setPathCreationOptions: React.Dispatch<React.SetStateAction<{ defaultMaxSegmentLength: number | null; }>>;
     onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
     setIsCreatingExpression: React.Dispatch<React.SetStateAction<boolean>>;
@@ -195,14 +195,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [draggedInfo, setDraggedInfo] = useState<{
       artifactId: string;
       waypointId?: string;
+      isActivitySymbol?: boolean;
       initialMousePos: [number, number];
       initialCenter?: [number, number];
       initialWaypointProjPositions?: [number, number][];
+      initialActivityOffset?: number;
     } | null>(null);
     const [artifactDisplayOptions, setArtifactDisplayOptions] = useState({
       waypointDotSize: 8,
       showSegmentLengths: true,
       labelFontSize: 14,
+      showActivitySymbols: true,
     });
     const [pathCreationOptions, setPathCreationOptions] = useState({
       defaultMaxSegmentLength: 200 as number | null, // in meters, null means no limit
@@ -1112,7 +1115,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (config.timeZoomDomain) {
               setTimeZoomDomain([new Date(config.timeZoomDomain[0]), new Date(config.timeZoomDomain[1])]);
           }
-          setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14 });
+          setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14, showActivitySymbols: true });
           setPathCreationOptions(config.pathCreationOptions || { defaultMaxSegmentLength: 200 });
           setNightfallPlotYAxisRange(config.nightfallPlotYAxisRange || { min: -15, max: 15 });
 

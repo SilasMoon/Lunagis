@@ -6,6 +6,8 @@ import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
 import { OptimizedCanvasLRUCache } from '../utils/OptimizedLRUCache';
 import { useDebounce } from '../hooks/useDebounce';
+import { WaypointEditModal } from './WaypointEditModal';
+import { ActivitySymbolsOverlay } from './ActivitySymbolsOverlay';
 
 declare const d3: any;
 declare const proj4: any;
@@ -89,6 +91,148 @@ const LoadingSpinner: React.FC = () => (
     </div>
 );
 
+/**
+ * Draw a waypoint symbol on canvas
+ * @param ctx - Canvas rendering context
+ * @param symbol - Symbol type (from Lucide icon names)
+ * @param x - X position
+ * @param y - Y position
+ * @param size - Size of the symbol
+ */
+const drawWaypointSymbol = (ctx: CanvasRenderingContext2D, symbol: string, x: number, y: number, size: number) => {
+  ctx.save();
+  ctx.translate(x, y);
+
+  const halfSize = size / 2;
+
+  switch (symbol) {
+    case 'drill':
+      // Draw drill as triangle pointing down
+      ctx.beginPath();
+      ctx.moveTo(0, -halfSize);
+      ctx.lineTo(halfSize, halfSize);
+      ctx.lineTo(-halfSize, halfSize);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'pause':
+      // Draw pause as two vertical bars
+      ctx.fillRect(-halfSize * 0.6, -halfSize, halfSize * 0.4, size);
+      ctx.fillRect(halfSize * 0.2, -halfSize, halfSize * 0.4, size);
+      break;
+
+    case 'target':
+      // Draw target as concentric circles
+      ctx.beginPath();
+      ctx.arc(0, 0, halfSize, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, halfSize * 0.6, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, halfSize * 0.2, 0, 2 * Math.PI);
+      ctx.fill();
+      break;
+
+    case 'flag':
+      // Draw flag as triangle on pole
+      ctx.fillRect(-halfSize * 0.9, -halfSize, halfSize * 0.15, size * 1.5);
+      ctx.beginPath();
+      ctx.moveTo(-halfSize * 0.75, -halfSize);
+      ctx.lineTo(halfSize * 0.5, -halfSize * 0.5);
+      ctx.lineTo(-halfSize * 0.75, 0);
+      ctx.closePath();
+      ctx.fill();
+      break;
+
+    case 'satellite':
+      // Draw satellite as square with antennas
+      ctx.fillRect(-halfSize * 0.4, -halfSize * 0.4, size * 0.8, size * 0.8);
+      ctx.strokeRect(-halfSize, -halfSize, halfSize * 0.3, halfSize * 0.3);
+      ctx.strokeRect(halfSize * 0.7, halfSize * 0.7, halfSize * 0.3, halfSize * 0.3);
+      break;
+
+    case 'crosshair':
+      // Draw crosshair as circle with cross
+      ctx.beginPath();
+      ctx.arc(0, 0, halfSize, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -halfSize);
+      ctx.lineTo(0, halfSize);
+      ctx.moveTo(-halfSize, 0);
+      ctx.lineTo(halfSize, 0);
+      ctx.stroke();
+      break;
+
+    case 'moon':
+      // Draw moon as crescent
+      ctx.beginPath();
+      ctx.arc(0, 0, halfSize, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(halfSize * 0.3, -halfSize * 0.3, halfSize * 0.8, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      break;
+
+    case 'sunset':
+      // Draw sunset as semi-circle with rays
+      ctx.beginPath();
+      ctx.arc(0, halfSize * 0.2, halfSize * 0.7, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fill();
+      for (let i = 0; i < 8; i++) {
+        const angle = (Math.PI * i) / 7 + Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(0, halfSize * 0.2);
+        ctx.lineTo(Math.cos(angle) * halfSize * 1.2, halfSize * 0.2 + Math.sin(angle) * halfSize * 1.2);
+        ctx.stroke();
+      }
+      break;
+
+    case 'message':
+      // Draw message as speech bubble
+      ctx.beginPath();
+      ctx.roundRect(-halfSize * 0.8, -halfSize * 0.6, size * 1.6, size * 1.0, halfSize * 0.2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-halfSize * 0.3, halfSize * 0.4);
+      ctx.lineTo(-halfSize * 0.5, halfSize * 1.0);
+      ctx.lineTo(0, halfSize * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      break;
+
+    case 'binoculars':
+      // Draw binoculars as two circles connected
+      ctx.beginPath();
+      ctx.arc(-halfSize * 0.4, 0, halfSize * 0.5, 0, 2 * Math.PI);
+      ctx.arc(halfSize * 0.4, 0, halfSize * 0.5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-halfSize * 0.1, -halfSize * 0.3);
+      ctx.lineTo(halfSize * 0.1, -halfSize * 0.3);
+      ctx.stroke();
+      break;
+
+    default:
+      // Default: draw simple circle
+      ctx.beginPath();
+      ctx.arc(0, 0, halfSize, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      break;
+  }
+
+  ctx.restore();
+};
+
 export const DataCanvas: React.FC = () => {
   const {
     layers, timeRange, currentDateIndex, setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
@@ -118,6 +262,7 @@ export const DataCanvas: React.FC = () => {
   const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isRendering, setIsRendering] = useState(false);
+  const [editingWaypoint, setEditingWaypoint] = useState<{ artifactId: string; waypoint: Waypoint } | null>(null);
   // LRU cache: max 50 canvases or 500MB, whichever is hit first
   // Using optimized doubly-linked list implementation for O(1) operations
   const offscreenCanvasCache = useRef(new OptimizedCanvasLRUCache(50, 500)).current;
@@ -784,19 +929,19 @@ export const DataCanvas: React.FC = () => {
                 ctx.stroke();
             }
             
-            // Draw dots and labels
+            // Draw waypoint dots and labels
             projectedWaypoints.forEach((pwp) => {
-                // Draw dot
+                // Draw waypoint dot
                 ctx.beginPath();
                 const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
                 ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
                 ctx.fill();
 
-                // Draw label
+                // Draw waypoint label
                 ctx.save();
                 ctx.translate(pwp.projPos![0], pwp.projPos![1]);
                 ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-                ctx.fillStyle = '#ffffff'; // White label for contrast
+                ctx.fillStyle = '#ffffff';
                 ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
@@ -1682,6 +1827,33 @@ export const DataCanvas: React.FC = () => {
     if (!!draggedInfo) onArtifactDragEnd();
   };
 
+  const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only handle waypoint double-clicks in artifact mode
+    if (activeTool !== 'artifacts' || !hoveredWaypointInfo) return;
+
+    const artifact = artifacts.find(a => a.id === hoveredWaypointInfo.artifactId);
+    if (!artifact || artifact.type !== 'path') return;
+
+    const waypoint = artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId);
+    if (!waypoint) return;
+
+    setEditingWaypoint({ artifactId: artifact.id, waypoint });
+  };
+
+  const handleWaypointEditSave = (updates: Partial<Waypoint>) => {
+    if (!editingWaypoint) return;
+
+    const artifact = artifacts.find(a => a.id === editingWaypoint.artifactId);
+    if (!artifact || artifact.type !== 'path') return;
+
+    const waypointIndex = artifact.waypoints.findIndex(wp => wp.id === editingWaypoint.waypoint.id);
+    if (waypointIndex === -1) return;
+
+    const newWaypoints = [...artifact.waypoints];
+    newWaypoints[waypointIndex] = { ...newWaypoints[waypointIndex], ...updates };
+    onUpdateArtifact(artifact.id, { waypoints: newWaypoints });
+  };
+
   const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; setViewState({ ...viewState, scale: viewState.scale * factor }); }, [viewState, setViewState]);
   const handleResetView = useCallback(() => { if(initialViewState) { setViewState(initialViewState); } }, [initialViewState, setViewState]);
 
@@ -1711,6 +1883,7 @@ export const DataCanvas: React.FC = () => {
       onMouseMove={handleInteractionMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
+      onDoubleClick={handleDoubleClick}
       style={{ cursor: cursorStyle }}
     >
       {isRendering && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 z-50"><LoadingSpinner /></div>}
@@ -1719,7 +1892,57 @@ export const DataCanvas: React.FC = () => {
       <canvas ref={artifactCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
       <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />
       <canvas ref={selectionCanvasRef} className="absolute inset-0 w-full h-full z-40 pointer-events-none" />
+      <ActivitySymbolsOverlay
+        artifacts={artifacts.filter(a => a.type === 'path') as PathArtifact[]}
+        proj={proj}
+        viewState={viewState}
+        containerWidth={containerRef.current?.clientWidth || 0}
+        containerHeight={containerRef.current?.clientHeight || 0}
+        showActivitySymbols={artifactDisplayOptions.showActivitySymbols}
+      />
       <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} />
+      {editingWaypoint && (() => {
+        const artifact = artifacts.find(a => a.id === editingWaypoint.artifactId);
+        const defaultColor = artifact?.color || '#ef4444';
+        return (
+          <WaypointEditModal
+            isOpen={true}
+            waypoint={editingWaypoint.waypoint}
+            defaultColor={defaultColor}
+            onClose={() => setEditingWaypoint(null)}
+            onSave={handleWaypointEditSave}
+          />
+        );
+      })()}
+      {hoveredWaypointInfo && (() => {
+        const artifact = artifacts.find(a => a.id === hoveredWaypointInfo.artifactId);
+        const waypoint = artifact && artifact.type === 'path' ? artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId) : null;
+
+        if (!waypoint) return null;
+
+        return (
+          <div className="absolute bottom-4 left-4 bg-gray-800/95 border border-gray-600 rounded-lg p-3 shadow-lg z-50 pointer-events-none max-w-xs">
+            <div className="text-sm space-y-1">
+              <div className="font-semibold text-white border-b border-gray-600 pb-1 mb-2">
+                {waypoint.label || 'Waypoint'}
+              </div>
+              <div className="text-gray-300">
+                <span className="text-gray-400">Coordinates:</span> {waypoint.geoPosition[1].toFixed(6)}, {waypoint.geoPosition[0].toFixed(6)}
+              </div>
+              {waypoint.activitySymbol && (
+                <div className="text-gray-300">
+                  <span className="text-gray-400">Activity:</span> {waypoint.activityLabel || waypoint.activitySymbol}
+                </div>
+              )}
+              {waypoint.description && (
+                <div className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700">
+                  {waypoint.description}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

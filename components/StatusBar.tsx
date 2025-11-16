@@ -10,7 +10,7 @@ const InfoItem: React.FC<{ label: string; value: string | number; }> = ({ label,
 );
 
 export const StatusBar: React.FC = () => {
-    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer, timeSeriesData } = useAppContext();
+    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer, timeSeriesData, artifactDisplayOptions, setArtifactDisplayOptions } = useAppContext();
 
     if (!primaryDataLayer) {
         return null;
@@ -20,6 +20,13 @@ export const StatusBar: React.FC = () => {
     const currentValue = timeSeriesData && currentDateIndex !== null && currentDateIndex < timeSeriesData.data.length
         ? timeSeriesData.data[currentDateIndex]
         : null;
+
+    const toggleActivitySymbols = () => {
+        setArtifactDisplayOptions(prev => ({
+            ...prev,
+            showActivitySymbols: !prev.showActivitySymbols
+        }));
+    };
 
     return (
         <section className="bg-gray-800/70 border-y border-gray-700 w-full flex-shrink-0 z-40 px-4 py-1 flex items-center justify-between flex-wrap gap-x-6 gap-y-1">
@@ -46,6 +53,18 @@ export const StatusBar: React.FC = () => {
                     <InfoItem label="Duration" value={'---'} />
                 </div>
             )}
+
+            <button
+                onClick={toggleActivitySymbols}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    artifactDisplayOptions.showActivitySymbols
+                        ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+                title={artifactDisplayOptions.showActivitySymbols ? 'Hide activity symbols' : 'Show activity symbols'}
+            >
+                {artifactDisplayOptions.showActivitySymbols ? '👁️ Activities' : '👁️‍🗨️ Activities'}
+            </button>
         </section>
     );
 };
