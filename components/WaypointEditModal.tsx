@@ -45,6 +45,8 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
 }) => {
   const [activitySymbol, setActivitySymbol] = useState<string | null>(waypoint.activitySymbol || null);
   const [activityLabel, setActivityLabel] = useState(waypoint.activityLabel || '');
+  const [activitySymbolSize, setActivitySymbolSize] = useState(waypoint.activitySymbolSize || 24);
+  const [activitySymbolColor, setActivitySymbolColor] = useState(waypoint.activitySymbolColor || '#ef4444');
   const [description, setDescription] = useState(waypoint.description || '');
 
   if (!isOpen) return null;
@@ -53,6 +55,8 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
     onSave({
       activitySymbol: activitySymbol || undefined,
       activityLabel: activityLabel || undefined,
+      activitySymbolSize: activitySymbol ? activitySymbolSize : undefined,
+      activitySymbolColor: activitySymbol ? activitySymbolColor : undefined,
       description,
     });
     onClose();
@@ -143,7 +147,13 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
                     }`}
                     title={symbol.label}
                   >
-                    {Icon && <Icon className="w-6 h-6 text-gray-400" />}
+                    {Icon && (
+                      <Icon
+                        className="w-6 h-6"
+                        style={{ color: isSelected ? activitySymbolColor : '#9ca3af' }}
+                        strokeWidth={2}
+                      />
+                    )}
                     <span className="text-xs text-gray-400">{symbol.label}</span>
                   </button>
                 );
@@ -170,6 +180,54 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
               </p>
             )}
           </div>
+
+          {/* Activity Symbol Size and Color */}
+          {activitySymbol && (
+            <div className="grid grid-cols-2 gap-4">
+              {/* Symbol Size */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Symbol Size
+                </label>
+                <input
+                  type="range"
+                  min="16"
+                  max="48"
+                  step="2"
+                  value={activitySymbolSize}
+                  onChange={(e) => setActivitySymbolSize(Number(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>Small</span>
+                  <span className="font-mono">{activitySymbolSize}px</span>
+                  <span>Large</span>
+                </div>
+              </div>
+
+              {/* Symbol Color */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Symbol Color
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={activitySymbolColor}
+                    onChange={(e) => setActivitySymbolColor(e.target.value)}
+                    className="w-12 h-10 rounded cursor-pointer bg-gray-700 border border-gray-600"
+                  />
+                  <input
+                    type="text"
+                    value={activitySymbolColor}
+                    onChange={(e) => setActivitySymbolColor(e.target.value)}
+                    className="flex-1 bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500 font-mono text-sm"
+                    placeholder="#ef4444"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Description */}
           <div>

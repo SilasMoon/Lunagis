@@ -7,6 +7,7 @@ import { useAppContext } from '../context/AppContext';
 import { OptimizedCanvasLRUCache } from '../utils/OptimizedLRUCache';
 import { useDebounce } from '../hooks/useDebounce';
 import { WaypointEditModal } from './WaypointEditModal';
+import { ActivitySymbolsOverlay } from './ActivitySymbolsOverlay';
 
 declare const d3: any;
 declare const proj4: any;
@@ -949,42 +950,6 @@ export const DataCanvas: React.FC = () => {
                 ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
                 ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
                 ctx.restore();
-
-                // Draw activity symbol if present and enabled
-                if (artifactDisplayOptions.showActivitySymbols && pwp.activitySymbol) {
-                    const defaultOffset: [number, number] = [0, -30]; // Default: 30px above waypoint
-                    const offset = pwp.activityOffset || defaultOffset;
-
-                    ctx.save();
-                    ctx.translate(pwp.projPos![0], pwp.projPos![1]);
-                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-
-                    // Draw activity symbol
-                    ctx.save();
-                    ctx.translate(offset[0], offset[1]);
-                    ctx.scale(effectiveScale, -effectiveScale);
-
-                    const symbolSize = artifactDisplayOptions.waypointDotSize * 1.5 / effectiveScale;
-                    ctx.fillStyle = artifact.color;
-                    ctx.strokeStyle = artifact.color;
-                    ctx.lineWidth = 2 / effectiveScale;
-                    drawWaypointSymbol(ctx, pwp.activitySymbol, 0, 0, symbolSize);
-                    ctx.restore();
-
-                    // Draw activity label if present
-                    if (pwp.activityLabel) {
-                        ctx.fillStyle = artifact.color;
-                        ctx.font = `${artifactDisplayOptions.labelFontSize}px sans-serif`;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'top';
-                        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                        ctx.lineWidth = 2.5;
-                        ctx.strokeText(pwp.activityLabel, offset[0], offset[1] + artifactDisplayOptions.waypointDotSize * 1.5 / 2 + 2);
-                        ctx.fillText(pwp.activityLabel, offset[0], offset[1] + artifactDisplayOptions.waypointDotSize * 1.5 / 2 + 2);
-                    }
-
-                    ctx.restore();
-                }
             });
 
             // Draw segment lengths
@@ -1927,6 +1892,14 @@ export const DataCanvas: React.FC = () => {
       <canvas ref={artifactCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
       <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />
       <canvas ref={selectionCanvasRef} className="absolute inset-0 w-full h-full z-40 pointer-events-none" />
+      <ActivitySymbolsOverlay
+        artifacts={artifacts.filter(a => a.type === 'path') as PathArtifact[]}
+        proj={proj}
+        viewState={viewState}
+        containerWidth={containerRef.current?.clientWidth || 0}
+        containerHeight={containerRef.current?.clientHeight || 0}
+        showActivitySymbols={artifactDisplayOptions.showActivitySymbols}
+      />
       <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} />
       {editingWaypoint && (
         <WaypointEditModal

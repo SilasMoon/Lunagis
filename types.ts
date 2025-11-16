@@ -148,6 +148,8 @@ export interface Waypoint {
   label: string;
   activitySymbol?: string; // Lucide icon name for activity
   activityLabel?: string; // Label for the activity
+  activitySymbolSize?: number; // Size in pixels (default: 24)
+  activitySymbolColor?: string; // Hex color (default: artifact color)
   activityOffset?: [number, number]; // Offset in pixels from waypoint [x, y]
   description?: string; // Optional description
 }
