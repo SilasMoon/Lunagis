@@ -146,6 +146,9 @@ export interface Waypoint {
   id: string;
   geoPosition: [number, number]; // [lon, lat]
   label: string;
+  symbol?: string; // Lucide icon name
+  symbolColor?: string; // Hex color for the symbol and label
+  description?: string; // Optional description
 }
 
 export interface ArtifactBase {
