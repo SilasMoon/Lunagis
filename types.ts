@@ -146,8 +146,9 @@ export interface Waypoint {
   id: string;
   geoPosition: [number, number]; // [lon, lat]
   label: string;
-  symbol?: string; // Lucide icon name
-  symbolColor?: string; // Hex color for the symbol and label
+  activitySymbol?: string; // Lucide icon name for activity
+  activityLabel?: string; // Label for the activity
+  activityOffset?: [number, number]; // Offset in pixels from waypoint [x, y]
   description?: string; // Optional description
 }
 
@@ -301,6 +302,7 @@ export interface AppStateConfig {
     waypointDotSize: number;
     showSegmentLengths: boolean;
     labelFontSize: number;
+    showActivitySymbols: boolean;
   };
   pathCreationOptions: {
     defaultMaxSegmentLength: number | null; // in meters, null means no limit

@@ -928,26 +928,19 @@ export const DataCanvas: React.FC = () => {
                 ctx.stroke();
             }
             
-            // Draw dots and labels
+            // Draw waypoint dots and labels
             projectedWaypoints.forEach((pwp) => {
-                const waypointColor = pwp.symbolColor || artifact.color;
-                const symbol = pwp.symbol || 'target';
+                // Draw waypoint dot
+                ctx.beginPath();
+                const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+                ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
+                ctx.fill();
 
-                // Draw symbol
-                ctx.save();
-                ctx.fillStyle = waypointColor;
-                ctx.strokeStyle = waypointColor;
-                ctx.lineWidth = 2 / effectiveScale;
-
-                const symbolSize = artifactDisplayOptions.waypointDotSize / effectiveScale;
-                drawWaypointSymbol(ctx, symbol, pwp.projPos![0], pwp.projPos![1], symbolSize);
-                ctx.restore();
-
-                // Draw label
+                // Draw waypoint label
                 ctx.save();
                 ctx.translate(pwp.projPos![0], pwp.projPos![1]);
                 ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-                ctx.fillStyle = waypointColor;
+                ctx.fillStyle = '#ffffff';
                 ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
@@ -956,6 +949,42 @@ export const DataCanvas: React.FC = () => {
                 ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
                 ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
                 ctx.restore();
+
+                // Draw activity symbol if present and enabled
+                if (artifactDisplayOptions.showActivitySymbols && pwp.activitySymbol) {
+                    const defaultOffset: [number, number] = [0, -30]; // Default: 30px above waypoint
+                    const offset = pwp.activityOffset || defaultOffset;
+
+                    ctx.save();
+                    ctx.translate(pwp.projPos![0], pwp.projPos![1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+                    // Draw activity symbol
+                    ctx.save();
+                    ctx.translate(offset[0], offset[1]);
+                    ctx.scale(effectiveScale, -effectiveScale);
+
+                    const symbolSize = artifactDisplayOptions.waypointDotSize * 1.5 / effectiveScale;
+                    ctx.fillStyle = artifact.color;
+                    ctx.strokeStyle = artifact.color;
+                    ctx.lineWidth = 2 / effectiveScale;
+                    drawWaypointSymbol(ctx, pwp.activitySymbol, 0, 0, symbolSize);
+                    ctx.restore();
+
+                    // Draw activity label if present
+                    if (pwp.activityLabel) {
+                        ctx.fillStyle = artifact.color;
+                        ctx.font = `${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'top';
+                        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                        ctx.lineWidth = 2.5;
+                        ctx.strokeText(pwp.activityLabel, offset[0], offset[1] + artifactDisplayOptions.waypointDotSize * 1.5 / 2 + 2);
+                        ctx.fillText(pwp.activityLabel, offset[0], offset[1] + artifactDisplayOptions.waypointDotSize * 1.5 / 2 + 2);
+                    }
+
+                    ctx.restore();
+                }
             });
 
             // Draw segment lengths
@@ -1907,6 +1936,35 @@ export const DataCanvas: React.FC = () => {
           onSave={handleWaypointEditSave}
         />
       )}
+      {hoveredWaypointInfo && (() => {
+        const artifact = artifacts.find(a => a.id === hoveredWaypointInfo.artifactId);
+        const waypoint = artifact && artifact.type === 'path' ? artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId) : null;
+
+        if (!waypoint) return null;
+
+        return (
+          <div className="absolute bottom-4 left-4 bg-gray-800/95 border border-gray-600 rounded-lg p-3 shadow-lg z-50 pointer-events-none max-w-xs">
+            <div className="text-sm space-y-1">
+              <div className="font-semibold text-white border-b border-gray-600 pb-1 mb-2">
+                {waypoint.label || 'Waypoint'}
+              </div>
+              <div className="text-gray-300">
+                <span className="text-gray-400">Coordinates:</span> {waypoint.geoPosition[1].toFixed(6)}, {waypoint.geoPosition[0].toFixed(6)}
+              </div>
+              {waypoint.activitySymbol && (
+                <div className="text-gray-300">
+                  <span className="text-gray-400">Activity:</span> {waypoint.activityLabel || waypoint.activitySymbol}
+                </div>
+              )}
+              {waypoint.description && (
+                <div className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700">
+                  {waypoint.description}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Binoculars,
   LucideIcon,
+  XCircle,
 } from 'lucide-react';
 
 interface WaypointEditModalProps {
@@ -21,8 +22,9 @@ interface WaypointEditModalProps {
   onSave: (updates: Partial<Waypoint>) => void;
 }
 
-// Available symbols with their icons
-const AVAILABLE_SYMBOLS: { name: string; icon: LucideIcon; label: string }[] = [
+// Available activity symbols with their icons
+const AVAILABLE_SYMBOLS: { name: string | null; icon: LucideIcon | null; label: string }[] = [
+  { name: null, icon: XCircle, label: 'None' },
   { name: 'drill', icon: Drill, label: 'Drill' },
   { name: 'pause', icon: Pause, label: 'Pause' },
   { name: 'target', icon: Target, label: 'Target' },
@@ -41,16 +43,16 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState(waypoint.symbol || 'target');
-  const [symbolColor, setSymbolColor] = useState(waypoint.symbolColor || '#ef4444');
+  const [activitySymbol, setActivitySymbol] = useState<string | null>(waypoint.activitySymbol || null);
+  const [activityLabel, setActivityLabel] = useState(waypoint.activityLabel || '');
   const [description, setDescription] = useState(waypoint.description || '');
 
   if (!isOpen) return null;
 
   const handleSave = () => {
     onSave({
-      symbol: selectedSymbol,
-      symbolColor,
+      activitySymbol: activitySymbol || undefined,
+      activityLabel: activityLabel || undefined,
       description,
     });
     onClose();
@@ -121,19 +123,19 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
             </div>
           </div>
 
-          {/* Symbol Selection */}
+          {/* Activity Symbol Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-3">
-              Symbol
+              Activity Symbol
             </label>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-6 gap-2">
               {AVAILABLE_SYMBOLS.map((symbol) => {
                 const Icon = symbol.icon;
-                const isSelected = selectedSymbol === symbol.name;
+                const isSelected = activitySymbol === symbol.name;
                 return (
                   <button
-                    key={symbol.name}
-                    onClick={() => setSelectedSymbol(symbol.name)}
+                    key={symbol.name || 'none'}
+                    onClick={() => setActivitySymbol(symbol.name)}
                     className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                       isSelected
                         ? 'border-blue-500 bg-blue-500/20'
@@ -141,10 +143,7 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
                     }`}
                     title={symbol.label}
                   >
-                    <Icon
-                      className="w-6 h-6"
-                      style={{ color: isSelected ? symbolColor : '#9ca3af' }}
-                    />
+                    {Icon && <Icon className="w-6 h-6 text-gray-400" />}
                     <span className="text-xs text-gray-400">{symbol.label}</span>
                   </button>
                 );
@@ -152,26 +151,24 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
             </div>
           </div>
 
-          {/* Color Picker */}
+          {/* Activity Label */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Symbol & Label Color
+              Activity Label
             </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={symbolColor}
-                onChange={(e) => setSymbolColor(e.target.value)}
-                className="w-16 h-10 rounded cursor-pointer bg-gray-700 border border-gray-600"
-              />
-              <input
-                type="text"
-                value={symbolColor}
-                onChange={(e) => setSymbolColor(e.target.value)}
-                className="flex-1 bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500 font-mono"
-                placeholder="#ef4444"
-              />
-            </div>
+            <input
+              type="text"
+              value={activityLabel}
+              onChange={(e) => setActivityLabel(e.target.value)}
+              className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
+              placeholder="e.g., Drilling, Rest Stop, Target Point..."
+              disabled={!activitySymbol}
+            />
+            {!activitySymbol && (
+              <p className="text-xs text-gray-500 mt-1">
+                Select an activity symbol to enable this field
+              </p>
+            )}
           </div>
 
           {/* Description */}
