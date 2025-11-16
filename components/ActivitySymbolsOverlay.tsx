@@ -65,42 +65,49 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
             const projPos = proj.forward(waypoint.geoPosition) as [number, number];
             const [canvasX, canvasY] = projToCanvas(projPos);
 
-            // Calculate perpendicular offset based on outgoing segment
+            // Calculate perpendicular offset based on outgoing segment IN CANVAS SPACE
             let offsetX = 0;
             let offsetY = -40; // Default: upward
 
             const offsetDistance = waypoint.activityOffset !== undefined ? waypoint.activityOffset : 40;
 
             if (artifact.waypoints.length > 1) {
-              let segmentDirection: [number, number] | null = null;
+              let segmentDirCanvas: [number, number] | null = null;
 
               // Try to use outgoing segment (to next waypoint)
               if (waypointIndex < artifact.waypoints.length - 1) {
                 const nextWaypoint = artifact.waypoints[waypointIndex + 1];
                 const nextProjPos = proj.forward(nextWaypoint.geoPosition) as [number, number];
-                const dx = nextProjPos[0] - projPos[0];
-                const dy = nextProjPos[1] - projPos[1];
+                const [nextCanvasX, nextCanvasY] = projToCanvas(nextProjPos);
+
+                // Calculate segment direction in canvas space
+                const dx = nextCanvasX - canvasX;
+                const dy = nextCanvasY - canvasY;
                 const magnitude = Math.sqrt(dx * dx + dy * dy);
                 if (magnitude > 0) {
-                  segmentDirection = [dx / magnitude, dy / magnitude];
+                  segmentDirCanvas = [dx / magnitude, dy / magnitude];
                 }
               }
               // Fallback: use incoming segment (from previous waypoint)
               else if (waypointIndex > 0) {
                 const prevWaypoint = artifact.waypoints[waypointIndex - 1];
                 const prevProjPos = proj.forward(prevWaypoint.geoPosition) as [number, number];
-                const dx = projPos[0] - prevProjPos[0];
-                const dy = projPos[1] - prevProjPos[1];
+                const [prevCanvasX, prevCanvasY] = projToCanvas(prevProjPos);
+
+                // Calculate segment direction in canvas space
+                const dx = canvasX - prevCanvasX;
+                const dy = canvasY - prevCanvasY;
                 const magnitude = Math.sqrt(dx * dx + dy * dy);
                 if (magnitude > 0) {
-                  segmentDirection = [dx / magnitude, dy / magnitude];
+                  segmentDirCanvas = [dx / magnitude, dy / magnitude];
                 }
               }
 
-              // Calculate perpendicular direction (rotate 90° counterclockwise)
-              if (segmentDirection) {
-                const [dirX, dirY] = segmentDirection;
-                const perpX = -dirY; // Perpendicular in screen space (canvas Y is inverted)
+              // Calculate perpendicular direction (rotate 90° counterclockwise in canvas space)
+              if (segmentDirCanvas) {
+                const [dirX, dirY] = segmentDirCanvas;
+                // Perpendicular: rotate 90° counterclockwise
+                const perpX = -dirY;
                 const perpY = dirX;
 
                 offsetX = perpX * offsetDistance;
