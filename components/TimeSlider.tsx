@@ -208,21 +208,37 @@ export const TimeSlider: React.FC = () => {
                 {isDataLoaded && events.filter(e => e.visible).map(event => {
                 const eventDate = indexToDate(event.dateIndex);
                 const eventX = xScale(eventDate);
+                // Split event name into 2 lines of 12 characters each
+                const line1 = event.name.substring(0, 12);
+                const line2 = event.name.substring(12, 24);
                 return (
                     <g key={event.id}>
                         <line x1={eventX} y1={30} x2={eventX} y2={75} stroke={event.color} strokeWidth="2" strokeDasharray="4,2" />
                         <circle cx={eventX} cy={55} r="4" fill={event.color} stroke="#1A202C" strokeWidth="1.5" />
                         <text
                             x={eventX}
-                            y={18}
+                            y={12}
                             fill={event.color}
                             fontSize="10"
                             fontWeight="600"
                             textAnchor="middle"
                             className="pointer-events-none"
                         >
-                            {event.name}
+                            {line1}
                         </text>
+                        {line2 && (
+                            <text
+                                x={eventX}
+                                y={24}
+                                fill={event.color}
+                                fontSize="10"
+                                fontWeight="600"
+                                textAnchor="middle"
+                                className="pointer-events-none"
+                            >
+                                {line2}
+                            </text>
+                        )}
                     </g>
                 );
                 })}

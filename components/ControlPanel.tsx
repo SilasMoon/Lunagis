@@ -1352,8 +1352,10 @@ const EventsPanel: React.FC = () => {
                             value={newEventName}
                             onChange={(e) => setNewEventName(e.target.value)}
                             placeholder="e.g., Launch Event"
+                            maxLength={24}
                             className="bg-gray-700 text-white rounded p-2 border border-gray-600 text-sm"
                         />
+                        <span className="text-xs text-gray-500">{newEventName.length}/24 characters</span>
                     </label>
 
                     <label className="flex flex-col gap-1">
@@ -1509,8 +1511,10 @@ const EventsPanel: React.FC = () => {
                                                 value={event.name}
                                                 onChange={(e) => onUpdateEvent(event.id, { name: e.target.value })}
                                                 onClick={(e) => e.stopPropagation()}
+                                                maxLength={24}
                                                 className="bg-gray-700 text-white rounded p-2 border border-gray-600 text-sm"
                                             />
+                                            <span className="text-xs text-gray-500">{event.name.length}/24 characters</span>
                                         </label>
                                         <label className="flex flex-col gap-1">
                                             <span className="text-xs text-gray-400">Edit Description:</span>
