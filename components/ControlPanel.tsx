@@ -868,7 +868,7 @@ const LayersPanel: React.FC = () => {
 };
 
 const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
-    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useAppContext();
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, setArtifacts, artifacts, proj } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
@@ -893,9 +893,40 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
         newWaypoints[wpIndex] = { ...newWaypoints[wpIndex], geoPosition: newPos };
         onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
-    
+
     const handleRemoveWaypoint = (path: PathArtifact, wpIndex: number) => {
         const newWaypoints = path.waypoints.filter((_, i) => i !== wpIndex);
+        onUpdateArtifact(path.id, { waypoints: newWaypoints });
+    };
+
+    const handleConvertToActivity = (path: PathArtifact, wpIndex: number) => {
+        if (!proj) return;
+
+        const waypoint = path.waypoints[wpIndex];
+
+        // Convert waypoint's geographic position to projected coordinates
+        const projectedPos = proj.forward(waypoint.geoPosition) as [number, number];
+
+        // Create new activity artifact
+        const newActivityId = `activity-${Date.now()}`;
+        const newActivity: ActivityArtifact = {
+            id: newActivityId,
+            type: 'activity',
+            name: waypoint.label || `Activity ${artifacts.length + 1}`,
+            visible: true,
+            color: path.color, // Use path color
+            thickness: 2,
+            position: projectedPos,
+            symbolType: 'waypoint', // Default to waypoint symbol
+            description: ''
+        };
+
+        // Add the new activity to artifacts list
+        setArtifacts(prev => [...prev, newActivity]);
+
+        // Update the waypoint to link to the activity
+        const newWaypoints = [...path.waypoints];
+        newWaypoints[wpIndex] = { ...waypoint, activityId: newActivityId };
         onUpdateArtifact(path.id, { waypoints: newWaypoints });
     };
 
@@ -968,7 +999,7 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                                         <div key={wp.id} className="bg-gray-900/40 p-1.5 rounded-md space-y-1.5">
                                             <div className="flex items-center gap-2">
                                                 <span className="font-mono text-gray-400">{i + 1}.</span>
-                                                <input type="text" value={wp.label} 
+                                                <input type="text" value={wp.label}
                                                     onChange={e => handleWaypointUpdate(artifact as PathArtifact, i, { label: e.target.value })}
                                                     className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-sm" placeholder="Label" />
                                                 <button onClick={() => handleRemoveWaypoint(artifact as PathArtifact, i)} title="Remove Waypoint" className="text-gray-500 hover:text-red-400">
@@ -979,6 +1010,25 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                                                 <input type="number" step="any" value={wp.geoPosition[0]} onChange={e => handleWaypointGeoChange(artifact as PathArtifact, i, 'lon', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lon" title="Longitude" />
                                                 <input type="number" step="any" value={wp.geoPosition[1]} onChange={e => handleWaypointGeoChange(artifact as PathArtifact, i, 'lat', e.target.value)} className="w-full bg-gray-700 text-white rounded p-1 border border-gray-600 text-xs" placeholder="Lat" title="Latitude" />
                                             </div>
+                                            {!wp.activityId && (
+                                                <div className="pl-6">
+                                                    <button
+                                                        onClick={() => handleConvertToActivity(artifact as PathArtifact, i)}
+                                                        className="w-full bg-green-700 hover:bg-green-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
+                                                        title="Convert this waypoint to an activity"
+                                                    >
+                                                        → Convert to Activity
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {wp.activityId && (
+                                                <div className="pl-6 text-xs text-green-400 flex items-center gap-1">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                    </svg>
+                                                    Linked to activity
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>

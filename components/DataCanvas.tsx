@@ -1122,25 +1122,55 @@ export const DataCanvas: React.FC = () => {
             
             // Draw dots and labels
             projectedWaypoints.forEach((pwp) => {
-                // Draw dot
-                ctx.beginPath();
-                const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
-                ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
-                ctx.fill();
+                // Check if this waypoint is linked to an activity
+                const linkedActivity = pwp.activityId ? artifacts.find(a => a.id === pwp.activityId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
 
-                // Draw label
-                ctx.save();
-                ctx.translate(pwp.projPos![0], pwp.projPos![1]);
-                ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-                ctx.fillStyle = '#ffffff'; // White label for contrast
-                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'bottom';
-                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                ctx.lineWidth = 2.5;
-                ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
-                ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
-                ctx.restore();
+                if (linkedActivity) {
+                    // Render activity symbol instead of waypoint dot
+                    ctx.save();
+                    ctx.translate(pwp.projPos![0], pwp.projPos![1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+                    // Use activity color and thickness
+                    ctx.strokeStyle = linkedActivity.color;
+                    ctx.fillStyle = linkedActivity.color;
+                    ctx.lineWidth = linkedActivity.thickness;
+
+                    // Render activity symbol
+                    renderActivitySymbol(ctx, linkedActivity.symbolType, 40);
+
+                    // Draw waypoint label below activity symbol
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeText(pwp.label, 0, 10);
+                    ctx.fillText(pwp.label, 0, 10);
+
+                    ctx.restore();
+                } else {
+                    // Draw normal waypoint dot
+                    ctx.beginPath();
+                    const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+                    ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    // Draw label
+                    ctx.save();
+                    ctx.translate(pwp.projPos![0], pwp.projPos![1]);
+                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+                    ctx.fillStyle = '#ffffff'; // White label for contrast
+                    ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
+                    ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
+                    ctx.restore();
+                }
             });
 
             // Draw segment lengths
@@ -1558,38 +1588,74 @@ export const DataCanvas: React.FC = () => {
         const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
         if (pathBeingDrawn) {
             // Add waypoint to existing path-in-progress
+
+            // Check if clicking on an activity artifact
+            const clickedActivity = hoveredArtifactId ? artifacts.find(a => a.id === hoveredArtifactId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
+
             let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+            let linkedActivityId: string | undefined = undefined;
 
-            // Clamp to max distance if configured
-            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-            if (maxLength && pathBeingDrawn.waypoints.length > 0) {
-                const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
-                const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+            if (clickedActivity) {
+                // Use activity's position for the waypoint
+                const activityGeo = proj4('EPSG:4326', proj).inverse(clickedActivity.position);
+                waypointGeoPosition = [activityGeo[0], activityGeo[1]];
+                linkedActivityId = clickedActivity.id;
+            } else {
+                // Clamp to max distance if configured
+                const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+                if (maxLength && pathBeingDrawn.waypoints.length > 0) {
+                    const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
+                    const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
 
-                // Calculate distance in projected space
-                const dx = projCoords[0] - lastWaypointProj[0];
-                const dy = projCoords[1] - lastWaypointProj[1];
-                const distProj = Math.sqrt(dx * dx + dy * dy);
+                    // Calculate distance in projected space
+                    const dx = projCoords[0] - lastWaypointProj[0];
+                    const dy = projCoords[1] - lastWaypointProj[1];
+                    const distProj = Math.sqrt(dx * dx + dy * dy);
 
-                // If beyond max distance, clamp to circle boundary
-                if (distProj > maxLength) {
-                    const ratio = maxLength / distProj;
-                    const clampedProjCoords: [number, number] = [
-                        lastWaypointProj[0] + dx * ratio,
-                        lastWaypointProj[1] + dy * ratio
-                    ];
-                    // Convert back to geographic coordinates
-                    const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
-                    waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                    // If beyond max distance, clamp to circle boundary
+                    if (distProj > maxLength) {
+                        const ratio = maxLength / distProj;
+                        const clampedProjCoords: [number, number] = [
+                            lastWaypointProj[0] + dx * ratio,
+                            lastWaypointProj[1] + dy * ratio
+                        ];
+                        // Convert back to geographic coordinates
+                        const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+                        waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                    }
                 }
             }
 
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${pathBeingDrawn.waypoints.length + 1}` };
+            const newWaypoint: Waypoint = {
+                id: `wp-${Date.now()}`,
+                geoPosition: waypointGeoPosition,
+                label: `WP${pathBeingDrawn.waypoints.length + 1}`,
+                activityId: linkedActivityId
+            };
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
             // First click: create the path
             const newId = `path-${Date.now()}`;
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: 'WP1' };
+
+            // Check if clicking on an activity artifact
+            const clickedActivity = hoveredArtifactId ? artifacts.find(a => a.id === hoveredArtifactId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
+
+            let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+            let linkedActivityId: string | undefined = undefined;
+
+            if (clickedActivity) {
+                // Use activity's position for the waypoint
+                const activityGeo = proj4('EPSG:4326', proj).inverse(clickedActivity.position);
+                waypointGeoPosition = [activityGeo[0], activityGeo[1]];
+                linkedActivityId = clickedActivity.id;
+            }
+
+            const newWaypoint: Waypoint = {
+                id: `wp-${Date.now()}`,
+                geoPosition: waypointGeoPosition,
+                label: 'WP1',
+                activityId: linkedActivityId
+            };
             const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
             setArtifacts(prev => [...prev, newArtifact]);
             setActiveArtifactId(newId);
@@ -1651,33 +1717,49 @@ export const DataCanvas: React.FC = () => {
     } else if (isAppendingWaypoints) {
       const activeArtifact = artifacts.find(a => a.id === activeArtifactId) as PathArtifact | undefined;
       if (activeArtifact && activeArtifact.type === 'path') {
+          // Check if clicking on an activity artifact
+          const clickedActivity = hoveredArtifactId ? artifacts.find(a => a.id === hoveredArtifactId && a.type === 'activity') as ActivityArtifact | undefined : undefined;
+
           let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+          let linkedActivityId: string | undefined = undefined;
 
-          // Clamp to max distance if configured
-          const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-          if (maxLength && activeArtifact.waypoints.length > 0) {
-              const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
-              const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+          if (clickedActivity) {
+              // Use activity's position for the waypoint
+              const activityGeo = proj4('EPSG:4326', proj).inverse(clickedActivity.position);
+              waypointGeoPosition = [activityGeo[0], activityGeo[1]];
+              linkedActivityId = clickedActivity.id;
+          } else {
+              // Clamp to max distance if configured
+              const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+              if (maxLength && activeArtifact.waypoints.length > 0) {
+                  const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
+                  const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
 
-              // Calculate distance in projected space
-              const dx = projCoords[0] - lastWaypointProj[0];
-              const dy = projCoords[1] - lastWaypointProj[1];
-              const distProj = Math.sqrt(dx * dx + dy * dy);
+                  // Calculate distance in projected space
+                  const dx = projCoords[0] - lastWaypointProj[0];
+                  const dy = projCoords[1] - lastWaypointProj[1];
+                  const distProj = Math.sqrt(dx * dx + dy * dy);
 
-              // If beyond max distance, clamp to circle boundary
-              if (distProj > maxLength) {
-                  const ratio = maxLength / distProj;
-                  const clampedProjCoords: [number, number] = [
-                      lastWaypointProj[0] + dx * ratio,
-                      lastWaypointProj[1] + dy * ratio
-                  ];
-                  // Convert back to geographic coordinates
-                  const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
-                  waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                  // If beyond max distance, clamp to circle boundary
+                  if (distProj > maxLength) {
+                      const ratio = maxLength / distProj;
+                      const clampedProjCoords: [number, number] = [
+                          lastWaypointProj[0] + dx * ratio,
+                          lastWaypointProj[1] + dy * ratio
+                      ];
+                      // Convert back to geographic coordinates
+                      const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+                      waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+                  }
               }
           }
 
-          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${activeArtifact.waypoints.length + 1}` };
+          const newWaypoint: Waypoint = {
+              id: `wp-${Date.now()}`,
+              geoPosition: waypointGeoPosition,
+              label: `WP${activeArtifact.waypoints.length + 1}`,
+              activityId: linkedActivityId
+          };
           onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
     } else if (activeTool === 'measurement') {

@@ -146,6 +146,7 @@ export interface Waypoint {
   id: string;
   geoPosition: [number, number]; // [lon, lat]
   label: string;
+  activityId?: string; // Optional reference to an activity artifact
 }
 
 export interface ArtifactBase {
