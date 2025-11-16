@@ -124,87 +124,93 @@ export const DataCanvas: React.FC = () => {
 
   // Cache graticule projected points - only recalculates when layers/projection/density change
   const graticuleLinesCache = useMemo(() => {
-    if (!proj || !combinedBounds || !debouncedGraticuleDensity) return null;
+    if (!proj || !combinedBounds || !debouncedGraticuleDensity || debouncedGraticuleDensity <= 0) return null;
 
-    const { minX, maxX, minY, maxY } = combinedBounds;
+    try {
+      const { minX, maxX, minY, maxY } = combinedBounds;
 
-    // Sample bounds to determine appropriate step size
-    const samplePoints = [
-      [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]
-    ];
-    const geoPoints = samplePoints.map(p => {
-      try { return proj4('EPSG:4326', proj).inverse(p); }
-      catch (e) { return null; }
-    }).filter((p): p is [number, number] => p !== null);
+      // Sample bounds to determine appropriate step size
+      const samplePoints = [
+        [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]
+      ];
+      const geoPoints = samplePoints.map(p => {
+        try { return proj4('EPSG:4326', proj).inverse(p); }
+        catch (e) { return null; }
+      }).filter((p): p is [number, number] => p !== null);
 
-    let lonSpan = 360, latSpan = 180;
-    if (geoPoints.length > 0) {
-      const viewLonMin = Math.min(...geoPoints.map(p => p[0]));
-      const viewLonMax = Math.max(...geoPoints.map(p => p[0]));
-      const viewLatMin = Math.min(...geoPoints.map(p => p[1]));
-      const viewLatMax = Math.max(...geoPoints.map(p => p[1]));
-      lonSpan = Math.abs(viewLonMax - viewLonMin);
-      if (lonSpan > 180) lonSpan = 360 - lonSpan;
-      latSpan = Math.abs(viewLatMax - viewLatMin);
-    }
+      let lonSpan = 360, latSpan = 180;
+      if (geoPoints.length > 0) {
+        const viewLonMin = Math.min(...geoPoints.map(p => p[0]));
+        const viewLonMax = Math.max(...geoPoints.map(p => p[0]));
+        const viewLatMin = Math.min(...geoPoints.map(p => p[1]));
+        const viewLatMax = Math.max(...geoPoints.map(p => p[1]));
+        lonSpan = Math.abs(viewLonMax - viewLonMin);
+        if (lonSpan > 180) lonSpan = 360 - lonSpan;
+        latSpan = Math.abs(viewLatMax - viewLatMin);
+      }
 
-    const calcStep = (span: number) => {
-      if (span <= 0) return 1;
-      const r = span / (5 * debouncedGraticuleDensity);
-      const p = Math.pow(10, Math.floor(Math.log10(r)));
-      const m = r / p;
-      if (m < 1.5) return p;
-      if (m < 3.5) return 2 * p;
-      if (m < 7.5) return 5 * p;
-      return 10 * p;
-    };
+      const calcStep = (span: number) => {
+        if (span <= 0) return 1;
+        const r = span / (5 * debouncedGraticuleDensity);
+        if (r <= 0) return 1;
+        const p = Math.pow(10, Math.floor(Math.log10(r)));
+        const m = r / p;
+        if (m < 1.5) return p;
+        if (m < 3.5) return 2 * p;
+        if (m < 7.5) return 5 * p;
+        return 10 * p;
+      };
 
-    const lonStep = calcStep(lonSpan);
-    const latStep = calcStep(latSpan);
+      const lonStep = calcStep(lonSpan);
+      const latStep = calcStep(latSpan);
 
-    // Pre-calculate all graticule lines as arrays of projected points
-    const lonLines: Array<{ lon: number; points: Array<[number, number]> }> = [];
-    const latLines: Array<{ lat: number; points: Array<[number, number]> }> = [];
+      // Pre-calculate all graticule lines as arrays of projected points
+      const lonLines: Array<{ lon: number; points: Array<[number, number]> }> = [];
+      const latLines: Array<{ lat: number; points: Array<[number, number]> }> = [];
 
-    // Calculate longitude lines (meridians)
-    for (let lon = -180; lon <= 180; lon += lonStep) {
-      const points: Array<[number, number]> = [];
-      for (let i = 0; i <= 100; i++) {
-        const lat = -90 + (i / 100) * 180;
-        try {
-          const pt = proj.forward([lon, lat]);
-          if (isFinite(pt[0]) && isFinite(pt[1])) {
-            points.push([pt[0], pt[1]]);
+      // Calculate longitude lines (meridians)
+      for (let lon = -180; lon <= 180; lon += lonStep) {
+        const points: Array<[number, number]> = [];
+        for (let i = 0; i <= 100; i++) {
+          const lat = -90 + (i / 100) * 180;
+          try {
+            const pt = proj.forward([lon, lat]);
+            if (isFinite(pt[0]) && isFinite(pt[1])) {
+              points.push([pt[0], pt[1]]);
+            }
+          } catch (err) {
+            // Skip invalid points
           }
-        } catch (err) {
-          // Skip invalid points
+        }
+        if (points.length >= 2) {
+          lonLines.push({ lon, points });
         }
       }
-      if (points.length >= 2) {
-        lonLines.push({ lon, points });
-      }
-    }
 
-    // Calculate latitude lines (parallels)
-    for (let lat = -90; lat <= 90; lat += latStep) {
-      const points: Array<[number, number]> = [];
-      for (let i = 0; i <= 200; i++) {
-        const lon = -180 + (i / 200) * 360;
-        try {
-          const pt = proj.forward([lon, lat]);
-          if (isFinite(pt[0]) && isFinite(pt[1])) {
-            points.push([pt[0], pt[1]]);
+      // Calculate latitude lines (parallels)
+      for (let lat = -90; lat <= 90; lat += latStep) {
+        const points: Array<[number, number]> = [];
+        for (let i = 0; i <= 200; i++) {
+          const lon = -180 + (i / 200) * 360;
+          try {
+            const pt = proj.forward([lon, lat]);
+            if (isFinite(pt[0]) && isFinite(pt[1])) {
+              points.push([pt[0], pt[1]]);
+            }
+          } catch (err) {
+            // Skip invalid points
           }
-        } catch (err) {
-          // Skip invalid points
+        }
+        if (points.length >= 2) {
+          latLines.push({ lat, points });
         }
       }
-      if (points.length >= 2) {
-        latLines.push({ lat, points });
-      }
-    }
 
-    return { lonLines, latLines, lonStep, latStep };
+      return { lonLines, latLines, lonStep, latStep };
+    } catch (error) {
+      console.error('Error calculating graticule cache:', error);
+      return null;
+    }
   }, [proj, combinedBounds, debouncedGraticuleDensity]);
 
   const initialViewCalculated = useRef(false);
