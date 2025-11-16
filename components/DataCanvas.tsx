@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, ImageLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact } from '../types';
+import type { DataSlice, GeoCoordinates, ViewState, Layer, BaseMapLayer, DataLayer, AnalysisLayer, ImageLayer, TimeRange, Tool, Artifact, DteCommsLayer, LpfCommsLayer, Waypoint, PathArtifact, CircleArtifact, RectangleArtifact, ActivityArtifact } from '../types';
 import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
@@ -77,6 +77,142 @@ const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
+};
+
+/**
+ * Render activity symbol on canvas
+ * All symbols are drawn centered at (0, 0) with a consistent size of ~20 units
+ * The anchor point for all symbols is at the center bottom for precise positioning
+ */
+const renderActivitySymbol = (
+  ctx: CanvasRenderingContext2D,
+  symbolType: string,
+  size: number = 20
+) => {
+  ctx.save();
+
+  switch (symbolType) {
+    case 'target':
+      // Concentric circles target - anchor at center
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.5, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.3, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.1, 0, 2 * Math.PI);
+      ctx.fill();
+      // Crosshair
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.6, 0);
+      ctx.lineTo(size * 0.6, 0);
+      ctx.moveTo(0, -size * 0.6);
+      ctx.lineTo(0, size * 0.6);
+      ctx.stroke();
+      break;
+
+    case 'drill':
+      // Drill bit symbol - anchor at bottom point
+      const drillWidth = size * 0.4;
+      const drillHeight = size * 0.8;
+      // Triangle for drill bit
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom point (anchor)
+      ctx.lineTo(-drillWidth / 2, -drillHeight * 0.6);
+      ctx.lineTo(drillWidth / 2, -drillHeight * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      // Drill shaft
+      ctx.fillRect(-drillWidth * 0.25, -drillHeight, drillWidth * 0.5, drillHeight * 0.4);
+      // Top circle
+      ctx.beginPath();
+      ctx.arc(0, -drillHeight, drillWidth * 0.35, 0, 2 * Math.PI);
+      ctx.fill();
+      break;
+
+    case 'camp':
+      // Tent/camp symbol - anchor at bottom center
+      const tentWidth = size * 0.7;
+      const tentHeight = size * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom center (anchor)
+      ctx.lineTo(-tentWidth / 2, 0);
+      ctx.lineTo(0, -tentHeight);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(tentWidth / 2, 0);
+      ctx.lineTo(0, -tentHeight);
+      ctx.closePath();
+      ctx.fill();
+      // Center line
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -tentHeight);
+      ctx.stroke();
+      break;
+
+    case 'waypoint':
+      // Diamond/rhombus - anchor at bottom point
+      const wpSize = size * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom (anchor)
+      ctx.lineTo(wpSize, -wpSize * 0.7);
+      ctx.lineTo(0, -wpSize * 1.4);
+      ctx.lineTo(-wpSize, -wpSize * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+
+    case 'marker':
+      // Map pin/marker - anchor at bottom point
+      const pinRadius = size * 0.35;
+      const pinHeight = size * 0.8;
+      // Circle top
+      ctx.beginPath();
+      ctx.arc(0, -pinHeight + pinRadius, pinRadius, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      // Point bottom
+      ctx.beginPath();
+      ctx.moveTo(-pinRadius * 0.5, -pinHeight + pinRadius * 1.5);
+      ctx.lineTo(0, 0); // Bottom point (anchor)
+      ctx.lineTo(pinRadius * 0.5, -pinHeight + pinRadius * 1.5);
+      ctx.fill();
+      break;
+
+    case 'flag':
+      // Flag symbol - anchor at bottom of pole
+      const poleHeight = size * 0.9;
+      const flagWidth = size * 0.5;
+      const flagHeight = size * 0.35;
+      // Pole
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // Bottom (anchor)
+      ctx.lineTo(0, -poleHeight);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Flag
+      ctx.beginPath();
+      ctx.moveTo(0, -poleHeight);
+      ctx.lineTo(flagWidth, -poleHeight + flagHeight / 2);
+      ctx.lineTo(0, -poleHeight + flagHeight);
+      ctx.closePath();
+      ctx.fill();
+      break;
+
+    default:
+      // Default: simple circle - anchor at center
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+  }
+
+  ctx.restore();
 };
 
 const LoadingSpinner: React.FC = () => (
@@ -850,10 +986,39 @@ export const DataCanvas: React.FC = () => {
                     ctx.restore();
                 }
             }
+        } else if (artifact.type === 'activity') {
+            // Draw activity symbol
+            ctx.save();
+            ctx.translate(artifact.position[0], artifact.position[1]);
+            ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+            // Set line width and styles for symbol
+            ctx.lineWidth = artifact.thickness;
+            ctx.strokeStyle = artifact.color;
+            ctx.fillStyle = artifact.color;
+
+            // Render the symbol (size 20 units in screen space)
+            renderActivitySymbol(ctx, artifact.symbolType, 20);
+
+            // Draw label if visible
+            if (artifact.labelVisible && artifact.label) {
+                ctx.save();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                ctx.lineWidth = 2.5;
+                ctx.strokeText(artifact.label, 0, 25);
+                ctx.fillText(artifact.label, 0, 25);
+                ctx.restore();
+            }
+
+            ctx.restore();
         }
-        
+
         ctx.save();
-        const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : artifact.center;
+        const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : (artifact.type === 'activity' ? artifact.position : artifact.center);
         if (centerPos) {
             ctx.translate(centerPos[0], centerPos[1]);
             ctx.scale(1 / effectiveScale, -1 / effectiveScale);
@@ -1262,6 +1427,22 @@ export const DataCanvas: React.FC = () => {
           setRectangleFirstCorner(null);
           onFinishArtifactCreation();
         }
+      } else if (artifactCreationMode === 'activity') {
+        const newArtifact: ActivityArtifact = {
+          id: newId,
+          type: 'activity',
+          name: `Activity ${artifacts.length + 1}`,
+          visible: true,
+          color: '#00ff00',
+          thickness: 2,
+          position: projCoords,
+          symbolType: 'target', // Default symbol
+          label: '',
+          labelVisible: true
+        };
+        setArtifacts(prev => [...prev, newArtifact]);
+        setActiveArtifactId(newId);
+        onFinishArtifactCreation();
       }
     } else if (isAppendingWaypoints) {
       const activeArtifact = artifacts.find(a => a.id === activeArtifactId) as PathArtifact | undefined;
@@ -1348,6 +1529,8 @@ export const DataCanvas: React.FC = () => {
     } else {
         if (artifact.type === 'circle' || artifact.type === 'rectangle') {
             setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.center });
+        } else if (artifact.type === 'activity') {
+            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.position });
         } else if (artifact.type === 'path') {
             const initialWaypointProjPositions = artifact.waypoints.map(wp => proj.forward(wp.geoPosition));
             setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
@@ -1380,7 +1563,7 @@ export const DataCanvas: React.FC = () => {
 
         setArtifacts(prev => prev.map(a => {
             if (a.id === draggedInfo.artifactId) {
-                if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
+                if ((a.type === 'circle' || a.type === 'rectangle' || a.type === 'activity') && draggedInfo.initialCenter) {
                     const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
 
                     // Apply snapping for rectangles to maintain cell grid alignment
@@ -1428,7 +1611,12 @@ export const DataCanvas: React.FC = () => {
                         }
                     }
 
-                    return { ...a, center: newCenter };
+                    // Update position for activity, center for others
+                    if (a.type === 'activity') {
+                        return { ...a, position: newCenter };
+                    } else {
+                        return { ...a, center: newCenter };
+                    }
                 } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
                     const newWaypoints = a.waypoints.map((wp, i) => {
                         const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
@@ -1589,6 +1777,11 @@ export const DataCanvas: React.FC = () => {
                     const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
                     const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
                     if (Math.abs(rotatedX) <= w / 2 && Math.abs(rotatedY) <= h / 2) artifactHit = true;
+                } else if (artifact.type === 'activity') {
+                    // Hit test for activity symbol - use a radius of ~30 projected units
+                    const symbolHitRadius = 30 / effectiveScale;
+                    const dist = Math.sqrt(Math.pow(projCoords[0] - artifact.position[0], 2) + Math.pow(projCoords[1] - artifact.position[1], 2));
+                    if (dist <= symbolHitRadius) artifactHit = true;
                 } else if (artifact.type === 'path') {}
                 if (artifactHit) {
                     newHoveredArtifactId = artifact.id;

@@ -151,7 +151,7 @@ export interface Waypoint {
 export interface ArtifactBase {
   id: string;
   name: string;
-  type: 'circle' | 'rectangle' | 'path';
+  type: 'circle' | 'rectangle' | 'path' | 'activity';
   visible: boolean;
   color: string;
   thickness: number;
@@ -176,7 +176,17 @@ export interface PathArtifact extends ArtifactBase {
   waypoints: Waypoint[];
 }
 
-export type Artifact = CircleArtifact | RectangleArtifact | PathArtifact;
+export type ActivitySymbolType = 'target' | 'drill' | 'camp' | 'waypoint' | 'marker' | 'flag';
+
+export interface ActivityArtifact extends ArtifactBase {
+  type: 'activity';
+  position: [number, number]; // Projected coordinates [x, y]
+  symbolType: ActivitySymbolType;
+  label: string;
+  labelVisible: boolean;
+}
+
+export type Artifact = CircleArtifact | RectangleArtifact | PathArtifact | ActivityArtifact;
 
 // Serializable artifacts are the same as the main ones since coords are arrays
 export type SerializableArtifact = Artifact;

@@ -1,7 +1,7 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 // Fix: Import useState, useRef, useEffect, and useMemo from React to resolve hook-related errors.
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, Event } from '../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, ActivityArtifact, ActivitySymbolType, Waypoint, DteCommsLayer, LpfCommsLayer, Event } from '../types';
 import { COLOR_MAPS } from '../types';
 import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
@@ -985,6 +985,45 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                             </Section>
                         </>
                     )}
+
+                    {artifact.type === 'activity' && (
+                        <Section title="Activity Properties" defaultOpen={true}>
+                            <div className="flex items-center justify-between">
+                                <label className="font-medium text-gray-300">Symbol</label>
+                                <select
+                                    value={(artifact as ActivityArtifact).symbolType}
+                                    onChange={e => onUpdateArtifact(artifact.id, { symbolType: e.target.value as ActivitySymbolType })}
+                                    className="w-32 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-xs"
+                                >
+                                    <option value="target">Target</option>
+                                    <option value="drill">Drill</option>
+                                    <option value="camp">Camp</option>
+                                    <option value="waypoint">Waypoint</option>
+                                    <option value="marker">Marker</option>
+                                    <option value="flag">Flag</option>
+                                </select>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <label className="font-medium text-gray-300">Label</label>
+                                <input
+                                    type="text"
+                                    value={(artifact as ActivityArtifact).label}
+                                    onChange={e => onUpdateArtifact(artifact.id, { label: e.target.value })}
+                                    className="w-40 bg-gray-700 text-white rounded-md p-1 border border-gray-600 text-xs"
+                                    placeholder="Activity label"
+                                />
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <label className="font-medium text-gray-300">Show Label</label>
+                                <input
+                                    type="checkbox"
+                                    checked={(artifact as ActivityArtifact).labelVisible}
+                                    onChange={e => onUpdateArtifact(artifact.id, { labelVisible: e.target.checked })}
+                                    className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                                />
+                            </div>
+                        </Section>
+                    )}
                 </div>
             )}
         </div>
@@ -1057,10 +1096,11 @@ const ArtifactsPanel: React.FC = () => {
                     </div>
                 </Section>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Circle</button>
                     <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Rect</button>
                     <button onClick={() => setArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Path</button>
+                    <button onClick={() => setArtifactCreationMode('activity')} className="bg-green-700 hover:bg-green-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Activity</button>
                 </div>
             </>
           )}
