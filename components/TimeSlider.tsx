@@ -90,8 +90,8 @@ export const TimeSlider: React.FC = () => {
 
       const grabThreshold = 20;
 
-      // Prioritize current cursor if it's closest and within threshold
-      if (distToCurrent < grabThreshold && distToCurrent < distToStart && distToCurrent < distToEnd) {
+      // Prioritize current cursor if it's closest or equal distance (handles overlapping case)
+      if (distToCurrent < grabThreshold && distToCurrent <= distToStart && distToCurrent <= distToEnd) {
         setDraggingHandle('current');
       } else if (distToStart < distToEnd && distToStart < grabThreshold) {
         setDraggingHandle('start');
