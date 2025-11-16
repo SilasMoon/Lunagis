@@ -129,14 +129,20 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                   const incomingDir: [number, number] = [dx1 / mag1, dy1 / mag1];
                   const outgoingDir: [number, number] = [dx2 / mag2, dy2 / mag2];
 
-                  // Bisector of inner angle = (incoming + outgoing) normalized
-                  // Bisector of outer angle = -(incoming + outgoing) normalized
-                  const bisectorX = -(incomingDir[0] + outgoingDir[0]);
-                  const bisectorY = -(incomingDir[1] + outgoingDir[1]);
-                  const bisectorMag = Math.sqrt(bisectorX * bisectorX + bisectorY * bisectorY);
+                  // The sum of two unit vectors bisects the INNER angle between them
+                  const innerBisectorX = incomingDir[0] + outgoingDir[0];
+                  const innerBisectorY = incomingDir[1] + outgoingDir[1];
+
+                  // The OUTER angle is the larger of the two angles formed by the segments
+                  // The outer angle bisector points in the opposite direction of the inner bisector
+                  // This is because they are 180° apart
+                  const outerBisectorX = -innerBisectorX;
+                  const outerBisectorY = -innerBisectorY;
+
+                  const bisectorMag = Math.sqrt(outerBisectorX * outerBisectorX + outerBisectorY * outerBisectorY);
 
                   if (bisectorMag > 0) {
-                    directionVector = [bisectorX / bisectorMag, bisectorY / bisectorMag];
+                    directionVector = [outerBisectorX / bisectorMag, outerBisectorY / bisectorMag];
                   }
                 }
               }
