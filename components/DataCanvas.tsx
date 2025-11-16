@@ -304,58 +304,6 @@ export const DataCanvas: React.FC = () => {
     };
   }, [viewState, canvasToProjCoords, setViewState]);
 
-  // Cache graticule projection calculations to avoid expensive proj.forward() calls
-  // This reduces ~10,800+ proj4 calls per render to a one-time calculation
-  const graticuleLinesCache = useMemo(() => {
-    if (!proj) return null;
-
-    const lonStep = debouncedGraticuleDensity;
-    const latStep = debouncedGraticuleDensity;
-
-    const lonLines: Map<number, Array<[number, number] | null>> = new Map();
-    const latLines: Map<number, Array<[number, number] | null>> = new Map();
-
-    // Pre-calculate all longitude lines (meridians)
-    for (let lon = -180; lon <= 180; lon += lonStep) {
-      const points: Array<[number, number] | null> = [];
-      for (let i = 0; i <= 100; i++) {
-        const lat = -90 + (i / 100) * 180;
-        try {
-          const pt = proj.forward([lon, lat]);
-          if (isFinite(pt[0]) && isFinite(pt[1])) {
-            points.push([pt[0], pt[1]]);
-          } else {
-            points.push(null);
-          }
-        } catch (err) {
-          points.push(null);
-        }
-      }
-      lonLines.set(lon, points);
-    }
-
-    // Pre-calculate all latitude lines (parallels)
-    for (let lat = -90; lat <= 90; lat += latStep) {
-      const points: Array<[number, number] | null> = [];
-      for (let i = 0; i <= 200; i++) {
-        const lon = -180 + (i / 200) * 360;
-        try {
-          const pt = proj.forward([lon, lat]);
-          if (isFinite(pt[0]) && isFinite(pt[1])) {
-            points.push([pt[0], pt[1]]);
-          } else {
-            points.push(null);
-          }
-        } catch (err) {
-          points.push(null);
-        }
-      }
-      latLines.set(lat, points);
-    }
-
-    return { lonLines, latLines, lonStep, latStep };
-  }, [proj, debouncedGraticuleDensity]);
-
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
     if (canvases.some(c => !c) || !viewState) return;
@@ -580,59 +528,79 @@ export const DataCanvas: React.FC = () => {
 
             const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
 
-            // Use cached graticule lines if available, otherwise fall back to recalculation
-            if (graticuleLinesCache) {
-                // Draw longitude lines (meridians) from cache
-                let lonLinesDrawn = 0;
-                for (const [lon, points] of graticuleLinesCache.lonLines) {
-                    try {
-                        gratCtx.beginPath();
-                        let pointCount = 0;
-                        for (const pt of points) {
-                            if (pt !== null) {
+            // Draw longitude lines (meridians) - vertical lines running north-south
+            let lonLinesAttempted = 0, lonLinesDrawn = 0, lonPointsTotal = 0;
+            for (let lon = -180; lon <= 180; lon += lonStep) {
+                lonLinesAttempted++;
+                const isFirstLon = (lonLinesAttempted === 1);
+                try {
+                    gratCtx.beginPath();
+                    let pointCount = 0;
+                    const samplePoints: any[] = [];
+                    for (let i = 0; i <= 100; i++) {
+                        const lat = -90 + (i/100)*180;
+                        try {
+                            const pt = proj.forward([lon, lat]);
+                            // Only use point if coordinates are finite (not NaN or Infinity)
+                            if (isFinite(pt[0]) && isFinite(pt[1])) {
                                 if (pointCount === 0) gratCtx.moveTo(pt[0], pt[1]);
                                 else gratCtx.lineTo(pt[0], pt[1]);
                                 pointCount++;
+                                if (isFirstLon && i % 25 === 0) samplePoints.push({lat, pt});
                             }
+                        } catch (err) {
+                            // Skip this point if projection fails, but continue the line
                         }
-                        if (pointCount >= 2) {
-                            gratCtx.stroke();
-                            lonLinesDrawn++;
-                        }
-                    } catch (e) {
-                        // Skip this line if drawing fails
                     }
-                    try { const p = proj.forward([lon, anchorLat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
+                    // Only stroke if we have at least 2 points (to make a line)
+                    if (pointCount >= 2) {
+                        gratCtx.stroke();
+                        lonLinesDrawn++;
+                        lonPointsTotal += pointCount;
+                    }
+                } catch (e) {
+                    // Skip this line if drawing fails
                 }
+                try { const p = proj.forward([lon, anchorLat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
+            }
 
-                // Draw latitude lines (parallels) from cache
-                let latLinesDrawn = 0;
-                for (const [lat, points] of graticuleLinesCache.latLines) {
-                    try {
-                        gratCtx.beginPath();
-                        let pointCount = 0;
-                        for (const pt of points) {
-                            if (pt !== null) {
+            // Draw latitude lines (parallels) - horizontal lines running east-west
+            let latLinesAttempted = 0, latLinesDrawn = 0, latPointsTotal = 0;
+            for (let lat = -90; lat <= 90; lat += latStep) {
+                latLinesAttempted++;
+                try {
+                    gratCtx.beginPath();
+                    let pointCount = 0;
+                    for (let i = 0; i <= 200; i++) {
+                        const lon = -180 + (i/200)*360;
+                        try {
+                            const pt = proj.forward([lon, lat]);
+                            // Only use point if coordinates are finite (not NaN or Infinity)
+                            if (isFinite(pt[0]) && isFinite(pt[1])) {
                                 if (pointCount === 0) gratCtx.moveTo(pt[0], pt[1]);
                                 else gratCtx.lineTo(pt[0], pt[1]);
                                 pointCount++;
                             }
+                        } catch (err) {
+                            // Skip this point if projection fails, but continue the line
                         }
-                        if (pointCount >= 2) {
-                            gratCtx.stroke();
-                            latLinesDrawn++;
-                        }
-                    } catch (e) {
-                        // Skip this line if drawing fails
                     }
-                    try { const p = proj.forward([anchorLon, lat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
+                    // Only stroke if we have at least 2 points (to make a line)
+                    if (pointCount >= 2) {
+                        gratCtx.stroke();
+                        latLinesDrawn++;
+                        latPointsTotal += pointCount;
+                    }
+                } catch (e) {
+                    // Skip this line if drawing fails
                 }
+                try { const p = proj.forward([anchorLon, lat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
         }
     }
     contexts.forEach(ctx => ctx.restore());
     if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
-  }, [layers, timeIndex, showGraticule, debouncedGraticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor, graticuleLinesCache]);
+  }, [layers, timeIndex, showGraticule, debouncedGraticuleDensity, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor]);
 
   // Helper function to get the 4 corners of a rectangle artifact in projected coordinates
   const getRectangleCorners = useCallback((artifact: RectangleArtifact): [number, number][] | null => {
