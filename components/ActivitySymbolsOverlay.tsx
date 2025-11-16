@@ -142,7 +142,10 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                   const bisectorMag = Math.sqrt(outerBisectorX * outerBisectorX + outerBisectorY * outerBisectorY);
 
                   if (bisectorMag > 0) {
-                    directionVector = [outerBisectorX / bisectorMag, outerBisectorY / bisectorMag];
+                    const normalizedX = outerBisectorX / bisectorMag;
+                    const normalizedY = outerBisectorY / bisectorMag;
+                    // Rotate 90° counterclockwise for consistency with first/last waypoint logic
+                    directionVector = [-normalizedY, normalizedX];
                   }
                 }
               }
