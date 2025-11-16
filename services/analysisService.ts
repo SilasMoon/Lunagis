@@ -1,5 +1,6 @@
 import type { DataSet, DataSlice, Layer, DataLayer, AnalysisLayer, DteCommsLayer, LpfCommsLayer, TimeRange } from '../types';
 import { evaluate as evaluateExpression, getVariables as getExpressionVariables, compileExpression, evaluateCompiled } from './expressionEvaluator';
+import { analysisCache, AnalysisCacheKey } from './analysisCache';
 
 export const sanitizeLayerNameForExpression = (name: string): string => {
     return name.replace(/[^a-zA-Z0-9_]/g, '_');
@@ -19,6 +20,17 @@ export const calculateExpressionLayer = async (
             throw new Error(`Variable "${v}" does not correspond to a valid data layer.`);
         }
         sourceLayers.push(layer as any);
+    }
+
+    // Check cache before computing
+    const layerIds = sourceLayers.map(l => l.id);
+    const cacheKey = AnalysisCacheKey.forExpression(expression, layerIds);
+    const cachedResult = analysisCache.getExpression(cacheKey);
+    if (cachedResult) {
+        if (onProgress) {
+            onProgress('Using cached result... 100%');
+        }
+        return cachedResult;
     }
     
     if (sourceLayers.length === 0 && variables.length > 0) {
@@ -101,12 +113,33 @@ export const calculateExpressionLayer = async (
         onProgress('Calculating expression... 100%');
     }
 
-    return { dataset: resultDataset, range: { min: 0, max: 1 }, dimensions: { time, height, width } };
+    const result = { dataset: resultDataset, range: { min: 0, max: 1 }, dimensions: { time, height, width } };
+
+    // Store result in cache
+    analysisCache.setExpression(cacheKey, result);
+
+    return result;
 };
 
 
-export const calculateDaylightFraction = (dataset: DataSet, timeRange: TimeRange, dimensions: {height: number, width: number}) => {
+export const calculateDaylightFraction = (
+    dataset: DataSet,
+    timeRange: TimeRange,
+    dimensions: {height: number, width: number},
+    sourceLayerId?: string
+) => {
     const { height, width } = dimensions;
+
+    // Check cache before computing (if we have a source layer ID)
+    if (sourceLayerId) {
+        const datasetHash = AnalysisCacheKey.hashDataset(dataset, { time: dataset.length, height, width });
+        const cacheKey = AnalysisCacheKey.forDaylightFraction(sourceLayerId, datasetHash, timeRange);
+        const cachedResult = analysisCache.getDaylightFraction(cacheKey);
+        if (cachedResult) {
+            return cachedResult;
+        }
+    }
+
     const resultSlice: DataSlice = Array.from({ length: height }, () => new Array(width).fill(0));
     const totalHours = timeRange.end - timeRange.start + 1;
 
@@ -126,12 +159,30 @@ export const calculateDaylightFraction = (dataset: DataSet, timeRange: TimeRange
             resultSlice[y][x] = fraction;
         }
     }
-    return { slice: resultSlice, range: { min: 0, max: 100 } };
+
+    const result = { slice: resultSlice, range: { min: 0, max: 100 } };
+
+    // Store result in cache (if we have a source layer ID)
+    if (sourceLayerId) {
+        const datasetHash = AnalysisCacheKey.hashDataset(dataset, { time: dataset.length, height, width });
+        const cacheKey = AnalysisCacheKey.forDaylightFraction(sourceLayerId, datasetHash, timeRange);
+        analysisCache.setDaylightFraction(cacheKey, result);
+    }
+
+    return result;
 };
 
 export const calculateNightfallDataset = async (sourceLayer: DataLayer): Promise<{dataset: DataSet, range: {min: number, max: number}, maxDuration: number}> => {
     const { dataset, dimensions } = sourceLayer;
     const { time, height, width } = dimensions;
+
+    // Check cache before computing
+    const datasetHash = AnalysisCacheKey.hashDataset(dataset, dimensions);
+    const cacheKey = AnalysisCacheKey.forNightfall(sourceLayer.id, datasetHash);
+    const cachedResult = analysisCache.getNightfall(cacheKey);
+    if (cachedResult) {
+        return cachedResult;
+    }
 
     const resultDataset: DataSet = Array.from({ length: time }, () => Array.from({ length: height }, () => new Array(width).fill(0)));
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -198,5 +249,11 @@ export const calculateNightfallDataset = async (sourceLayer: DataLayer): Promise
         }
         if (y % 10 === 0) await yieldToMain();
     }
-    return { dataset: resultDataset, range: { min: minDuration, max: maxDuration }, maxDuration };
+
+    const result = { dataset: resultDataset, range: { min: minDuration, max: maxDuration }, maxDuration };
+
+    // Store result in cache
+    analysisCache.setNightfall(cacheKey, result);
+
+    return result;
 };
