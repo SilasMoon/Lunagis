@@ -157,8 +157,11 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                   const bisectorMag = Math.sqrt(bisectorX * bisectorX + bisectorY * bisectorY);
 
                   if (bisectorMag > 0) {
-                    // For middle waypoints, position ALONG the bisector (no 90° rotation)
-                    directionVector = [bisectorX / bisectorMag, bisectorY / bisectorMag];
+                    const normalizedBisectorX = bisectorX / bisectorMag;
+                    const normalizedBisectorY = bisectorY / bisectorMag;
+                    // For middle waypoints, position perpendicular to outer angle bisector (consistent with first/last)
+                    // Rotate 90° counterclockwise: (x, y) -> (-y, x)
+                    directionVector = [-normalizedBisectorY, normalizedBisectorX];
                   }
                 }
               }
