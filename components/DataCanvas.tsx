@@ -121,8 +121,6 @@ export const DataCanvas: React.FC = () => {
   // LRU cache: max 50 canvases or 500MB, whichever is hit first
   // Using optimized doubly-linked list implementation for O(1) operations
   const offscreenCanvasCache = useRef(new OptimizedCanvasLRUCache(50, 500)).current;
-  // Cached graticule canvas - rendered once, reused during pan/zoom
-  const cachedGraticuleCanvas = useRef<HTMLCanvasElement | null>(null);
   const initialViewCalculated = useRef(false);
   
   const isPanning = useRef(false);
@@ -305,146 +303,6 @@ export const DataCanvas: React.FC = () => {
       container.removeEventListener('wheel', handleWheel);
     };
   }, [viewState, canvasToProjCoords, setViewState]);
-
-  // Pre-render graticule to offscreen canvas - only recomputes when layers/projection/density change
-  // This prevents expensive graticule recalculation during pan/zoom interactions
-  useEffect(() => {
-    if (!showGraticule || !proj || !combinedBounds) {
-      cachedGraticuleCanvas.current = null;
-      return;
-    }
-
-    // Calculate bounds in projection space for the entire data area
-    const { minX, maxX, minY, maxY } = combinedBounds;
-    const boundsWidth = maxX - minX;
-    const boundsHeight = maxY - minY;
-
-    // Add padding to ensure graticule covers area even when panning
-    const padding = Math.max(boundsWidth, boundsHeight) * 0.2;
-    const paddedMinX = minX - padding;
-    const paddedMaxX = maxX + padding;
-    const paddedMinY = minY - padding;
-    const paddedMaxY = maxY + padding;
-    const paddedWidth = paddedMaxX - paddedMinX;
-    const paddedHeight = paddedMaxY - paddedMinY;
-
-    // Create offscreen canvas for graticule
-    const offscreen = document.createElement('canvas');
-    // Use high resolution for crisp lines
-    const resolution = 2048; // Fixed resolution for graticule
-    const aspectRatio = paddedWidth / paddedHeight;
-    offscreen.width = aspectRatio > 1 ? resolution : resolution * aspectRatio;
-    offscreen.height = aspectRatio > 1 ? resolution / aspectRatio : resolution;
-
-    const ctx = offscreen.getContext('2d')!;
-    ctx.clearRect(0, 0, offscreen.width, offscreen.height);
-
-    // Set up transformation from projection space to canvas space
-    const scaleX = offscreen.width / paddedWidth;
-    const scaleY = offscreen.height / paddedHeight;
-    ctx.save();
-    ctx.translate(-paddedMinX * scaleX, offscreen.height + paddedMinY * scaleY);
-    ctx.scale(scaleX, -scaleY);
-
-    // Sample geographic bounds to determine appropriate graticule spacing
-    const samplePoints = [
-      [paddedMinX, paddedMinY], [paddedMaxX, paddedMinY],
-      [paddedMaxX, paddedMaxY], [paddedMinX, paddedMaxY]
-    ];
-    const geoPoints = samplePoints.map(p => {
-      try {
-        return proj4('EPSG:4326', proj).inverse(p);
-      } catch (e) {
-        return null;
-      }
-    }).filter((p): p is [number, number] => p !== null);
-
-    let lonSpan = 360, latSpan = 180;
-    if (geoPoints.length > 0) {
-      const viewLonMin = Math.min(...geoPoints.map(p => p[0]));
-      const viewLonMax = Math.max(...geoPoints.map(p => p[0]));
-      const viewLatMin = Math.min(...geoPoints.map(p => p[1]));
-      const viewLatMax = Math.max(...geoPoints.map(p => p[1]));
-      lonSpan = Math.abs(viewLonMax - viewLonMin);
-      if (lonSpan > 180) lonSpan = 360 - lonSpan;
-      latSpan = Math.abs(viewLatMax - viewLatMin);
-    }
-
-    const calcStep = (span: number) => {
-      if (span <= 0) return 1;
-      const r = span / (5 * debouncedGraticuleDensity);
-      const p = Math.pow(10, Math.floor(Math.log10(r)));
-      const m = r / p;
-      if (m < 1.5) return p;
-      if (m < 3.5) return 2 * p;
-      if (m < 7.5) return 5 * p;
-      return 10 * p;
-    };
-
-    const lonStep = calcStep(lonSpan);
-    const latStep = calcStep(latSpan);
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 1 / scaleX; // 1 pixel in projection space
-
-    // Draw longitude lines (meridians)
-    for (let lon = -180; lon <= 180; lon += lonStep) {
-      try {
-        ctx.beginPath();
-        let pointCount = 0;
-        for (let i = 0; i <= 100; i++) {
-          const lat = -90 + (i / 100) * 180;
-          try {
-            const pt = proj.forward([lon, lat]);
-            if (isFinite(pt[0]) && isFinite(pt[1])) {
-              if (pointCount === 0) ctx.moveTo(pt[0], pt[1]);
-              else ctx.lineTo(pt[0], pt[1]);
-              pointCount++;
-            }
-          } catch (err) {
-            // Skip this point
-          }
-        }
-        if (pointCount >= 2) {
-          ctx.stroke();
-        }
-      } catch (e) {
-        // Skip this line
-      }
-    }
-
-    // Draw latitude lines (parallels)
-    for (let lat = -90; lat <= 90; lat += latStep) {
-      try {
-        ctx.beginPath();
-        let pointCount = 0;
-        for (let i = 0; i <= 200; i++) {
-          const lon = -180 + (i / 200) * 360;
-          try {
-            const pt = proj.forward([lon, lat]);
-            if (isFinite(pt[0]) && isFinite(pt[1])) {
-              if (pointCount === 0) ctx.moveTo(pt[0], pt[1]);
-              else ctx.lineTo(pt[0], pt[1]);
-              pointCount++;
-            }
-          } catch (err) {
-            // Skip this point
-          }
-        }
-        if (pointCount >= 2) {
-          ctx.stroke();
-        }
-      } catch (e) {
-        // Skip this line
-      }
-    }
-
-    ctx.restore();
-
-    // Store the canvas and its projection space bounds for later use
-    (offscreen as any).projBounds = { minX: paddedMinX, maxX: paddedMaxX, minY: paddedMinY, maxY: paddedMaxY };
-    cachedGraticuleCanvas.current = offscreen;
-  }, [showGraticule, proj, debouncedGraticuleDensity, combinedBounds]);
 
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
@@ -638,28 +496,105 @@ export const DataCanvas: React.FC = () => {
             gratCtx.stroke();
         }
 
-        // --- Render Graticule from cached canvas ---
-        if (showGraticule && cachedGraticuleCanvas.current) {
-            const cached = cachedGraticuleCanvas.current;
-            const bounds = (cached as any).projBounds;
+        // --- Render Graticule ---
+        if (showGraticule && proj) {
+            gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            gratCtx.lineWidth = 1 / (scale * dpr);
+            const samplePoints = [ [0, 0], [clientWidth / 2, 0], [clientWidth, 0], [clientWidth, clientHeight / 2], [clientWidth, clientHeight], [clientWidth / 2, clientHeight], [0, clientHeight], [0, clientHeight / 2] ].map(p => canvasToProjCoords(p[0] * (window.devicePixelRatio || 1), p[1] * (window.devicePixelRatio || 1)));
+            const geoPoints = samplePoints.filter(p => p !== null).map(p => { try { return proj4('EPSG:4326', proj).inverse(p!); } catch (e) { return null; } }).filter((p): p is [number, number] => p !== null);
+            
+            let lonSpan = 1, latSpan = 1;
+            if (geoPoints.length > 0) {
+                const viewLonMin = Math.min(...geoPoints.map(p => p[0])), viewLonMax = Math.max(...geoPoints.map(p => p[0]));
+                const viewLatMin = Math.min(...geoPoints.map(p => p[1])), viewLatMax = Math.max(...geoPoints.map(p => p[1]));
+                lonSpan = Math.abs(viewLonMax - viewLonMin); if (lonSpan > 180) lonSpan = 360 - lonSpan;
+                // Fix: Corrected typo from `viewMin` to `viewLatMin`.
+                latSpan = Math.abs(viewLatMax - viewLatMin);
+            }
+            
+            const calcStep = (span: number) => { if (span <= 0) return 1; const r = span / (5 * debouncedGraticuleDensity), p = Math.pow(10, Math.floor(Math.log10(r))), m = r / p; if (m < 1.5) return p; if (m < 3.5) return 2*p; if (m < 7.5) return 5*p; return 10*p; };
+            const lonStep = calcStep(lonSpan); const latStep = calcStep(latSpan);
 
-            if (bounds) {
-                // Transform cached graticule canvas from projection space to screen space
-                const { minX, maxX, minY, maxY } = bounds;
+            let anchorLon = 0, anchorLat = 0;
+            try {
+                const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
+                anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep;
+                anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
+            } catch(e) {
+                // Fallback to origin if anchor calculation fails
+                anchorLon = 0;
+                anchorLat = 0;
+            }
 
-                gratCtx.save();
-                gratCtx.globalAlpha = 1.0;
+            const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
 
-                // Calculate transformation matrix to map cached canvas to current view
-                // Cached canvas covers [minX, maxX] x [minY, maxY] in projection space
-                const a = (maxX - minX) / cached.width;
-                const d = (maxY - minY) / cached.height;
-                const e = minX;
-                const f = minY;
+            // Draw longitude lines (meridians) - vertical lines running north-south
+            let lonLinesAttempted = 0, lonLinesDrawn = 0, lonPointsTotal = 0;
+            for (let lon = -180; lon <= 180; lon += lonStep) {
+                lonLinesAttempted++;
+                const isFirstLon = (lonLinesAttempted === 1);
+                try {
+                    gratCtx.beginPath();
+                    let pointCount = 0;
+                    const samplePoints: any[] = [];
+                    for (let i = 0; i <= 100; i++) {
+                        const lat = -90 + (i/100)*180;
+                        try {
+                            const pt = proj.forward([lon, lat]);
+                            // Only use point if coordinates are finite (not NaN or Infinity)
+                            if (isFinite(pt[0]) && isFinite(pt[1])) {
+                                if (pointCount === 0) gratCtx.moveTo(pt[0], pt[1]);
+                                else gratCtx.lineTo(pt[0], pt[1]);
+                                pointCount++;
+                                if (isFirstLon && i % 25 === 0) samplePoints.push({lat, pt});
+                            }
+                        } catch (err) {
+                            // Skip this point if projection fails, but continue the line
+                        }
+                    }
+                    // Only stroke if we have at least 2 points (to make a line)
+                    if (pointCount >= 2) {
+                        gratCtx.stroke();
+                        lonLinesDrawn++;
+                        lonPointsTotal += pointCount;
+                    }
+                } catch (e) {
+                    // Skip this line if drawing fails
+                }
+                try { const p = proj.forward([lon, anchorLat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lon.toFixed(1)}°`, p); } catch(e) {}
+            }
 
-                gratCtx.transform(a, 0, 0, d, e, f);
-                gratCtx.drawImage(cached, 0, 0);
-                gratCtx.restore();
+            // Draw latitude lines (parallels) - horizontal lines running east-west
+            let latLinesAttempted = 0, latLinesDrawn = 0, latPointsTotal = 0;
+            for (let lat = -90; lat <= 90; lat += latStep) {
+                latLinesAttempted++;
+                try {
+                    gratCtx.beginPath();
+                    let pointCount = 0;
+                    for (let i = 0; i <= 200; i++) {
+                        const lon = -180 + (i/200)*360;
+                        try {
+                            const pt = proj.forward([lon, lat]);
+                            // Only use point if coordinates are finite (not NaN or Infinity)
+                            if (isFinite(pt[0]) && isFinite(pt[1])) {
+                                if (pointCount === 0) gratCtx.moveTo(pt[0], pt[1]);
+                                else gratCtx.lineTo(pt[0], pt[1]);
+                                pointCount++;
+                            }
+                        } catch (err) {
+                            // Skip this point if projection fails, but continue the line
+                        }
+                    }
+                    // Only stroke if we have at least 2 points (to make a line)
+                    if (pointCount >= 2) {
+                        gratCtx.stroke();
+                        latLinesDrawn++;
+                        latPointsTotal += pointCount;
+                    }
+                } catch (e) {
+                    // Skip this line if drawing fails
+                }
+                try { const p = proj.forward([anchorLon, lat]); if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) drawLabel(`${lat.toFixed(1)}°`, p); } catch(e) {}
             }
         }
     }
