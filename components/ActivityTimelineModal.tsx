@@ -39,6 +39,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 }) => {
   const { activityDefinitions } = useAppContext();
   const [activities, setActivities] = useState<Activity[]>(waypoint.activities || []);
+  const [description, setDescription] = useState(waypoint.description || '');
   const [isAddDropdownOpen, setIsAddDropdownOpen] = useState(false);
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
   const [templates, setTemplates] = useState<ActivityTemplate[]>(loadTemplates());
@@ -55,9 +56,11 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
   // Track unsaved changes
   useEffect(() => {
     const originalActivities = waypoint.activities || [];
-    const changed = JSON.stringify(activities) !== JSON.stringify(originalActivities);
-    setHasUnsavedChanges(changed);
-  }, [activities, waypoint.activities]);
+    const originalDescription = waypoint.description || '';
+    const activitiesChanged = JSON.stringify(activities) !== JSON.stringify(originalActivities);
+    const descriptionChanged = description !== originalDescription;
+    setHasUnsavedChanges(activitiesChanged || descriptionChanged);
+  }, [activities, description, waypoint.activities, waypoint.description]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -183,6 +186,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 
     onSave({
       activities: activities.length > 0 ? activities : undefined,
+      description: description.trim() || undefined,
     });
     onClose();
   };
@@ -428,6 +432,18 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-300">Description</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Add waypoint description..."
+                className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500 resize-none text-sm"
+                rows={3}
+              />
             </div>
           </div>
 

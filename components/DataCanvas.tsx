@@ -1995,8 +1995,26 @@ export const DataCanvas: React.FC = () => {
 
         if (!waypoint) return null;
 
+        const getActivityName = (typeId: string) => {
+          const def = activityDefinitions.find(d => d.id === typeId);
+          return def?.name || typeId;
+        };
+
+        const formatDuration = (seconds: number) => {
+          if (seconds === 0) return '0s';
+          if (seconds < 60) return `${seconds}s`;
+          const hours = Math.floor(seconds / 3600);
+          const mins = Math.floor((seconds % 3600) / 60);
+          const secs = seconds % 60;
+          const parts = [];
+          if (hours > 0) parts.push(`${hours}h`);
+          if (mins > 0) parts.push(`${mins}m`);
+          if (secs > 0) parts.push(`${secs}s`);
+          return parts.join(' ');
+        };
+
         return (
-          <div className="absolute bottom-4 left-4 bg-gray-800/95 border border-gray-600 rounded-lg p-3 shadow-lg z-50 pointer-events-none max-w-xs">
+          <div className="absolute bottom-4 left-4 bg-gray-800/95 border border-gray-600 rounded-lg p-3 shadow-lg z-50 pointer-events-none max-w-sm">
             <div className="text-sm space-y-1">
               <div className="font-semibold text-white border-b border-gray-600 pb-1 mb-2">
                 {waypoint.label || 'Waypoint'}
@@ -2009,9 +2027,23 @@ export const DataCanvas: React.FC = () => {
                   <span className="text-gray-400">Activity:</span> {waypoint.activityLabel || waypoint.activitySymbol}
                 </div>
               )}
+              {waypoint.activities && waypoint.activities.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-700">
+                  <div className="text-gray-400 text-xs font-semibold mb-1">Activity Plan:</div>
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {waypoint.activities.map((activity, idx) => (
+                      <div key={activity.id} className="text-xs text-gray-300 flex justify-between gap-2">
+                        <span className="truncate">{idx + 1}. {getActivityName(activity.type)}</span>
+                        <span className="text-gray-500 flex-shrink-0">{formatDuration(activity.duration)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {waypoint.description && (
                 <div className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700">
-                  {waypoint.description}
+                  <div className="text-gray-400 font-semibold mb-1">Description:</div>
+                  <div className="whitespace-pre-wrap">{waypoint.description}</div>
                 </div>
               )}
             </div>
