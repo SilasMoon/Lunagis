@@ -347,6 +347,16 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
             {isActive && (
                 <div className="p-3 border-t border-gray-700 space-y-4 animate-fade-in">
                     <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Layer Name</label>
+                        <input
+                            type="text"
+                            value={layer.name}
+                            onChange={(e) => onUpdateLayer(layer.id, { name: e.target.value })}
+                            className="w-full bg-gray-700 text-white text-sm rounded-md p-1.5 border border-gray-600 focus:border-cyan-500 focus:outline-none"
+                            placeholder="Enter layer name..."
+                        />
+                    </div>
+                    <div>
                         <label className="block text-xs font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
                         <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdateLayer(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
