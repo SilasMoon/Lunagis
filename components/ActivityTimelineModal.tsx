@@ -118,7 +118,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 
   const handleDurationChange = (id: string, value: string) => {
     const numValue = parseInt(value);
-    if (value === '' || (!isNaN(numValue) && numValue > 0)) {
+    if (value === '' || (!isNaN(numValue) && numValue >= 0)) {
       setActivities(activities.map(a =>
         a.id === id ? { ...a, duration: value === '' ? 0 : numValue } : a
       ));
@@ -182,10 +182,10 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
   };
 
   const handleSave = () => {
-    // Validate all durations are positive integers
-    const hasInvalidDuration = activities.some(a => a.duration <= 0 || !Number.isInteger(a.duration));
+    // Validate all durations are non-negative integers
+    const hasInvalidDuration = activities.some(a => a.duration < 0 || !Number.isInteger(a.duration));
     if (hasInvalidDuration) {
-      alert('All activity durations must be positive integers');
+      alert('All activity durations must be non-negative integers');
       return;
     }
 
@@ -360,7 +360,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
-                      min="1"
+                      min="0"
                       step="1"
                       value={activity.duration}
                       onChange={(e) => handleDurationChange(activity.id, e.target.value)}

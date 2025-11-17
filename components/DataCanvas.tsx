@@ -242,7 +242,7 @@ export const DataCanvas: React.FC = () => {
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
     setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer, pathCreationOptions,
-    activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
+    defaultActivityDurations, activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
   } = useAppContext();
 
   const timeIndex = currentDateIndex ?? 0;
@@ -1362,12 +1362,28 @@ export const DataCanvas: React.FC = () => {
                 }
             }
 
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${pathBeingDrawn.waypoints.length + 1}` };
+            const newWaypoint: Waypoint = {
+              id: `wp-${Date.now()}`,
+              geoPosition: waypointGeoPosition,
+              label: `WP${pathBeingDrawn.waypoints.length + 1}`,
+              activities: [
+                { id: `act-${Date.now()}-1`, type: 'DTE_COMMS', duration: defaultActivityDurations['DTE_COMMS'] },
+                { id: `act-${Date.now()}-2`, type: 'DRIVE-5', duration: defaultActivityDurations['DRIVE-5'] },
+              ],
+            };
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
             // First click: create the path
             const newId = `path-${Date.now()}`;
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: 'WP1' };
+            const newWaypoint: Waypoint = {
+              id: `wp-${Date.now()}`,
+              geoPosition: [coords.lon, coords.lat],
+              label: 'WP1',
+              activities: [
+                { id: `act-${Date.now()}-1`, type: 'DTE_COMMS', duration: defaultActivityDurations['DTE_COMMS'] },
+                { id: `act-${Date.now()}-2`, type: 'DRIVE-5', duration: defaultActivityDurations['DRIVE-5'] },
+              ],
+            };
             const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
             setArtifacts(prev => [...prev, newArtifact]);
             setActiveArtifactId(newId);
@@ -1440,7 +1456,15 @@ export const DataCanvas: React.FC = () => {
               }
           }
 
-          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${activeArtifact.waypoints.length + 1}` };
+          const newWaypoint: Waypoint = {
+            id: `wp-${Date.now()}`,
+            geoPosition: waypointGeoPosition,
+            label: `WP${activeArtifact.waypoints.length + 1}`,
+            activities: [
+              { id: `act-${Date.now()}-1`, type: 'DTE_COMMS', duration: defaultActivityDurations['DTE_COMMS'] },
+              { id: `act-${Date.now()}-2`, type: 'DRIVE-5', duration: defaultActivityDurations['DRIVE-5'] },
+            ],
+          };
           onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
     } else if (activeTool === 'measurement') {

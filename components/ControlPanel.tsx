@@ -1054,6 +1054,8 @@ const ArtifactsPanel: React.FC = () => {
         isAppendingWaypoints,
         pathCreationOptions,
         setPathCreationOptions,
+        defaultActivityDurations,
+        setDefaultActivityDurations,
         proj
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
@@ -1120,6 +1122,33 @@ const ArtifactsPanel: React.FC = () => {
                             />
                             <span className="text-xs text-gray-500">Set a limit before creating a path. Leave empty for no limit.</span>
                         </label>
+                    </div>
+                </Section>
+
+                {/* Default Activity Durations */}
+                <Section title="Default Activity Durations" defaultOpen={false}>
+                    <div className="space-y-2">
+                        <p className="text-xs text-gray-400 mb-2">Set default durations (seconds) for each activity type:</p>
+                        {Object.entries(defaultActivityDurations).map(([type, duration]) => (
+                            <label key={type} className="flex items-center gap-2">
+                                <span className="text-xs text-gray-300 w-24 flex-shrink-0">{type}:</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={duration}
+                                    onChange={(e) => {
+                                        const value = parseInt(e.target.value) || 0;
+                                        setDefaultActivityDurations({
+                                            ...defaultActivityDurations,
+                                            [type]: value >= 0 ? value : 0,
+                                        });
+                                    }}
+                                    className="bg-gray-700 text-white rounded px-2 py-1 border border-gray-600 text-xs flex-1"
+                                />
+                                <span className="text-xs text-gray-500">s</span>
+                            </label>
+                        ))}
                     </div>
                 </Section>
 

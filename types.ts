@@ -156,7 +156,7 @@ export type ActivityType =
 export interface Activity {
   id: string;
   type: ActivityType;
-  duration: number; // in seconds, positive integer
+  duration: number; // in seconds, non-negative integer
 }
 
 export interface ActivityTemplate {
@@ -164,6 +164,10 @@ export interface ActivityTemplate {
   name: string;
   activities: Activity[];
 }
+
+export type DefaultActivityDurations = {
+  [K in ActivityType]: number;
+};
 
 export interface Waypoint {
   id: string;
@@ -333,6 +337,7 @@ export interface AppStateConfig {
   pathCreationOptions: {
     defaultMaxSegmentLength: number | null; // in meters, null means no limit
   };
+  defaultActivityDurations: DefaultActivityDurations;
   nightfallPlotYAxisRange: { min: number; max: number; };
   events: SerializableEvent[];
 }
