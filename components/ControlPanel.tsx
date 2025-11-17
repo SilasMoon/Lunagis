@@ -1213,35 +1213,16 @@ const ConfigurationPanel: React.FC = () => {
         gridColor, setGridColor,
         isPlaying, isPaused, playbackSpeed,
         onTogglePlay, onPlaybackSpeedChange,
-        onImportConfig, onExportConfig,
         artifactDisplayOptions, setArtifactDisplayOptions,
         nightfallPlotYAxisRange, onNightfallPlotYAxisRangeChange,
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
-    const importInputRef = useRef<HTMLInputElement>(null);
 
-    const handleImportClick = () => importInputRef.current?.click();
-
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files?.[0]) {
-          onImportConfig(e.target.files[0]);
-          e.target.value = ''; // Reset input to allow selecting the same file again
-      }
-    };
-  
     const isNightfallActive = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall';
 
     return (
         <div className="space-y-4">
             <h2 className="text-base font-semibold text-cyan-300">Configuration</h2>
-            
-            <Section title="Session Management" defaultOpen={true}>
-              <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
-              <div className="flex items-center gap-2">
-                  <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">Import Config</button>
-                  <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">Export Config</button>
-              </div>
-            </Section>
 
             {!isDataLoaded ? <p className="text-xs text-gray-400 mt-2">Load a data layer or import a session to see more options.</p> : (
                 <>
