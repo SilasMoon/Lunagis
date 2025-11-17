@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Waypoint, Activity, ActivityTemplate } from '../types';
 import { ChevronUp, ChevronDown, Trash2, Plus, Save, FolderOpen } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
@@ -78,16 +78,17 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 
   const generateId = () => `activity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  const handleAddActivity = (type: string) => {
+  // Wrap in useCallback to ensure we always use the latest activityDefinitions
+  const handleAddActivity = useCallback((type: string) => {
     const definition = activityDefinitions.find(def => def.id === type);
     const newActivity: Activity = {
       id: generateId(),
       type,
       duration: definition?.defaultDuration || 60,
     };
-    setActivities([...activities, newActivity]);
+    setActivities(prev => [...prev, newActivity]);
     setIsAddDropdownOpen(false);
-  };
+  }, [activityDefinitions]);
 
   const handleRemoveActivity = (id: string) => {
     setActivities(activities.filter(a => a.id !== id));

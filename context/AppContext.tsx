@@ -218,23 +218,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [pathCreationOptions, setPathCreationOptions] = useState({
       defaultMaxSegmentLength: 200 as number | null, // in meters, null means no limit
     });
-    const [activityDefinitions, setActivityDefinitions] = useState<ActivityDefinition[]>([
-      { id: 'DRIVE-0', name: 'Drive-0', defaultDuration: 60 },
-      { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 0 },
-      { id: 'DRIVE-10', name: 'Drive-10', defaultDuration: 60 },
-      { id: 'DRIVE-15', name: 'Drive-15', defaultDuration: 60 },
-      { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 3600 },
-      { id: 'LPF_COMMS', name: 'PL_COMMS', defaultDuration: 60 },
-      { id: 'IDLE', name: 'Idle', defaultDuration: 60 },
-      { id: 'SLEEP', name: 'Sleep', defaultDuration: 60 },
-      { id: 'SCIENCE', name: 'Science', defaultDuration: 60 },
-    ]);
+
+    // Load activity definitions from localStorage or use defaults
+    const [activityDefinitions, setActivityDefinitions] = useState<ActivityDefinition[]>(() => {
+      const STORAGE_KEY = 'lunagis_activity_definitions';
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          return JSON.parse(stored);
+        }
+      } catch (error) {
+        console.error('Error loading activity definitions:', error);
+      }
+      // Return default activity definitions
+      return [
+        { id: 'DRIVE-0', name: 'Drive-0', defaultDuration: 60 },
+        { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 0 },
+        { id: 'DRIVE-10', name: 'Drive-10', defaultDuration: 60 },
+        { id: 'DRIVE-15', name: 'Drive-15', defaultDuration: 60 },
+        { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 3600 },
+        { id: 'LPF_COMMS', name: 'PL_COMMS', defaultDuration: 60 },
+        { id: 'IDLE', name: 'Idle', defaultDuration: 60 },
+        { id: 'SLEEP', name: 'Sleep', defaultDuration: 60 },
+        { id: 'SCIENCE', name: 'Science', defaultDuration: 60 },
+      ];
+    });
     const [nightfallPlotYAxisRange, setNightfallPlotYAxisRange] = useState<{ min: number; max: number; }>({ min: -15, max: 15 });
 
     const [isCreatingExpression, setIsCreatingExpression] = useState(false);
 
     const [events, setEvents] = useState<Event[]>([]);
     const [activeEventId, setActiveEventId] = useState<string | null>(null);
+
+    // Persist activity definitions to localStorage whenever they change
+    useEffect(() => {
+      const STORAGE_KEY = 'lunagis_activity_definitions';
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(activityDefinitions));
+      } catch (error) {
+        console.error('Error saving activity definitions:', error);
+      }
+    }, [activityDefinitions]);
 
     // Undo/Redo state (only for artifacts and events - layers contain non-serializable binary data)
     type HistoryState = {
