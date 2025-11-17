@@ -18,34 +18,30 @@ const formatDuration = (hours: number): string => {
   return `${hours} hrs (${days} days)`;
 };
 
-// Helper function to calculate geographic distance using Haversine formula
-const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]): number => {
-  const R = 6371000; // Earth's radius in meters
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
+// Helper function to calculate Euclidean distance in projected space (matches segment length calculation)
+const calculateProjectedDistance = (proj: any, coord1: [number, number], coord2: [number, number]): number => {
+  if (!proj) return 0;
 
-  const [lon1, lat1] = coord1;
-  const [lon2, lat2] = coord2;
+  try {
+    const proj1 = proj.forward(coord1);
+    const proj2 = proj.forward(coord2);
 
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+    const dx = proj2[0] - proj1[0];
+    const dy = proj2[1] - proj1[1];
 
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
+    return Math.sqrt(dx * dx + dy * dy);
+  } catch (e) {
+    return 0;
+  }
 };
 
-// Helper function to calculate total distance of a path
-const calculatePathDistance = (waypoints: Waypoint[]): number => {
-  if (waypoints.length < 2) return 0;
+// Helper function to calculate total distance of a path using projected coordinates
+const calculatePathDistance = (proj: any, waypoints: Waypoint[]): number => {
+  if (!proj || waypoints.length < 2) return 0;
 
   let totalDistance = 0;
   for (let i = 0; i < waypoints.length - 1; i++) {
-    totalDistance += calculateGeoDistance(waypoints[i].geoPosition, waypoints[i + 1].geoPosition);
+    totalDistance += calculateProjectedDistance(proj, waypoints[i].geoPosition, waypoints[i + 1].geoPosition);
   }
 
   return totalDistance;
@@ -922,7 +918,7 @@ const LayersPanel: React.FC = () => {
 };
 
 const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
-    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useAppContext();
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, proj } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
@@ -1017,7 +1013,7 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                                 <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
                             </Section>
                             <Section
-                                title={`Path Waypoints (${formatDistance(calculatePathDistance((artifact as PathArtifact).waypoints))})`}
+                                title={`Path Waypoints (${formatDistance(calculatePathDistance(proj, (artifact as PathArtifact).waypoints))})`}
                                 defaultOpen={true}
                             >
                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
@@ -1057,7 +1053,8 @@ const ArtifactsPanel: React.FC = () => {
         baseMapLayer,
         isAppendingWaypoints,
         pathCreationOptions,
-        setPathCreationOptions
+        setPathCreationOptions,
+        proj
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 
@@ -1066,9 +1063,9 @@ const ArtifactsPanel: React.FC = () => {
         return artifacts
             .filter(artifact => artifact.type === 'path')
             .reduce((sum, artifact) => {
-                return sum + calculatePathDistance((artifact as PathArtifact).waypoints);
+                return sum + calculatePathDistance(proj, (artifact as PathArtifact).waypoints);
             }, 0);
-    }, [artifacts]);
+    }, [artifacts, proj]);
 
     if (!isDataLoaded) {
         return (
