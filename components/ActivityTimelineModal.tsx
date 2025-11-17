@@ -84,7 +84,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
     const newActivity: Activity = {
       id: generateId(),
       type,
-      duration: definition?.defaultDuration || 60,
+      duration: definition?.defaultDuration ?? 60, // Use ?? not || to allow 0 as valid value
     };
     setActivities(prev => [...prev, newActivity]);
     setIsAddDropdownOpen(false);
