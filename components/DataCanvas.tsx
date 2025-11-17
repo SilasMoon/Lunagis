@@ -1098,9 +1098,8 @@ export const DataCanvas: React.FC = () => {
                     // Check if cursor is beyond circle boundary in projected space
                     isOverLimit = distProj > radiusProj;
 
-                    // Calculate geodesic distance for display
-                    const cursorGeo = proj4('EPSG:4326', proj).inverse(currentMouseProjCoords);
-                    distance = calculateGeoDistance(lastWaypointGeo, [cursorGeo[0], cursorGeo[1]]);
+                    // Use Euclidean distance for display (matches segment length calculation)
+                    distance = distProj;
 
                     // Always clamp preview to circle boundary if cursor is beyond it
                     if (distProj > radiusProj) {
