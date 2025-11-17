@@ -416,7 +416,7 @@ export const DataCanvas: React.FC = () => {
   useEffect(() => {
     const canvas = graticuleCanvasRef.current;
     if (!combinedBounds || !canvas || (viewState && initialViewCalculated.current)) return;
-    
+
     const { clientWidth, clientHeight } = canvas;
     if (clientWidth === 0 || clientHeight === 0) return;
 
@@ -430,8 +430,10 @@ export const DataCanvas: React.FC = () => {
     setViewState(newInitialViewState);
     initialViewCalculated.current = true;
   }, [combinedBounds, setViewState, viewState]);
-  
-  useEffect(() => { initialViewCalculated.current = false; }, [layers]);
+
+  // Track layer IDs to detect when layers are added/removed (not just property changes)
+  const layerIds = useMemo(() => layers.map(l => l.id).join(','), [layers]);
+  useEffect(() => { initialViewCalculated.current = false; }, [layerIds]);
 
   const canvasToProjCoords = useCallback((canvasX: number, canvasY: number): [number, number] | null => {
     const canvas = graticuleCanvasRef.current;
