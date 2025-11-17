@@ -1,5 +1,5 @@
 // Fix: Removed invalid file header which was causing parsing errors.
-import React from 'react';
+import React, { useRef } from 'react';
 import type { Tool } from '../types';
 import logoUrl from '../utils/LunaGis_logo.svg?url';
 
@@ -7,6 +7,13 @@ interface ToolBarProps {
   activeTool: Tool;
   onToolSelect: (tool: Tool) => void;
   onUserManualClick?: () => void;
+  onImportConfig: (file: File) => void;
+  onExportConfig: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  isDataLoaded: boolean;
 }
 
 interface ToolButtonProps {
@@ -70,31 +77,115 @@ const UserManualIcon = () => (
     </svg>
 );
 
-export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect, onUserManualClick }) => (
-  <aside className="bg-gray-800/50 border-r border-gray-700 py-2 flex-shrink-0 flex flex-col items-center gap-4" style={{width: '75x'}} role="navigation" aria-label="Main navigation">
-    <div className="w-full flex items-center justify-center" aria-label="Lunagis logo">
-        <img src={logoUrl} alt="LunaGis" className="h-auto object-contain" style={{width: '50px'}} />
-    </div>
-    <ToolButton label="Layers" icon={<LayersIcon />} isActive={activeTool === 'layers'} onClick={() => onToolSelect('layers')} />
-    <ToolButton label="Artifacts" icon={<ArtifactsIcon />} isActive={activeTool === 'artifacts'} onClick={() => onToolSelect('artifacts')} />
-    <ToolButton label="Events" icon={<EventsIcon />} isActive={activeTool === 'events'} onClick={() => onToolSelect('events')} />
-    <ToolButton label="Measure" icon={<MeasurementIcon />} isActive={activeTool === 'measurement'} onClick={() => onToolSelect('measurement')} />
-    <ToolButton label="Config" icon={<ConfigIcon />} isActive={activeTool === 'config'} onClick={() => onToolSelect('config')} />
-
-    {/* Spacer to push User Manual button to bottom */}
-    <div className="flex-grow" />
-
-    {/* User Manual Button */}
-    {onUserManualClick && (
-      <button
-        onClick={onUserManualClick}
-        title="User Manual"
-        aria-label="User Manual"
-        className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-cyan-700/50 hover:text-cyan-300 border border-gray-700 hover:border-cyan-600"
-      >
-        <UserManualIcon />
-        <span className="text-xs mt-1">Manual</span>
-      </button>
-    )}
-  </aside>
+const ImportIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3V15" />
+    </svg>
 );
+
+const ExportIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15M9 12l3 3m0 0l3-3m-3 3V2.25" />
+    </svg>
+);
+
+const UndoIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+    </svg>
+);
+
+const RedoIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" />
+    </svg>
+);
+
+export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onToolSelect, onUserManualClick, onImportConfig, onExportConfig, canUndo, canRedo, onUndo, onRedo, isDataLoaded }) => {
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportClick = () => importInputRef.current?.click();
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) {
+      onImportConfig(e.target.files[0]);
+      e.target.value = ''; // Reset input to allow selecting the same file again
+    }
+  };
+
+  return (
+    <aside className="bg-gray-800/50 border-r border-gray-700 py-2 flex-shrink-0 flex flex-col items-center gap-4" style={{width: '75x'}} role="navigation" aria-label="Main navigation">
+      <div className="w-full flex items-center justify-center" aria-label="Lunagis logo">
+          <img src={logoUrl} alt="LunaGis" className="h-auto object-contain" style={{width: '50px'}} />
+      </div>
+      <ToolButton label="Layers" icon={<LayersIcon />} isActive={activeTool === 'layers'} onClick={() => onToolSelect('layers')} />
+      <ToolButton label="Artifacts" icon={<ArtifactsIcon />} isActive={activeTool === 'artifacts'} onClick={() => onToolSelect('artifacts')} />
+      <ToolButton label="Events" icon={<EventsIcon />} isActive={activeTool === 'events'} onClick={() => onToolSelect('events')} />
+      <ToolButton label="Measure" icon={<MeasurementIcon />} isActive={activeTool === 'measurement'} onClick={() => onToolSelect('measurement')} />
+      <ToolButton label="Config" icon={<ConfigIcon />} isActive={activeTool === 'config'} onClick={() => onToolSelect('config')} />
+
+      {/* Divider */}
+      <div className="w-full border-t border-gray-700" />
+
+      {/* Import/Export Buttons */}
+      <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
+      <button
+        onClick={handleImportClick}
+        title="Import Config"
+        aria-label="Import Config"
+        className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-indigo-700/50 hover:text-indigo-300"
+      >
+        <ImportIcon />
+        <span className="text-xs mt-1">Import</span>
+      </button>
+      <button
+        onClick={onExportConfig}
+        disabled={!isDataLoaded}
+        title="Export Config"
+        aria-label="Export Config"
+        className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-teal-700/50 hover:text-teal-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
+      >
+        <ExportIcon />
+        <span className="text-xs mt-1">Export</span>
+      </button>
+
+      {/* Undo/Redo Buttons */}
+      <button
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Undo (Ctrl+Z)"
+        aria-label="Undo"
+        className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-purple-700/50 hover:text-purple-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
+      >
+        <UndoIcon />
+        <span className="text-xs mt-1">Undo</span>
+      </button>
+      <button
+        onClick={onRedo}
+        disabled={!canRedo}
+        title="Redo (Ctrl+Y)"
+        aria-label="Redo"
+        className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-purple-700/50 hover:text-purple-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
+      >
+        <RedoIcon />
+        <span className="text-xs mt-1">Redo</span>
+      </button>
+
+      {/* Spacer to push User Manual button to bottom */}
+      <div className="flex-grow" />
+
+      {/* User Manual Button */}
+      {onUserManualClick && (
+        <button
+          onClick={onUserManualClick}
+          title="User Manual"
+          aria-label="User Manual"
+          className="w-full flex flex-col items-center justify-center p-2 rounded-lg transition-colors duration-200 text-gray-400 hover:bg-cyan-700/50 hover:text-cyan-300 border border-gray-700 hover:border-cyan-600"
+        >
+          <UserManualIcon />
+          <span className="text-xs mt-1">Manual</span>
+        </button>
+      )}
+    </aside>
+  );
+};

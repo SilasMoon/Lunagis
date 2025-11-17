@@ -870,27 +870,7 @@ const LayersPanel: React.FC = () => {
         isCreatingExpression,
         setIsCreatingExpression,
         isLoading,
-        onImportConfig,
-        onExportConfig,
-        baseMapLayer,
-        primaryDataLayer,
-        canUndo,
-        canRedo,
-        onUndo,
-        onRedo,
     } = useAppContext();
-
-    const importInputRef = useRef<HTMLInputElement>(null);
-    const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
-
-    const handleImportClick = () => importInputRef.current?.click();
-
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0]) {
-            onImportConfig(e.target.files[0]);
-            e.target.value = ''; // Reset input to allow selecting the same file again
-        }
-    };
 
     // Helper to check if there are layers with datasets
     const hasDataLayers = useMemo(() => {
@@ -904,39 +884,6 @@ const LayersPanel: React.FC = () => {
     return (
         <div className="space-y-4">
             <h2 className="text-base font-semibold text-cyan-300">Layer Management</h2>
-
-            {/* Session Management Buttons */}
-            <div className="space-y-2">
-                <input type="file" ref={importInputRef} onChange={handleFileSelect} accept=".json" style={{ display: 'none' }} />
-                <div className="flex items-center gap-2">
-                    <button onClick={handleImportClick} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">
-                        Import Config
-                    </button>
-                    <button onClick={onExportConfig} disabled={!isDataLoaded} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">
-                        Export Config
-                    </button>
-                </div>
-                {/* Undo/Redo Buttons */}
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={onUndo}
-                        disabled={!canUndo}
-                        className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
-                        title="Undo last action (Ctrl+Z)"
-                    >
-                        Undo
-                    </button>
-                    <button
-                        onClick={onRedo}
-                        disabled={!canRedo}
-                        className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
-                        title="Redo last undone action (Ctrl+Y)"
-                    >
-                        Redo
-                    </button>
-                </div>
-            </div>
-
             <AddLayerMenu />
             {!hasDataLayers && (
                 <div className="p-2 bg-yellow-900/30 border border-yellow-600/50 rounded-md text-xs text-yellow-200">
