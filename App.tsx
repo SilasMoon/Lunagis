@@ -21,10 +21,17 @@ const App: React.FC = () => {
     activeTool,
     onToolSelect,
     primaryDataLayer,
+    baseMapLayer,
     isLoading,
     onTogglePlay,
     handleManualTimeRangeChange,
-    timeRange
+    timeRange,
+    onImportConfig,
+    onExportConfig,
+    canUndo,
+    canRedo,
+    onUndo,
+    onRedo
   } = useAppContext();
 
   // User Manual modal state
@@ -108,7 +115,18 @@ const App: React.FC = () => {
         message={isLoading || ''}
         progress={loadingProgress}
       />
-      <ToolBar activeTool={activeTool} onToolSelect={onToolSelect} onUserManualClick={() => setShowUserManual(true)} />
+      <ToolBar
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+        onUserManualClick={() => setShowUserManual(true)}
+        onImportConfig={onImportConfig}
+        onExportConfig={onExportConfig}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={onUndo}
+        onRedo={onRedo}
+        isDataLoaded={!!primaryDataLayer || !!baseMapLayer}
+      />
       
       <SidePanel />
       
