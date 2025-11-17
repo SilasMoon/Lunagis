@@ -201,7 +201,17 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
     e.stopPropagation();
   };
 
-  const preventZoom = (e: React.WheelEvent) => {
+  // Only prevent zoom on the backdrop, not inside the modal where we want scrolling
+  const handleBackdropWheel = (e: React.WheelEvent) => {
+    // Only stop propagation if the wheel event is on the backdrop itself
+    if (e.target === e.currentTarget) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  };
+
+  // Stop wheel event propagation from modal content (but allow scrolling)
+  const handleModalWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
   };
 
@@ -214,7 +224,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
       <div
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
         onClick={handleBackdropClick}
-        onWheel={preventZoom}
+        onWheel={handleBackdropWheel}
         onKeyDown={preventKeyboardPropagation}
         onKeyUp={preventKeyboardPropagation}
         onMouseDown={stopEventPropagation}
@@ -225,7 +235,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
           ref={modalRef}
           className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl flex flex-col border border-gray-700"
           style={{ height: '85vh' }}
-          onWheel={preventZoom}
+          onWheel={handleModalWheel}
           onKeyDown={preventKeyboardPropagation}
         >
           {/* Header */}
@@ -441,7 +451,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
       {showSaveTemplateDialog && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
-          onWheel={preventZoom}
+          onWheel={handleBackdropWheel}
           onKeyDown={preventKeyboardPropagation}
         >
           <div className="bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-gray-700">
@@ -486,7 +496,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
       {showLoadConfirmation && templateToLoad && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
-          onWheel={preventZoom}
+          onWheel={handleBackdropWheel}
           onKeyDown={preventKeyboardPropagation}
         >
           <div className="bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-gray-700">

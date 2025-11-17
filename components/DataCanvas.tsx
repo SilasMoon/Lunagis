@@ -249,6 +249,25 @@ export const DataCanvas: React.FC = () => {
   const debouncedTimeRange = timeRange;
   const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
 
+  // Helper function to create default activities for new waypoints
+  const createDefaultActivities = useCallback(() => {
+    const dteComms = activityDefinitions.find(a => a.id === 'DTE_COMMS');
+    const drive5 = activityDefinitions.find(a => a.id === 'DRIVE-5');
+
+    return [
+      {
+        id: `act-${Date.now()}-${Math.random()}`,
+        type: 'DTE_COMMS',
+        duration: dteComms?.defaultDuration ?? 3600
+      },
+      {
+        id: `act-${Date.now()}-${Math.random()}`,
+        type: 'DRIVE-5',
+        duration: drive5?.defaultDuration ?? 0
+      },
+    ];
+  }, [activityDefinitions]);
+
   // Debounce non-critical rendering dependencies to reduce re-render frequency
   // Use short delay for pan/zoom (smooth interaction), longer for less critical changes
   const debouncedGraticuleDensity = useDebounce(graticuleDensity, 100);
@@ -1366,10 +1385,7 @@ export const DataCanvas: React.FC = () => {
               id: `wp-${Date.now()}`,
               geoPosition: waypointGeoPosition,
               label: `WP${pathBeingDrawn.waypoints.length + 1}`,
-              activities: [
-                { id: `act-${Date.now()}-1`, type: 'DTE_COMMS', duration: activityDefinitions.find(a => a.id === 'DTE_COMMS')?.defaultDuration || 60 },
-                { id: `act-${Date.now()}-2`, type: 'DRIVE-5', duration: activityDefinitions.find(a => a.id === 'DRIVE-5')?.defaultDuration || 60 },
-              ],
+              activities: createDefaultActivities(),
             };
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
@@ -1379,10 +1395,7 @@ export const DataCanvas: React.FC = () => {
               id: `wp-${Date.now()}`,
               geoPosition: [coords.lon, coords.lat],
               label: 'WP1',
-              activities: [
-                { id: `act-${Date.now()}-1`, type: 'DTE_COMMS', duration: activityDefinitions.find(a => a.id === 'DTE_COMMS')?.defaultDuration || 60 },
-                { id: `act-${Date.now()}-2`, type: 'DRIVE-5', duration: activityDefinitions.find(a => a.id === 'DRIVE-5')?.defaultDuration || 60 },
-              ],
+              activities: createDefaultActivities(),
             };
             const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
             setArtifacts(prev => [...prev, newArtifact]);
@@ -1460,10 +1473,7 @@ export const DataCanvas: React.FC = () => {
             id: `wp-${Date.now()}`,
             geoPosition: waypointGeoPosition,
             label: `WP${activeArtifact.waypoints.length + 1}`,
-            activities: [
-              { id: `act-${Date.now()}-1`, type: 'DTE_COMMS', duration: activityDefinitions.find(a => a.id === 'DTE_COMMS')?.defaultDuration || 60 },
-              { id: `act-${Date.now()}-2`, type: 'DRIVE-5', duration: activityDefinitions.find(a => a.id === 'DRIVE-5')?.defaultDuration || 60 },
-            ],
+            activities: createDefaultActivities(),
           };
           onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
