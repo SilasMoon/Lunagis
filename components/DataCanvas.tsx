@@ -7,6 +7,7 @@ import { useAppContext } from '../context/AppContext';
 import { OptimizedCanvasLRUCache } from '../utils/OptimizedLRUCache';
 import { useDebounce } from '../hooks/useDebounce';
 import { WaypointEditModal } from './WaypointEditModal';
+import { ActivityTimelineModal } from './ActivityTimelineModal';
 import { ActivitySymbolsOverlay } from './ActivitySymbolsOverlay';
 
 declare const d3: any;
@@ -263,6 +264,7 @@ export const DataCanvas: React.FC = () => {
 
   const [isRendering, setIsRendering] = useState(false);
   const [editingWaypoint, setEditingWaypoint] = useState<{ artifactId: string; waypoint: Waypoint } | null>(null);
+  const [editingWaypointActivities, setEditingWaypointActivities] = useState<{ artifactId: string; waypoint: Waypoint } | null>(null);
   // LRU cache: max 50 canvases or 500MB, whichever is hit first
   // Using optimized doubly-linked list implementation for O(1) operations
   const offscreenCanvasCache = useRef(new OptimizedCanvasLRUCache(50, 500)).current;
@@ -1847,7 +1849,7 @@ export const DataCanvas: React.FC = () => {
     const waypoint = artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId);
     if (!waypoint) return;
 
-    setEditingWaypoint({ artifactId: artifact.id, waypoint });
+    setEditingWaypointActivities({ artifactId: artifact.id, waypoint });
   };
 
   const handleWaypointEditSave = (updates: Partial<Waypoint>) => {
@@ -1857,6 +1859,20 @@ export const DataCanvas: React.FC = () => {
     if (!artifact || artifact.type !== 'path') return;
 
     const waypointIndex = artifact.waypoints.findIndex(wp => wp.id === editingWaypoint.waypoint.id);
+    if (waypointIndex === -1) return;
+
+    const newWaypoints = [...artifact.waypoints];
+    newWaypoints[waypointIndex] = { ...newWaypoints[waypointIndex], ...updates };
+    onUpdateArtifact(artifact.id, { waypoints: newWaypoints });
+  };
+
+  const handleWaypointActivitiesSave = (updates: Partial<Waypoint>) => {
+    if (!editingWaypointActivities) return;
+
+    const artifact = artifacts.find(a => a.id === editingWaypointActivities.artifactId);
+    if (!artifact || artifact.type !== 'path') return;
+
+    const waypointIndex = artifact.waypoints.findIndex(wp => wp.id === editingWaypointActivities.waypoint.id);
     if (waypointIndex === -1) return;
 
     const newWaypoints = [...artifact.waypoints];
@@ -1924,6 +1940,14 @@ export const DataCanvas: React.FC = () => {
           />
         );
       })()}
+      {editingWaypointActivities && (
+        <ActivityTimelineModal
+          isOpen={true}
+          waypoint={editingWaypointActivities.waypoint}
+          onClose={() => setEditingWaypointActivities(null)}
+          onSave={handleWaypointActivitiesSave}
+        />
+      )}
       {hoveredWaypointInfo && (() => {
         const artifact = artifacts.find(a => a.id === hoveredWaypointInfo.artifactId);
         const waypoint = artifact && artifact.type === 'path' ? artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId) : null;

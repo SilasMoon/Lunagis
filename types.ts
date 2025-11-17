@@ -142,6 +142,29 @@ export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | L
 
 // --- Artifact Types ---
 
+export type ActivityType =
+  | 'DRIVE-0'
+  | 'DRIVE-5'
+  | 'DRIVE-10'
+  | 'DRIVE-15'
+  | 'DTE_COMMS'
+  | 'LPF_COMMS'
+  | 'IDLE'
+  | 'SLEEP'
+  | 'SCIENCE';
+
+export interface Activity {
+  id: string;
+  type: ActivityType;
+  duration: number; // in seconds, positive integer
+}
+
+export interface ActivityTemplate {
+  id: string;
+  name: string;
+  activities: Activity[];
+}
+
 export interface Waypoint {
   id: string;
   geoPosition: [number, number]; // [lon, lat]
@@ -152,6 +175,7 @@ export interface Waypoint {
   activitySymbolColor?: string; // Hex color (default: artifact color)
   activityOffset?: number; // Distance in pixels perpendicular to outgoing segment (default: 35)
   description?: string; // Optional description
+  activities?: Activity[]; // Timeline of activities for this waypoint
 }
 
 export interface ArtifactBase {
