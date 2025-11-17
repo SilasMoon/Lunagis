@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { parseNpy } from '../services/npyParser';
 import { parseVrt } from '../services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer, Event, DefaultActivityDurations, Activity, ActivityType } from '../types';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer, Event, ActivityDefinition, Activity } from '../types';
 import { indexToDate } from '../utils/time';
 import * as analysisService from '../services/analysisService';
 import { useToast } from '../components/Toast';
@@ -55,7 +55,7 @@ interface AppContextType {
     draggedInfo: { artifactId: string; waypointId?: string; isActivitySymbol?: boolean; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; initialActivityOffset?: number; } | null;
     artifactDisplayOptions: { waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; showActivitySymbols: boolean; };
     pathCreationOptions: { defaultMaxSegmentLength: number | null; };
-    defaultActivityDurations: DefaultActivityDurations;
+    activityDefinitions: ActivityDefinition[];
     nightfallPlotYAxisRange: { min: number; max: number; };
     isCreatingExpression: boolean;
     events: Event[];
@@ -102,7 +102,7 @@ interface AppContextType {
     setDraggedInfo: React.Dispatch<React.SetStateAction<{ artifactId: string; waypointId?: string; isActivitySymbol?: boolean; initialMousePos: [number, number]; initialCenter?: [number, number]; initialWaypointProjPositions?: [number, number][]; initialActivityOffset?: number; } | null>>;
     setArtifactDisplayOptions: React.Dispatch<React.SetStateAction<{ waypointDotSize: number; showSegmentLengths: boolean; labelFontSize: number; showActivitySymbols: boolean; }>>;
     setPathCreationOptions: React.Dispatch<React.SetStateAction<{ defaultMaxSegmentLength: number | null; }>>;
-    setDefaultActivityDurations: React.Dispatch<React.SetStateAction<DefaultActivityDurations>>;
+    setActivityDefinitions: React.Dispatch<React.SetStateAction<ActivityDefinition[]>>;
     onNightfallPlotYAxisRangeChange: (range: { min: number; max: number; }) => void;
     setIsCreatingExpression: React.Dispatch<React.SetStateAction<boolean>>;
     setEvents: React.Dispatch<React.SetStateAction<Event[]>>;
@@ -218,17 +218,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [pathCreationOptions, setPathCreationOptions] = useState({
       defaultMaxSegmentLength: 200 as number | null, // in meters, null means no limit
     });
-    const [defaultActivityDurations, setDefaultActivityDurations] = useState<DefaultActivityDurations>({
-      'DRIVE-0': 60,
-      'DRIVE-5': 60,
-      'DRIVE-10': 60,
-      'DRIVE-15': 60,
-      'DTE_COMMS': 60,
-      'LPF_COMMS': 60,
-      'IDLE': 60,
-      'SLEEP': 60,
-      'SCIENCE': 60,
-    });
+    const [activityDefinitions, setActivityDefinitions] = useState<ActivityDefinition[]>([
+      { id: 'DRIVE-0', name: 'Drive-0', defaultDuration: 60 },
+      { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 60 },
+      { id: 'DRIVE-10', name: 'Drive-10', defaultDuration: 60 },
+      { id: 'DRIVE-15', name: 'Drive-15', defaultDuration: 60 },
+      { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 60 },
+      { id: 'LPF_COMMS', name: 'PL_COMMS', defaultDuration: 60 },
+      { id: 'IDLE', name: 'Idle', defaultDuration: 60 },
+      { id: 'SLEEP', name: 'Sleep', defaultDuration: 60 },
+      { id: 'SCIENCE', name: 'Science', defaultDuration: 60 },
+    ]);
     const [nightfallPlotYAxisRange, setNightfallPlotYAxisRange] = useState<{ min: number; max: number; }>({ min: -15, max: 15 });
 
     const [isCreatingExpression, setIsCreatingExpression] = useState(false);
@@ -1031,7 +1031,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               artifacts: artifacts.map(a => ({...a})),
               artifactDisplayOptions,
               pathCreationOptions,
-              defaultActivityDurations,
+              activityDefinitions,
               nightfallPlotYAxisRange,
               events: events.map(e => ({...e})),
           };
@@ -1051,7 +1051,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } finally {
           setIsLoading(null);
       }
-    }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions, pathCreationOptions, defaultActivityDurations, nightfallPlotYAxisRange]);
+    }, [layers, activeLayerId, timeRange, timeZoomDomain, viewState, showGraticule, graticuleDensity, showGrid, gridSpacing, gridColor, selectedCells, selectionColor, activeTool, artifacts, artifactDisplayOptions, pathCreationOptions, activityDefinitions, nightfallPlotYAxisRange]);
 
     const onImportConfig = useCallback((file: File) => {
       setIsLoading("Reading config file...");
@@ -1215,17 +1215,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           setArtifactDisplayOptions(config.artifactDisplayOptions || { waypointDotSize: 8, showSegmentLengths: true, labelFontSize: 14, showActivitySymbols: true });
           setPathCreationOptions(config.pathCreationOptions || { defaultMaxSegmentLength: 200 });
-          setDefaultActivityDurations(config.defaultActivityDurations || {
-            'DRIVE-0': 60,
-            'DRIVE-5': 60,
-            'DRIVE-10': 60,
-            'DRIVE-15': 60,
-            'DTE_COMMS': 60,
-            'LPF_COMMS': 60,
-            'IDLE': 60,
-            'SLEEP': 60,
-            'SCIENCE': 60,
-          });
+          setActivityDefinitions(config.activityDefinitions || [
+            { id: 'DRIVE-0', name: 'Drive-0', defaultDuration: 60 },
+            { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 60 },
+            { id: 'DRIVE-10', name: 'Drive-10', defaultDuration: 60 },
+            { id: 'DRIVE-15', name: 'Drive-15', defaultDuration: 60 },
+            { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 60 },
+            { id: 'LPF_COMMS', name: 'PL_COMMS', defaultDuration: 60 },
+            { id: 'IDLE', name: 'Idle', defaultDuration: 60 },
+            { id: 'SLEEP', name: 'Sleep', defaultDuration: 60 },
+            { id: 'SCIENCE', name: 'Science', defaultDuration: 60 },
+          ]);
           setNightfallPlotYAxisRange(config.nightfallPlotYAxisRange || { min: -15, max: 15 });
 
       } catch (e) {
@@ -1311,8 +1311,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setArtifactDisplayOptions,
         pathCreationOptions,
         setPathCreationOptions,
-        defaultActivityDurations,
-        setDefaultActivityDurations,
+        activityDefinitions,
+        setActivityDefinitions,
         onNightfallPlotYAxisRangeChange: setNightfallPlotYAxisRange,
         setIsCreatingExpression,
         setEvents,
