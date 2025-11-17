@@ -220,10 +220,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     const [activityDefinitions, setActivityDefinitions] = useState<ActivityDefinition[]>([
       { id: 'DRIVE-0', name: 'Drive-0', defaultDuration: 60 },
-      { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 60 },
+      { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 0 },
       { id: 'DRIVE-10', name: 'Drive-10', defaultDuration: 60 },
       { id: 'DRIVE-15', name: 'Drive-15', defaultDuration: 60 },
-      { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 60 },
+      { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 3600 },
       { id: 'LPF_COMMS', name: 'PL_COMMS', defaultDuration: 60 },
       { id: 'IDLE', name: 'Idle', defaultDuration: 60 },
       { id: 'SLEEP', name: 'Sleep', defaultDuration: 60 },
@@ -1217,10 +1217,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setPathCreationOptions(config.pathCreationOptions || { defaultMaxSegmentLength: 200 });
           setActivityDefinitions(config.activityDefinitions || [
             { id: 'DRIVE-0', name: 'Drive-0', defaultDuration: 60 },
-            { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 60 },
+            { id: 'DRIVE-5', name: 'Drive-5', defaultDuration: 0 },
             { id: 'DRIVE-10', name: 'Drive-10', defaultDuration: 60 },
             { id: 'DRIVE-15', name: 'Drive-15', defaultDuration: 60 },
-            { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 60 },
+            { id: 'DTE_COMMS', name: 'TTC_COMMS', defaultDuration: 3600 },
             { id: 'LPF_COMMS', name: 'PL_COMMS', defaultDuration: 60 },
             { id: 'IDLE', name: 'Idle', defaultDuration: 60 },
             { id: 'SLEEP', name: 'Sleep', defaultDuration: 60 },

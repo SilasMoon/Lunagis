@@ -1141,19 +1141,7 @@ const ArtifactsPanel: React.FC = () => {
                     <div className="space-y-2">
                         <p className="text-xs text-gray-400 mb-2">Manage activity types with custom names and default durations:</p>
                         {activityDefinitions.map((def, index) => (
-                            <div key={def.id} className="flex items-center gap-1 bg-gray-700/50 p-1.5 rounded border border-gray-600">
-                                <input
-                                    type="text"
-                                    value={def.id}
-                                    onChange={(e) => {
-                                        const newDefs = [...activityDefinitions];
-                                        newDefs[index] = { ...newDefs[index], id: e.target.value };
-                                        setActivityDefinitions(newDefs);
-                                    }}
-                                    className="bg-gray-800 text-white rounded px-1.5 py-0.5 border border-gray-600 text-xs w-24"
-                                    placeholder="ID"
-                                    title="Internal ID (used in code)"
-                                />
+                            <div key={def.id} className="flex items-center gap-2 bg-gray-700/50 p-1.5 rounded border border-gray-600">
                                 <input
                                     type="text"
                                     value={def.name}
@@ -1162,8 +1150,8 @@ const ArtifactsPanel: React.FC = () => {
                                         newDefs[index] = { ...newDefs[index], name: e.target.value };
                                         setActivityDefinitions(newDefs);
                                     }}
-                                    className="bg-gray-800 text-white rounded px-1.5 py-0.5 border border-gray-600 text-xs flex-1"
-                                    placeholder="Display Name"
+                                    className="bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 text-xs flex-1"
+                                    placeholder="Activity Name"
                                     title="Name used in UI and YAML export"
                                 />
                                 <input
@@ -1177,10 +1165,10 @@ const ArtifactsPanel: React.FC = () => {
                                         newDefs[index] = { ...newDefs[index], defaultDuration: value >= 0 ? value : 0 };
                                         setActivityDefinitions(newDefs);
                                     }}
-                                    className="bg-gray-800 text-white rounded px-1.5 py-0.5 border border-gray-600 text-xs w-12 text-right"
+                                    className="bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 text-xs w-16 text-right"
                                     title="Default duration in seconds"
                                 />
-                                <span className="text-xs text-gray-500 w-3">s</span>
+                                <span className="text-xs text-gray-500">s</span>
                                 <button
                                     onClick={() => {
                                         if (confirm(`Remove activity "${def.name}"?`)) {
