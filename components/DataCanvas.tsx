@@ -5,10 +5,12 @@ import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
 import { OptimizedCanvasLRUCache } from '../utils/OptimizedLRUCache';
+import { isDataGridLayer, isNightfallLayer, isDaylightFractionLayer, getLayerTimeIndex } from '../utils/layerHelpers';
 import { useDebounce } from '../hooks/useDebounce';
 import { WaypointEditModal } from './WaypointEditModal';
 import { ActivityTimelineModal } from './ActivityTimelineModal';
 import { ActivitySymbolsOverlay } from './ActivitySymbolsOverlay';
+import { useToast } from './Toast';
 
 declare const d3: any;
 declare const proj4: any;
@@ -244,6 +246,7 @@ export const DataCanvas: React.FC = () => {
     setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer, pathCreationOptions,
     activityDefinitions, activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
   } = useAppContext();
+  const { showError } = useToast();
 
   const timeIndex = currentDateIndex ?? 0;
   const debouncedTimeRange = timeRange;
@@ -400,10 +403,11 @@ export const DataCanvas: React.FC = () => {
 
       return { lonLines, latLines, lonStep, latStep };
     } catch (error) {
-      console.error('Error calculating graticule cache:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showError(`Failed to calculate graticule: ${errorMessage}`, 'Graticule Error');
       return null;
     }
-  }, [proj, combinedBounds, debouncedGraticuleDensity]);
+  }, [proj, combinedBounds, debouncedGraticuleDensity, showError]);
 
   const initialViewCalculated = useRef(false);
   
@@ -526,10 +530,11 @@ export const DataCanvas: React.FC = () => {
 
     return null;
     } catch (error) {
-      console.error('Error in getImageLayerHandle:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showError(`Failed to get image layer handle: ${errorMessage}`, 'Image Layer Error');
       return null;
     }
-  }, [viewState, layers, activeLayerId]);
+  }, [viewState, layers, activeLayerId, showError]);
 
   // Attach wheel event listener with passive: false to allow preventDefault()
   useEffect(() => {
@@ -646,16 +651,16 @@ export const DataCanvas: React.FC = () => {
 
         baseCtx.restore();
       }
-      else if ((layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms') && proj) {
+      else if (isDataGridLayer(layer) && proj) {
         let cacheKey: string;
         const invertedStr = !!layer.colormapInverted;
         let baseKey: string;
 
-        if (layer.type === 'analysis' && layer.analysisType === 'daylight_fraction' && debouncedTimeRange) {
+        if (isDaylightFractionLayer(layer) && debouncedTimeRange) {
           baseKey = `${layer.id}-${debouncedTimeRange.start}-${debouncedTimeRange.end}-${layer.colormap}-${invertedStr}`;
         } else {
           baseKey = `${layer.id}-${timeIndex}-${layer.colormap}-${invertedStr}-${layer.range.min}-${layer.range.max}`;
-          if (layer.type === 'analysis' && layer.analysisType === 'nightfall') {
+          if (isNightfallLayer(layer)) {
             baseKey += `-${layer.params.clipValue}`;
           }
         }
@@ -674,7 +679,7 @@ export const DataCanvas: React.FC = () => {
         let offscreenCanvas = offscreenCanvasCache.get(cacheKey);
 
         if (!offscreenCanvas) {
-          const slice = layer.dataset[layer.type === 'analysis' && layer.analysisType === 'daylight_fraction' ? 0 : timeIndex];
+          const slice = layer.dataset[getLayerTimeIndex(layer, timeIndex)];
           if (!slice) return;
 
           const { width, height } = layer.dimensions;
@@ -685,7 +690,7 @@ export const DataCanvas: React.FC = () => {
           let colorDomain: [number, number];
           const isThreshold = layer.colormap === 'Custom';
 
-          if (layer.type === 'analysis' && layer.analysisType === 'nightfall') {
+          if (isNightfallLayer(layer)) {
              colorDomain = [layer.range.min, layer.params.clipValue ?? layer.range.max];
           } else {
             colorDomain = [layer.range.min, layer.range.max];
@@ -1711,7 +1716,8 @@ export const DataCanvas: React.FC = () => {
         return;
       }
     } catch (error) {
-      console.error('Error in image layer transformation:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showError(`Failed to transform image layer: ${errorMessage}`, 'Image Transformation Error');
     }
 
     if (!!draggedInfo && projCoords) {
@@ -1810,7 +1816,8 @@ export const DataCanvas: React.FC = () => {
               }
           }
         } catch (error) {
-          console.error('Error checking image layer handle:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          showError(`Failed to check image layer handle: ${errorMessage}`, 'Image Layer Error');
         }
 
         // Only allow artifact dragging when in artifact mode

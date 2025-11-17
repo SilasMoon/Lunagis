@@ -8,6 +8,7 @@ import { indexToDateString } from '../utils/time';
 import { sanitizeLayerNameForExpression } from '../services/analysisService';
 import { useAppContext } from '../context/AppContext';
 import { exportPathToYAML } from '../utils/pathExport';
+import { hasColormap, isNightfallLayer, isExpressionLayer, isAnalysisLayer, isImageLayer, isDaylightFractionLayer, isDataLayer } from '../utils/layerHelpers';
 
 
 
@@ -329,20 +330,20 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
     const [editingExpression, setEditingExpression] = useState(false);
     const [newExpression, setNewExpression] = useState('');
 
-    const isNightfall = layer.type === 'analysis' && layer.analysisType === 'nightfall';
-    const isExpression = layer.type === 'analysis' && layer.analysisType === 'expression';
+    const isNightfall = isNightfallLayer(layer);
+    const isExpression = isExpressionLayer(layer);
     const useDaysUnitForCustom = isNightfall && layer.colormap === 'Custom';
-    const hasColormap = layer.type === 'data' || layer.type === 'analysis' || layer.type === 'dte_comms' || layer.type === 'lpf_comms';
+    const layerHasColormap = hasColormap(layer);
 
     const availableExpressionVariables = useMemo(() => {
         return layers
-            .filter(l => l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms')
+            .filter(hasColormap)
             .filter(l => l.id !== layer.id) // Exclude self
             .map(l => sanitizeLayerNameForExpression(l.name));
     }, [layers, layer.id]);
 
     const handleStartEditExpression = () => {
-        if (layer.type === 'analysis' && layer.params.expression) {
+        if (isAnalysisLayer(layer) && layer.params.expression) {
             setNewExpression(layer.params.expression);
             setEditingExpression(true);
         }
@@ -375,7 +376,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                 <div onClick={onSelect} className="flex-grow cursor-pointer truncate text-xs">
                     <p className="font-medium text-gray-200" title={layer.name}>{layer.name}</p>
                     <p className="text-xs text-gray-400">{formatLayerType(layer.type)}</p>
-                    {layer.type === 'analysis' && layer.analysisType === 'expression' && layer.params.expression && (
+                    {isExpressionLayer(layer) && layer.params.expression && (
                       <p className="text-xs text-gray-500 font-mono truncate mt-1" title={layer.params.expression}>
                         Expr: {layer.params.expression}
                       </p>
@@ -402,7 +403,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                         <label className="block text-xs font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
                         <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdateLayer(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
-                    {layer.type === 'image' && (
+                    {isImageLayer(layer) && (
                         <div className="space-y-3 border-t border-gray-700 pt-3">
                             <h4 className="text-xs font-medium text-gray-300">Transformation</h4>
                             <div className="space-y-2">
@@ -531,7 +532,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                             </div>
                         </div>
                     )}
-                    {hasColormap && (
+                    {layerHasColormap && (
                         <>
                           <div>
                             <label className="block text-xs font-medium text-gray-400 mb-1">Colormap</label>
@@ -641,10 +642,10 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                     : layer.range
                                 }
                                 units={
-                                    layer.type === 'analysis' 
-                                        ? (layer.analysisType === 'nightfall' 
-                                            ? 'days' 
-                                            : '%') 
+                                    isAnalysisLayer(layer)
+                                        ? (isNightfallLayer(layer)
+                                            ? 'days'
+                                            : '%')
                                         : undefined
                                 } 
                                 inverted={layer.colormapInverted}
@@ -653,7 +654,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                           </div>
                         </>
                     )}
-                    {layer.type === 'analysis' && layer.analysisType === 'daylight_fraction' && daylightFractionHoverData && (
+                    {isDaylightFractionLayer(layer) && daylightFractionHoverData && (
                         <div className="mt-3 p-3 bg-gray-900/40 rounded-md text-sm space-y-2 animate-fade-in">
                             <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Hover Details</h4>
                             <div className="flex justify-between">
@@ -683,7 +684,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                             </div>
                         </div>
                     )}
-                    {layer.type === 'data' && (
+                    {isDataLayer(layer) && (
                         <div className="border-t border-gray-700 pt-3 space-y-2">
                            <button onClick={() => onCalculateNightfallLayer(layer.id)} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all">
                              Calculate Nightfall Forecast

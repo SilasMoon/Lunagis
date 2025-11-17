@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Waypoint, Activity, ActivityTemplate } from '../types';
 import { ChevronUp, ChevronDown, Trash2, Plus, Save, FolderOpen } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { useToast } from './Toast';
 
 interface ActivityTimelineModalProps {
   isOpen: boolean;
@@ -13,21 +14,23 @@ interface ActivityTimelineModalProps {
 const TEMPLATES_STORAGE_KEY = 'lunagis_activity_templates';
 
 // Helper functions for template management
-const loadTemplates = (): ActivityTemplate[] => {
+const loadTemplates = (showError?: (message: string, title?: string) => void): ActivityTemplate[] => {
   try {
     const stored = localStorage.getItem(TEMPLATES_STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch (error) {
-    console.error('Error loading templates:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    showError?.(`Failed to load activity templates: ${errorMessage}`, 'Template Load Error');
     return [];
   }
 };
 
-const saveTemplates = (templates: ActivityTemplate[]) => {
+const saveTemplates = (templates: ActivityTemplate[], showError?: (message: string, title?: string) => void) => {
   try {
     localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
   } catch (error) {
-    console.error('Error saving templates:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    showError?.(`Failed to save activity templates: ${errorMessage}`, 'Template Save Error');
   }
 };
 
@@ -38,11 +41,12 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
   onSave,
 }) => {
   const { activityDefinitions } = useAppContext();
+  const { showError } = useToast();
   const [activities, setActivities] = useState<Activity[]>(waypoint.activities || []);
   const [description, setDescription] = useState(waypoint.description || '');
   const [isAddDropdownOpen, setIsAddDropdownOpen] = useState(false);
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
-  const [templates, setTemplates] = useState<ActivityTemplate[]>(loadTemplates());
+  const [templates, setTemplates] = useState<ActivityTemplate[]>(loadTemplates(showError));
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [showLoadConfirmation, setShowLoadConfirmation] = useState(false);
@@ -140,7 +144,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 
     const updatedTemplates = [...templates, newTemplate];
     setTemplates(updatedTemplates);
-    saveTemplates(updatedTemplates);
+    saveTemplates(updatedTemplates, showError);
     setShowSaveTemplateDialog(false);
     setTemplateName('');
   };
@@ -172,7 +176,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
     if (confirm('Are you sure you want to delete this template?')) {
       const updatedTemplates = templates.filter(t => t.id !== templateId);
       setTemplates(updatedTemplates);
-      saveTemplates(updatedTemplates);
+      saveTemplates(updatedTemplates, showError);
     }
   };
 

@@ -5,6 +5,7 @@ import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange,
 import { indexToDate } from '../utils/time';
 import * as analysisService from '../services/analysisService';
 import { useToast } from '../components/Toast';
+import { useCoordinateTransformation } from '../hooks/useCoordinateTransformation';
 
 // Geographic bounding box for the data
 const LAT_RANGE: [number, number] = [-85.505, -85.26];
@@ -256,9 +257,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(activityDefinitions));
       } catch (error) {
-        console.error('Error saving activity definitions:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        showError(`Failed to save activity definitions: ${errorMessage}`, 'Save Error');
       }
-    }, [activityDefinitions]);
+    }, [activityDefinitions, showError]);
 
     // Undo/Redo state (only for artifacts and events - layers contain non-serializable binary data)
     type HistoryState = {
@@ -294,36 +296,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [indexToDate(0), indexToDate(primaryDataLayer.dimensions.time - 1)];
     }, [primaryDataLayer]);
 
-    const coordinateTransformer = useMemo(() => {
-      if (!primaryDataLayer) return null;
-      const { width, height } = primaryDataLayer.dimensions;
-      const [lonMin, lonMax] = LON_RANGE;
-      const [latMin, latMax] = LAT_RANGE;
-
-      if (proj) {
-        const c_tl = proj.forward([lonMin, latMax]); const c_tr = proj.forward([lonMax, latMax]);
-        const c_bl = proj.forward([lonMin, latMin]);
-        const a = (c_tr[0] - c_tl[0]) / width; const b = (c_tr[1] - c_tl[1]) / width;
-        const c = (c_bl[0] - c_tl[0]) / height; const d = (c_bl[1] - c_tl[1]) / height;
-        const e = c_tl[0]; const f = c_tl[1];
-        const determinant = a * d - b * c;
-        if (Math.abs(determinant) < 1e-9) return null;
-
-        return (lat: number, lon: number): PixelCoords => {
-          try {
-            const [projX, projY] = proj.forward([lon, lat]);
-            const u = (d * (projX - e) - c * (projY - f)) / determinant;
-            const v = (a * (projY - f) - b * (projX - e)) / determinant;
-            const pixelX = Math.round(u); const pixelY = Math.round(v);
-            if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
-              return { x: pixelX, y: pixelY };
-            }
-            return null;
-          } catch (error) { return null; }
-        };
-      }
-      return null;
-    }, [proj, primaryDataLayer]);
+    const coordinateTransformer = useCoordinateTransformation({
+      proj,
+      primaryDataLayer,
+      lonRange: LON_RANGE,
+      latRange: LAT_RANGE,
+    });
 
     // Function to snap projected coordinates to the nearest data cell corner
     const snapToCellCorner = useMemo(() => {
