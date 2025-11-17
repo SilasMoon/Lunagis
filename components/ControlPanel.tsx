@@ -7,6 +7,8 @@ import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
 import { sanitizeLayerNameForExpression } from '../services/analysisService';
 import { useAppContext } from '../context/AppContext';
+import { exportPathToYAML } from '../utils/pathExport';
+
 
 
 declare const d3: any;
@@ -1010,7 +1012,16 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                     {artifact.type === 'path' && (
                         <>
                             <Section title="Path Tools">
-                                <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
+                                <div className="space-y-2">
+                                    <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
+                                    <button
+                                        onClick={() => exportPathToYAML(artifact as PathArtifact)}
+                                        className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md"
+                                        title="Export path to YAML format"
+                                    >
+                                        Export to YAML
+                                    </button>
+                                </div>
                             </Section>
                             <Section
                                 title={`Path Waypoints (${formatDistance(calculatePathDistance(proj, (artifact as PathArtifact).waypoints))})`}
