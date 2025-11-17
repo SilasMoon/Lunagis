@@ -18,6 +18,46 @@ const formatDuration = (hours: number): string => {
   return `${hours} hrs (${days} days)`;
 };
 
+// Helper function to calculate Euclidean distance in projected space (matches segment length calculation)
+const calculateProjectedDistance = (proj: any, coord1: [number, number], coord2: [number, number]): number => {
+  if (!proj) return 0;
+
+  try {
+    const proj1 = proj.forward(coord1);
+    const proj2 = proj.forward(coord2);
+
+    const dx = proj2[0] - proj1[0];
+    const dy = proj2[1] - proj1[1];
+
+    return Math.sqrt(dx * dx + dy * dy);
+  } catch (e) {
+    return 0;
+  }
+};
+
+// Helper function to calculate total distance of a path using projected coordinates
+const calculatePathDistance = (proj: any, waypoints: Waypoint[]): number => {
+  if (!proj || waypoints.length < 2) return 0;
+
+  let totalDistance = 0;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    totalDistance += calculateProjectedDistance(proj, waypoints[i].geoPosition, waypoints[i + 1].geoPosition);
+  }
+
+  return totalDistance;
+};
+
+// Helper function to format distance
+const formatDistance = (meters: number): string => {
+  if (meters < 1000) {
+    return `${meters.toFixed(0)} m`;
+  } else if (meters < 10000) {
+    return `${(meters / 1000).toFixed(2)} km`;
+  } else {
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
+};
+
 const Section: React.FC<{ title: string; children: React.ReactNode; defaultOpen?: boolean }> = ({ title, children, defaultOpen = false }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   return (
@@ -878,7 +918,7 @@ const LayersPanel: React.FC = () => {
 };
 
 const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
-    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints } = useAppContext();
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, proj } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
@@ -972,7 +1012,10 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                             <Section title="Path Tools">
                                 <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
                             </Section>
-                            <Section title="Path Waypoints" defaultOpen={true}>
+                            <Section
+                                title={`Path Waypoints (${formatDistance(calculatePathDistance(proj, (artifact as PathArtifact).waypoints))})`}
+                                defaultOpen={true}
+                            >
                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
                                     {(artifact as PathArtifact).waypoints.map((wp, i) => (
                                         <div key={wp.id} className="bg-gray-900/40 p-1.5 rounded-md">
@@ -1010,9 +1053,19 @@ const ArtifactsPanel: React.FC = () => {
         baseMapLayer,
         isAppendingWaypoints,
         pathCreationOptions,
-        setPathCreationOptions
+        setPathCreationOptions,
+        proj
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
+
+    // Calculate cumulative total distance of all paths
+    const totalCumulativeDistance = useMemo(() => {
+        return artifacts
+            .filter(artifact => artifact.type === 'path')
+            .reduce((sum, artifact) => {
+                return sum + calculatePathDistance(proj, (artifact as PathArtifact).waypoints);
+            }, 0);
+    }, [artifacts, proj]);
 
     if (!isDataLoaded) {
         return (
@@ -1025,7 +1078,14 @@ const ArtifactsPanel: React.FC = () => {
 
     return (
         <div className="space-y-4">
-          <h2 className="text-base font-semibold text-cyan-300">Artifacts</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-cyan-300">Artifacts</h2>
+            {totalCumulativeDistance > 0 && (
+              <span className="text-xs font-medium text-cyan-400 bg-cyan-900/30 px-2 py-1 rounded-md" title="Total cumulative distance of all paths">
+                Total: {formatDistance(totalCumulativeDistance)}
+              </span>
+            )}
+          </div>
           {artifactCreationMode === 'path' ? (
             <div className="p-3 bg-cyan-900/50 border border-cyan-700 rounded-md text-xs text-cyan-200 space-y-3">
                 <p><strong>Drawing Path:</strong> Click on the map to add waypoints. Press 'Esc' or click finish when done.</p>
