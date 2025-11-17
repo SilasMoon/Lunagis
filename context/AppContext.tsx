@@ -542,14 +542,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setTimeRange(initialTimeRange);
           setCurrentDateIndex(0);
           setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
-          setViewState(null);
+          // Only reset viewState if not already set to preserve user's zoom level
+          if (!viewState) {
+            setViewState(null);
+          }
         }
       } catch (error) {
         showError(`Error loading file: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setIsLoading(null);
       }
-    }, [primaryDataLayer]);
+    }, [primaryDataLayer, viewState]);
 
     const onAddDataLayer = useCallback((file: File) => handleAddNpyLayer(file, 'data'), [handleAddNpyLayer]);
     const onAddDteCommsLayer = useCallback((file: File) => handleAddNpyLayer(file, 'dte_comms'), [handleAddNpyLayer]);
@@ -574,13 +577,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           setLayers(prev => [newLayer, ...prev]);
           setActiveLayerId(newLayer.id);
-          setViewState(null);
+          // Only reset viewState if not already set to preserve user's zoom level
+          if (!viewState) {
+            setViewState(null);
+          }
       } catch (error) {
           showError(`Error processing base map: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
           setIsLoading(null);
       }
-    }, []);
+    }, [viewState]);
 
     const onAddImageLayer = useCallback(async (file: File, initialPosition?: [number, number]) => {
       setIsLoading(`Loading image "${file.name}"...`);
