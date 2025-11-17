@@ -157,7 +157,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
     const [currentDateIndex, setCurrentDateIndex] = useState<number | null>(null);
     const [hoveredCoords, setHoveredCoords] = useState<GeoCoordinates>(null);
-    const [showGraticule, setShowGraticule] = useState<boolean>(true);
+    const [showGraticule, setShowGraticule] = useState<boolean>(false);
     const [viewState, setViewState] = useState<ViewState | null>(null);
     const [graticuleDensity, setGraticuleDensity] = useState(1.0);
     const [activeTool, setActiveTool] = useState<Tool>('layers');
@@ -1022,13 +1022,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let newLayers: Layer[] = [];
 
           // 1. Load BaseMap and Data layers
+          const nonAnalysisLayers = config.layers.filter(l => l.type !== 'analysis');
+          const totalNonAnalysisLayers = nonAnalysisLayers.length;
+          let processedLayers = 0;
+
           for (const sLayer of config.layers) {
               if (sLayer.type === 'basemap') {
+                  processedLayers++;
+                  const progress = Math.floor((processedLayers / totalNonAnalysisLayers) * 100);
+                  setIsLoading(`Loading layer ${processedLayers} of ${totalNonAnalysisLayers}... ${progress}%`);
+
                   const pngFile = fileMap.get(sLayer.pngFileName);
                   const vrtFile = fileMap.get(sLayer.vrtFileName);
                   if (!pngFile) throw new Error(`Required file "${sLayer.pngFileName}" was not provided.`);
                   if (!vrtFile) throw new Error(`Required file "${sLayer.vrtFileName}" was not provided.`);
-                  
+
                   const vrtContent = await vrtFile.text();
                   const vrtData = parseVrt(vrtContent);
                   if (!vrtData) throw new Error(`Failed to parse VRT file: ${vrtFile.name}`);
@@ -1041,6 +1049,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   newLayers.push(layer);
 
               } else if (sLayer.type === 'data' || sLayer.type === 'dte_comms' || sLayer.type === 'lpf_comms') {
+                  processedLayers++;
+                  const progress = Math.floor((processedLayers / totalNonAnalysisLayers) * 100);
+                  setIsLoading(`Loading layer ${processedLayers} of ${totalNonAnalysisLayers}... ${progress}%`);
+
                   const file = fileMap.get(sLayer.fileName);
                   if (!file) throw new Error(`Required file "${sLayer.fileName}" was not provided.`);
 
@@ -1055,6 +1067,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   const layer: DataLayer | DteCommsLayer | LpfCommsLayer = { ...sLayer, dataset };
                   newLayers.push(layer);
               } else if (sLayer.type === 'image') {
+                  processedLayers++;
+                  const progress = Math.floor((processedLayers / totalNonAnalysisLayers) * 100);
+                  setIsLoading(`Loading layer ${processedLayers} of ${totalNonAnalysisLayers}... ${progress}%`);
+
                   // Load image from embedded data URL
                   const image = await dataUrlToImage(sLayer.imageDataUrl);
                   const { imageDataUrl, ...rest } = sLayer;
