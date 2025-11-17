@@ -222,6 +222,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
   return (
     <>
       <div
+        data-modal="true"
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
         onClick={handleBackdropClick}
         onWheel={handleBackdropWheel}
@@ -450,6 +451,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
       {/* Save Template Dialog */}
       {showSaveTemplateDialog && (
         <div
+          data-modal="true"
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
           onWheel={handleBackdropWheel}
           onKeyDown={preventKeyboardPropagation}
@@ -495,6 +497,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
       {/* Load Template Confirmation Dialog */}
       {showLoadConfirmation && templateToLoad && (
         <div
+          data-modal="true"
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
           onWheel={handleBackdropWheel}
           onKeyDown={preventKeyboardPropagation}

@@ -539,6 +539,13 @@ export const DataCanvas: React.FC = () => {
     const handleWheel = (e: WheelEvent) => {
       if (!viewState) return;
 
+      // Check if the wheel event originated from inside a modal
+      // If so, allow scrolling inside the modal and don't zoom the canvas
+      const target = e.target as HTMLElement;
+      if (target && target.closest('[data-modal="true"]')) {
+        return; // Let the modal handle scrolling
+      }
+
       // Prevent default scrolling behavior
       e.preventDefault();
 

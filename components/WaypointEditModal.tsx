@@ -95,6 +95,7 @@ export const WaypointEditModal: React.FC<WaypointEditModalProps> = ({
 
   return (
     <div
+      data-modal="true"
       className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={handleBackdropClick}
     >
