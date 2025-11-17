@@ -7,6 +7,8 @@ import { Colorbar } from './Colorbar';
 import { indexToDateString } from '../utils/time';
 import { sanitizeLayerNameForExpression } from '../services/analysisService';
 import { useAppContext } from '../context/AppContext';
+import { exportPathToYAML } from '../utils/pathExport';
+
 
 
 declare const d3: any;
@@ -918,7 +920,7 @@ const LayersPanel: React.FC = () => {
 };
 
 const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
-    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, proj } = useAppContext();
+    const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, proj, activityDefinitions } = useAppContext();
 
     const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
@@ -1010,7 +1012,16 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                     {artifact.type === 'path' && (
                         <>
                             <Section title="Path Tools">
-                                <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
+                                <div className="space-y-2">
+                                    <button onClick={onStartAppendWaypoints} className="w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md">Add Waypoints</button>
+                                    <button
+                                        onClick={() => exportPathToYAML(artifact as PathArtifact, activityDefinitions)}
+                                        className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-1.5 px-2 rounded-md"
+                                        title="Export path to YAML format"
+                                    >
+                                        Export to YAML
+                                    </button>
+                                </div>
                             </Section>
                             <Section
                                 title={`Path Waypoints (${formatDistance(calculatePathDistance(proj, (artifact as PathArtifact).waypoints))})`}
@@ -1054,6 +1065,8 @@ const ArtifactsPanel: React.FC = () => {
         isAppendingWaypoints,
         pathCreationOptions,
         setPathCreationOptions,
+        activityDefinitions,
+        setActivityDefinitions,
         proj
     } = useAppContext();
     const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
@@ -1120,6 +1133,66 @@ const ArtifactsPanel: React.FC = () => {
                             />
                             <span className="text-xs text-gray-500">Set a limit before creating a path. Leave empty for no limit.</span>
                         </label>
+                    </div>
+                </Section>
+
+                {/* Default Activity Settings */}
+                <Section title="Default Activity Settings" defaultOpen={false}>
+                    <div className="space-y-2">
+                        <p className="text-xs text-gray-400 mb-2">Manage activity types with custom names and default durations:</p>
+                        {activityDefinitions.map((def, index) => (
+                            <div key={def.id} className="flex items-center gap-2 bg-gray-700/50 p-1.5 rounded border border-gray-600">
+                                <input
+                                    type="text"
+                                    value={def.name}
+                                    onChange={(e) => {
+                                        const newDefs = [...activityDefinitions];
+                                        newDefs[index] = { ...newDefs[index], name: e.target.value };
+                                        setActivityDefinitions(newDefs);
+                                    }}
+                                    className="bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 text-xs flex-1"
+                                    placeholder="Activity Name"
+                                    title="Name used in UI and YAML export"
+                                />
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={def.defaultDuration}
+                                    onChange={(e) => {
+                                        const value = parseInt(e.target.value) || 0;
+                                        const newDefs = [...activityDefinitions];
+                                        newDefs[index] = { ...newDefs[index], defaultDuration: value >= 0 ? value : 0 };
+                                        setActivityDefinitions(newDefs);
+                                    }}
+                                    className="bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 text-xs w-16 text-right"
+                                    title="Default duration in seconds"
+                                />
+                                <span className="text-xs text-gray-500">s</span>
+                                <button
+                                    onClick={() => {
+                                        if (confirm(`Remove activity "${def.name}"?`)) {
+                                            setActivityDefinitions(activityDefinitions.filter((_, i) => i !== index));
+                                        }
+                                    }}
+                                    className="text-red-400 hover:text-red-300 p-0.5"
+                                    title="Remove activity"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
+                        ))}
+                        <button
+                            onClick={() => {
+                                const newId = `CUSTOM_${Date.now()}`;
+                                setActivityDefinitions([...activityDefinitions, { id: newId, name: 'New Activity', defaultDuration: 60 }]);
+                            }}
+                            className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-1 px-2 rounded"
+                        >
+                            + Add Activity Type
+                        </button>
                     </div>
                 </Section>
 

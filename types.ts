@@ -142,6 +142,24 @@ export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | L
 
 // --- Artifact Types ---
 
+export interface ActivityDefinition {
+  id: string; // unique identifier (e.g., 'DRIVE-0', 'DTE_COMMS')
+  name: string; // display name used in UI and YAML export (e.g., 'Drive-0', 'TTC_COMMS')
+  defaultDuration: number; // default duration in seconds
+}
+
+export interface Activity {
+  id: string;
+  type: string; // references ActivityDefinition.id
+  duration: number; // in seconds, non-negative integer
+}
+
+export interface ActivityTemplate {
+  id: string;
+  name: string;
+  activities: Activity[];
+}
+
 export interface Waypoint {
   id: string;
   geoPosition: [number, number]; // [lon, lat]
@@ -152,6 +170,7 @@ export interface Waypoint {
   activitySymbolColor?: string; // Hex color (default: artifact color)
   activityOffset?: number; // Distance in pixels perpendicular to outgoing segment (default: 35)
   description?: string; // Optional description
+  activities?: Activity[]; // Timeline of activities for this waypoint
 }
 
 export interface ArtifactBase {
@@ -309,6 +328,7 @@ export interface AppStateConfig {
   pathCreationOptions: {
     defaultMaxSegmentLength: number | null; // in meters, null means no limit
   };
+  activityDefinitions: ActivityDefinition[];
   nightfallPlotYAxisRange: { min: number; max: number; };
   events: SerializableEvent[];
 }

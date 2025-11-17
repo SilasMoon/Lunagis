@@ -7,6 +7,7 @@ import { useAppContext } from '../context/AppContext';
 import { OptimizedCanvasLRUCache } from '../utils/OptimizedLRUCache';
 import { useDebounce } from '../hooks/useDebounce';
 import { WaypointEditModal } from './WaypointEditModal';
+import { ActivityTimelineModal } from './ActivityTimelineModal';
 import { ActivitySymbolsOverlay } from './ActivitySymbolsOverlay';
 
 declare const d3: any;
@@ -241,12 +242,31 @@ export const DataCanvas: React.FC = () => {
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
     setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer, pathCreationOptions,
-    activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
+    activityDefinitions, activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
   } = useAppContext();
 
   const timeIndex = currentDateIndex ?? 0;
   const debouncedTimeRange = timeRange;
   const isDataLoaded = !!primaryDataLayer || !!baseMapLayer;
+
+  // Helper function to create default activities for new waypoints
+  const createDefaultActivities = useCallback(() => {
+    const dteComms = activityDefinitions.find(a => a.id === 'DTE_COMMS');
+    const drive5 = activityDefinitions.find(a => a.id === 'DRIVE-5');
+
+    return [
+      {
+        id: `act-${Date.now()}-${Math.random()}`,
+        type: 'DTE_COMMS',
+        duration: dteComms?.defaultDuration ?? 3600
+      },
+      {
+        id: `act-${Date.now()}-${Math.random()}`,
+        type: 'DRIVE-5',
+        duration: drive5?.defaultDuration ?? 0
+      },
+    ];
+  }, [activityDefinitions]);
 
   // Debounce non-critical rendering dependencies to reduce re-render frequency
   // Use short delay for pan/zoom (smooth interaction), longer for less critical changes
@@ -263,6 +283,7 @@ export const DataCanvas: React.FC = () => {
 
   const [isRendering, setIsRendering] = useState(false);
   const [editingWaypoint, setEditingWaypoint] = useState<{ artifactId: string; waypoint: Waypoint } | null>(null);
+  const [editingWaypointActivities, setEditingWaypointActivities] = useState<{ artifactId: string; waypoint: Waypoint } | null>(null);
   // LRU cache: max 50 canvases or 500MB, whichever is hit first
   // Using optimized doubly-linked list implementation for O(1) operations
   const offscreenCanvasCache = useRef(new OptimizedCanvasLRUCache(50, 500)).current;
@@ -517,6 +538,13 @@ export const DataCanvas: React.FC = () => {
 
     const handleWheel = (e: WheelEvent) => {
       if (!viewState) return;
+
+      // Check if the wheel event originated from inside a modal
+      // If so, allow scrolling inside the modal and don't zoom the canvas
+      const target = e.target as HTMLElement;
+      if (target && target.closest('[data-modal="true"]')) {
+        return; // Let the modal handle scrolling
+      }
 
       // Prevent default scrolling behavior
       e.preventDefault();
@@ -1360,12 +1388,22 @@ export const DataCanvas: React.FC = () => {
                 }
             }
 
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${pathBeingDrawn.waypoints.length + 1}` };
+            const newWaypoint: Waypoint = {
+              id: `wp-${Date.now()}`,
+              geoPosition: waypointGeoPosition,
+              label: `WP${pathBeingDrawn.waypoints.length + 1}`,
+              activities: createDefaultActivities(),
+            };
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
             // First click: create the path
             const newId = `path-${Date.now()}`;
-            const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: [coords.lon, coords.lat], label: 'WP1' };
+            const newWaypoint: Waypoint = {
+              id: `wp-${Date.now()}`,
+              geoPosition: [coords.lon, coords.lat],
+              label: 'WP1',
+              activities: createDefaultActivities(),
+            };
             const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
             setArtifacts(prev => [...prev, newArtifact]);
             setActiveArtifactId(newId);
@@ -1438,7 +1476,12 @@ export const DataCanvas: React.FC = () => {
               }
           }
 
-          const newWaypoint: Waypoint = { id: `wp-${Date.now()}`, geoPosition: waypointGeoPosition, label: `WP${activeArtifact.waypoints.length + 1}` };
+          const newWaypoint: Waypoint = {
+            id: `wp-${Date.now()}`,
+            geoPosition: waypointGeoPosition,
+            label: `WP${activeArtifact.waypoints.length + 1}`,
+            activities: createDefaultActivities(),
+          };
           onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
     } else if (activeTool === 'measurement') {
@@ -1847,7 +1890,7 @@ export const DataCanvas: React.FC = () => {
     const waypoint = artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId);
     if (!waypoint) return;
 
-    setEditingWaypoint({ artifactId: artifact.id, waypoint });
+    setEditingWaypointActivities({ artifactId: artifact.id, waypoint });
   };
 
   const handleWaypointEditSave = (updates: Partial<Waypoint>) => {
@@ -1857,6 +1900,20 @@ export const DataCanvas: React.FC = () => {
     if (!artifact || artifact.type !== 'path') return;
 
     const waypointIndex = artifact.waypoints.findIndex(wp => wp.id === editingWaypoint.waypoint.id);
+    if (waypointIndex === -1) return;
+
+    const newWaypoints = [...artifact.waypoints];
+    newWaypoints[waypointIndex] = { ...newWaypoints[waypointIndex], ...updates };
+    onUpdateArtifact(artifact.id, { waypoints: newWaypoints });
+  };
+
+  const handleWaypointActivitiesSave = (updates: Partial<Waypoint>) => {
+    if (!editingWaypointActivities) return;
+
+    const artifact = artifacts.find(a => a.id === editingWaypointActivities.artifactId);
+    if (!artifact || artifact.type !== 'path') return;
+
+    const waypointIndex = artifact.waypoints.findIndex(wp => wp.id === editingWaypointActivities.waypoint.id);
     if (waypointIndex === -1) return;
 
     const newWaypoints = [...artifact.waypoints];
@@ -1924,14 +1981,40 @@ export const DataCanvas: React.FC = () => {
           />
         );
       })()}
+      {editingWaypointActivities && (
+        <ActivityTimelineModal
+          isOpen={true}
+          waypoint={editingWaypointActivities.waypoint}
+          onClose={() => setEditingWaypointActivities(null)}
+          onSave={handleWaypointActivitiesSave}
+        />
+      )}
       {hoveredWaypointInfo && (() => {
         const artifact = artifacts.find(a => a.id === hoveredWaypointInfo.artifactId);
         const waypoint = artifact && artifact.type === 'path' ? artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId) : null;
 
         if (!waypoint) return null;
 
+        const getActivityName = (typeId: string) => {
+          const def = activityDefinitions.find(d => d.id === typeId);
+          return def?.name || typeId;
+        };
+
+        const formatDuration = (seconds: number) => {
+          if (seconds === 0) return '0s';
+          if (seconds < 60) return `${seconds}s`;
+          const hours = Math.floor(seconds / 3600);
+          const mins = Math.floor((seconds % 3600) / 60);
+          const secs = seconds % 60;
+          const parts = [];
+          if (hours > 0) parts.push(`${hours}h`);
+          if (mins > 0) parts.push(`${mins}m`);
+          if (secs > 0) parts.push(`${secs}s`);
+          return parts.join(' ');
+        };
+
         return (
-          <div className="absolute bottom-4 left-4 bg-gray-800/95 border border-gray-600 rounded-lg p-3 shadow-lg z-50 pointer-events-none max-w-xs">
+          <div className="absolute bottom-4 left-4 bg-gray-800/95 border border-gray-600 rounded-lg p-3 shadow-lg z-50 pointer-events-none max-w-sm">
             <div className="text-sm space-y-1">
               <div className="font-semibold text-white border-b border-gray-600 pb-1 mb-2">
                 {waypoint.label || 'Waypoint'}
@@ -1944,9 +2027,23 @@ export const DataCanvas: React.FC = () => {
                   <span className="text-gray-400">Activity:</span> {waypoint.activityLabel || waypoint.activitySymbol}
                 </div>
               )}
+              {waypoint.activities && waypoint.activities.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-700">
+                  <div className="text-gray-400 text-xs font-semibold mb-1">Activity Plan:</div>
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {waypoint.activities.map((activity, idx) => (
+                      <div key={activity.id} className="text-xs text-gray-300 flex justify-between gap-2">
+                        <span className="truncate">{idx + 1}. {getActivityName(activity.type)}</span>
+                        <span className="text-gray-500 flex-shrink-0">{formatDuration(activity.duration)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {waypoint.description && (
                 <div className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700">
-                  {waypoint.description}
+                  <div className="text-gray-400 font-semibold mb-1">Description:</div>
+                  <div className="whitespace-pre-wrap">{waypoint.description}</div>
                 </div>
               )}
             </div>
