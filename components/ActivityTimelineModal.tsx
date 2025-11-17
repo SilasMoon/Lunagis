@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Waypoint, Activity, ActivityType, ActivityTemplate } from '../types';
+import { Waypoint, Activity, ActivityTemplate } from '../types';
 import { ChevronUp, ChevronDown, Trash2, Plus, Save, FolderOpen } from 'lucide-react';
+import { useAppContext } from '../context/AppContext';
 
 interface ActivityTimelineModalProps {
   isOpen: boolean;
@@ -8,18 +9,6 @@ interface ActivityTimelineModalProps {
   onClose: () => void;
   onSave: (updates: Partial<Waypoint>) => void;
 }
-
-const ACTIVITY_TYPES: ActivityType[] = [
-  'DRIVE-0',
-  'DRIVE-5',
-  'DRIVE-10',
-  'DRIVE-15',
-  'DTE_COMMS',
-  'LPF_COMMS',
-  'IDLE',
-  'SLEEP',
-  'SCIENCE',
-];
 
 const TEMPLATES_STORAGE_KEY = 'lunagis_activity_templates';
 
@@ -48,6 +37,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
   onClose,
   onSave,
 }) => {
+  const { activityDefinitions } = useAppContext();
   const [activities, setActivities] = useState<Activity[]>(waypoint.activities || []);
   const [isAddDropdownOpen, setIsAddDropdownOpen] = useState(false);
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
@@ -88,11 +78,12 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 
   const generateId = () => `activity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  const handleAddActivity = (type: ActivityType) => {
+  const handleAddActivity = (type: string) => {
+    const definition = activityDefinitions.find(def => def.id === type);
     const newActivity: Activity = {
       id: generateId(),
       type,
-      duration: 60, // Default 60 seconds
+      duration: definition?.defaultDuration || 60,
     };
     setActivities([...activities, newActivity]);
     setIsAddDropdownOpen(false);
@@ -125,7 +116,7 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
     }
   };
 
-  const handleTypeChange = (id: string, type: ActivityType) => {
+  const handleTypeChange = (id: string, type: string) => {
     setActivities(activities.map(a =>
       a.id === id ? { ...a, type } : a
     ));
@@ -348,11 +339,11 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
                   {/* Activity Type Dropdown */}
                   <select
                     value={activity.type}
-                    onChange={(e) => handleTypeChange(activity.id, e.target.value as ActivityType)}
+                    onChange={(e) => handleTypeChange(activity.id, e.target.value)}
                     className="flex-1 bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500 text-xs"
                   >
-                    {ACTIVITY_TYPES.map(type => (
-                      <option key={type} value={type}>{type}</option>
+                    {activityDefinitions.map(def => (
+                      <option key={def.id} value={def.id}>{def.name}</option>
                     ))}
                   </select>
 
@@ -413,13 +404,13 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 
                 {isAddDropdownOpen && (
                   <div className="absolute z-10 w-full mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    {ACTIVITY_TYPES.map((type) => (
+                    {activityDefinitions.map((def) => (
                       <button
-                        key={type}
-                        onClick={() => handleAddActivity(type)}
+                        key={def.id}
+                        onClick={() => handleAddActivity(def.id)}
                         className="w-full px-3 py-1.5 text-left text-sm text-gray-300 hover:bg-gray-600 transition-colors"
                       >
-                        {type}
+                        {def.name}
                       </button>
                     ))}
                   </div>

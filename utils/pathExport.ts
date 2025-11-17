@@ -1,24 +1,14 @@
-import { PathArtifact, ActivityType } from '../types';
+import { PathArtifact, ActivityDefinition } from '../types';
 
-// Map internal activity types to YAML task names
-const activityTypeToTaskName = (type: ActivityType): string => {
-  const mapping: Record<ActivityType, string> = {
-    'DTE_COMMS': 'TTC_COMMS',
-    'LPF_COMMS': 'PL_COMMS',
-    'SCIENCE': 'Science',
-    'IDLE': 'Idle',
-    'SLEEP': 'Sleep',
-    'DRIVE-0': 'Drive-0',
-    'DRIVE-5': 'Drive-5',
-    'DRIVE-10': 'Drive-10',
-    'DRIVE-15': 'Drive-15',
-  };
-  return mapping[type] || type;
+// Get the display name for an activity type from definitions
+const getActivityName = (type: string, definitions: ActivityDefinition[]): string => {
+  const definition = definitions.find(def => def.id === type);
+  return definition?.name || type;
 };
 
 // Determine which drive speed to use for the traverse task
-// Uses the last DRIVE activity in the waypoint, or defaults to DRIVE-5
-const getDriveSpeed = (waypoint: PathArtifact['waypoints'][0]): string => {
+// Uses the last DRIVE activity in the waypoint, or defaults to 5
+const getDriveSpeed = (waypoint: PathArtifact['waypoints'][0], definitions: ActivityDefinition[]): string => {
   if (!waypoint.activities || waypoint.activities.length === 0) {
     return '5';
   }
@@ -34,7 +24,7 @@ const getDriveSpeed = (waypoint: PathArtifact['waypoints'][0]): string => {
   return '5'; // Default to DRIVE-5
 };
 
-export const exportPathToYAML = (path: PathArtifact): void => {
+export const exportPathToYAML = (path: PathArtifact, activityDefinitions: ActivityDefinition[]): void => {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', {
     month: 'short',
@@ -75,7 +65,7 @@ export const exportPathToYAML = (path: PathArtifact): void => {
       waypoint.activities.forEach(activity => {
         // Skip DRIVE activities as they're handled differently
         if (!activity.type.startsWith('DRIVE-')) {
-          tasks.push(activityTypeToTaskName(activity.type));
+          tasks.push(getActivityName(activity.type, activityDefinitions));
           durations.push(activity.duration);
         }
       });
@@ -83,7 +73,7 @@ export const exportPathToYAML = (path: PathArtifact): void => {
 
     // Add Drive-X_Traverse_Y task (except for the last waypoint)
     if (index < path.waypoints.length - 1) {
-      const driveSpeed = getDriveSpeed(waypoint);
+      const driveSpeed = getDriveSpeed(waypoint, activityDefinitions);
       const traverseNum = index + 2; // Traverse numbering starts at 2
       tasks.push(`Drive-${driveSpeed}_Traverse_${traverseNum}`);
       durations.push(0);
