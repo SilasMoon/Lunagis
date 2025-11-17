@@ -134,6 +134,12 @@ interface AppContextType {
     onImportConfig: (file: File) => void;
     handleRestoreSession: (config: AppStateConfig, files: FileList | File[]) => Promise<void>;
 
+    // Undo/Redo
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
+
     latRange: [number, number];
     lonRange: [number, number];
 }
@@ -216,6 +222,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const [events, setEvents] = useState<Event[]>([]);
     const [activeEventId, setActiveEventId] = useState<string | null>(null);
+
+    // Undo/Redo state
+    type HistoryState = {
+        layers: Layer[];
+        artifacts: Artifact[];
+        events: Event[];
+    };
+    const [undoStack, setUndoStack] = useState<HistoryState[]>([]);
+    const [redoStack, setRedoStack] = useState<HistoryState[]>([]);
+
+    // Function to save current state to undo stack
+    const saveStateToHistory = useCallback(() => {
+        const currentState: HistoryState = {
+            layers: JSON.parse(JSON.stringify(layers)),
+            artifacts: JSON.parse(JSON.stringify(artifacts)),
+            events: JSON.parse(JSON.stringify(events)),
+        };
+        setUndoStack(prev => [...prev, currentState]);
+        setRedoStack([]); // Clear redo stack when new action is performed
+    }, [layers, artifacts, events]);
 
     const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
     const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
@@ -595,15 +621,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [viewState, showSuccess, showError]);
 
     const onUpdateLayer = useCallback((id: string, updates: Partial<Layer>) => {
+      saveStateToHistory();
       setLayers(prevLayers =>
         prevLayers.map(l => (l.id === id ? ({ ...l, ...updates } as Layer) : l))
       );
-    }, []);
+    }, [saveStateToHistory]);
 
     const onRemoveLayer = useCallback((id: string) => {
+      saveStateToHistory();
       setLayers(prev => prev.filter(l => l.id !== id));
       if (activeLayerId === id) setActiveLayerId(null);
-    }, [activeLayerId]);
+    }, [activeLayerId, saveStateToHistory]);
 
     const onMoveLayerUp = useCallback((id: string) => {
       setLayers(prev => {
@@ -829,8 +857,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const onUpdateArtifact = useCallback((id: string, updates: Partial<Artifact>) => {
+      saveStateToHistory();
       setArtifacts(prev => prev.map(a => (a.id === id ? { ...a, ...updates } as Artifact : a)));
-    }, []);
+    }, [saveStateToHistory]);
 
     const onFinishArtifactCreation = useCallback(() => {
       setArtifactCreationMode(null);
@@ -853,23 +882,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [onFinishArtifactCreation]);
 
     const onRemoveArtifact = useCallback((id: string) => {
+      saveStateToHistory();
       setArtifacts(prev => prev.filter(a => a.id !== id));
       if (activeArtifactId === id) setActiveArtifactId(null);
-    }, [activeArtifactId]);
+    }, [activeArtifactId, saveStateToHistory]);
 
     const onUpdateEvent = useCallback((id: string, updates: Partial<Event>) => {
+      saveStateToHistory();
       setEvents(prev => prev.map(e => (e.id === id ? { ...e, ...updates } as Event : e)));
-    }, []);
+    }, [saveStateToHistory]);
 
     const onRemoveEvent = useCallback((id: string) => {
+      saveStateToHistory();
       setEvents(prev => prev.filter(e => e.id !== id));
       if (activeEventId === id) setActiveEventId(null);
-    }, [activeEventId]);
+    }, [activeEventId, saveStateToHistory]);
 
     const onAddEvent = useCallback((event: Event) => {
+      saveStateToHistory();
       setEvents(prev => [...prev, event]);
       setActiveEventId(event.id);
-    }, []);
+    }, [saveStateToHistory]);
+
+    // Undo/Redo handlers
+    const onUndo = useCallback(() => {
+      if (undoStack.length === 0) return;
+
+      const currentState: HistoryState = {
+        layers: JSON.parse(JSON.stringify(layers)),
+        artifacts: JSON.parse(JSON.stringify(artifacts)),
+        events: JSON.parse(JSON.stringify(events)),
+      };
+
+      const previousState = undoStack[undoStack.length - 1];
+      setLayers(previousState.layers);
+      setArtifacts(previousState.artifacts);
+      setEvents(previousState.events);
+
+      setRedoStack(prev => [...prev, currentState]);
+      setUndoStack(prev => prev.slice(0, -1));
+    }, [undoStack, layers, artifacts, events]);
+
+    const onRedo = useCallback(() => {
+      if (redoStack.length === 0) return;
+
+      const currentState: HistoryState = {
+        layers: JSON.parse(JSON.stringify(layers)),
+        artifacts: JSON.parse(JSON.stringify(artifacts)),
+        events: JSON.parse(JSON.stringify(events)),
+      };
+
+      const nextState = redoStack[redoStack.length - 1];
+      setLayers(nextState.layers);
+      setArtifacts(nextState.artifacts);
+      setEvents(nextState.events);
+
+      setUndoStack(prev => [...prev, currentState]);
+      setRedoStack(prev => prev.slice(0, -1));
+    }, [redoStack, layers, artifacts, events]);
 
     const onClearSelection = useCallback(() => { setSelectedCells([]); }, []);
 
@@ -1251,6 +1321,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onExportConfig,
         onImportConfig,
         handleRestoreSession,
+        canUndo: undoStack.length > 0,
+        canRedo: redoStack.length > 0,
+        onUndo,
+        onRedo,
         latRange: LAT_RANGE,
         lonRange: LON_RANGE
     };

@@ -1452,18 +1452,8 @@ export const DataCanvas: React.FC = () => {
         });
       }
     } else if (activeTool === 'layers') {
-      // Cell selection for layer management mode
-      const pixel = coordinateTransformer ? coordinateTransformer(coords.lat, coords.lon) : null;
-      if (pixel) {
-        setSelectedCellForPlot(prev => {
-          // Toggle selection: if clicking the same cell, deselect it
-          if (prev && prev.x === pixel.x && prev.y === pixel.y) {
-            return null; // Deselect
-          } else {
-            return pixel; // Select
-          }
-        });
-      }
+      // Cell selection for layer management mode - now handled by double-click
+      // Single click does nothing in layer mode
     } else {
       // Logic for selecting an artifact by clicking on it
       if (hoveredArtifactId) {
@@ -1827,6 +1817,25 @@ export const DataCanvas: React.FC = () => {
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    const geoCoords = proj && projCoords ? (() => { try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); return { lat, lon }; } catch(e) { return null; } })() : null;
+
+    // Handle layer management mode - double-click to select cell
+    if (activeTool === 'layers' && geoCoords) {
+      const pixel = coordinateTransformer ? coordinateTransformer(geoCoords.lat, geoCoords.lon) : null;
+      if (pixel) {
+        setSelectedCellForPlot(prev => {
+          // Toggle selection: if clicking the same cell, deselect it
+          if (prev && prev.x === pixel.x && prev.y === pixel.y) {
+            return null; // Deselect
+          } else {
+            return pixel; // Select
+          }
+        });
+      }
+      return;
+    }
+
     // Only handle waypoint double-clicks in artifact mode
     if (activeTool !== 'artifacts' || !hoveredWaypointInfo) return;
 
