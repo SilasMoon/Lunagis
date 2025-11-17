@@ -677,7 +677,7 @@ export const DataCanvas: React.FC = () => {
               // Map value to lookup table index (0-255)
               let normalized = (value - minVal) / valueRange;
               normalized = Math.max(0, Math.min(1, normalized)); // Clamp to [0, 1]
-              const lutIdx = Math.floor(normalized * 255) * 4;
+              const lutIdx = Math.round(normalized * 255) * 4;
 
               // Fast lookup instead of d3.color() call
               imageData.data[pixelIdx] = colorLUT[lutIdx];
