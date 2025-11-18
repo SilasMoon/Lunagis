@@ -34,6 +34,96 @@ const saveTemplates = (templates: ActivityTemplate[], showError?: (message: stri
   }
 };
 
+// Memoized ActivityItem component to prevent unnecessary re-renders
+interface ActivityItemProps {
+  activity: Activity;
+  index: number;
+  totalCount: number;
+  activityDefinitions: ActivityDefinition[];
+  onTypeChange: (id: string, type: string) => void;
+  onDurationChange: (id: string, value: string) => void;
+  onMoveUp: (index: number) => void;
+  onMoveDown: (index: number) => void;
+  onRemove: (id: string) => void;
+}
+
+const ActivityItem = React.memo<ActivityItemProps>(({
+  activity,
+  index,
+  totalCount,
+  activityDefinitions,
+  onTypeChange,
+  onDurationChange,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+}) => {
+  return (
+    <div className="bg-gray-700 rounded border border-gray-600 px-2.5 py-1.5 flex items-center gap-2">
+      {/* Order Number */}
+      <div className="flex-shrink-0 w-6 h-6 bg-gray-800 rounded flex items-center justify-center text-xs font-medium text-gray-300">
+        {index + 1}
+      </div>
+
+      {/* Activity Type Dropdown */}
+      <select
+        value={activity.type}
+        onChange={(e) => onTypeChange(activity.id, e.target.value)}
+        className="flex-1 bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500 text-xs"
+      >
+        {activityDefinitions.map(def => (
+          <option key={def.id} value={def.id}>{def.name}</option>
+        ))}
+      </select>
+
+      {/* Duration Input */}
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value={activity.duration}
+          onChange={(e) => onDurationChange(activity.id, e.target.value)}
+          className="w-16 bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500 text-xs text-right"
+          placeholder="Dur"
+        />
+        <span className="text-xs text-gray-400 w-4">s</span>
+      </div>
+
+      {/* Reorder Buttons */}
+      <div className="flex gap-0.5">
+        <button
+          onClick={() => onMoveUp(index)}
+          disabled={index === 0}
+          className="text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-0.5"
+          title="Move up"
+        >
+          <ChevronUp className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onMoveDown(index)}
+          disabled={index === totalCount - 1}
+          className="text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-0.5"
+          title="Move down"
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Delete Button */}
+      <button
+        onClick={() => onRemove(activity.id)}
+        className="text-red-400 hover:text-red-300 transition-colors p-0.5"
+        title="Remove activity"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+});
+
+ActivityItem.displayName = 'ActivityItem';
+
 export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
   isOpen,
   waypoint,
@@ -347,69 +437,18 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
             {/* Activities Table */}
             <div className="space-y-1.5">
               {activities.map((activity, index) => (
-                <div
+                <ActivityItem
                   key={activity.id}
-                  className="bg-gray-700 rounded border border-gray-600 px-2.5 py-1.5 flex items-center gap-2"
-                >
-                  {/* Order Number */}
-                  <div className="flex-shrink-0 w-6 h-6 bg-gray-800 rounded flex items-center justify-center text-xs font-medium text-gray-300">
-                    {index + 1}
-                  </div>
-
-                  {/* Activity Type Dropdown */}
-                  <select
-                    value={activity.type}
-                    onChange={(e) => handleTypeChange(activity.id, e.target.value)}
-                    className="flex-1 bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500 text-xs"
-                  >
-                    {activityDefinitions.map(def => (
-                      <option key={def.id} value={def.id}>{def.name}</option>
-                    ))}
-                  </select>
-
-                  {/* Duration Input */}
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={activity.duration}
-                      onChange={(e) => handleDurationChange(activity.id, e.target.value)}
-                      className="w-16 bg-gray-800 text-white rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500 text-xs text-right"
-                      placeholder="Dur"
-                    />
-                    <span className="text-xs text-gray-400 w-4">s</span>
-                  </div>
-
-                  {/* Reorder Buttons */}
-                  <div className="flex gap-0.5">
-                    <button
-                      onClick={() => handleMoveUp(index)}
-                      disabled={index === 0}
-                      className="text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-0.5"
-                      title="Move up"
-                    >
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleMoveDown(index)}
-                      disabled={index === activities.length - 1}
-                      className="text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-0.5"
-                      title="Move down"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Delete Button */}
-                  <button
-                    onClick={() => handleRemoveActivity(activity.id)}
-                    className="text-red-400 hover:text-red-300 transition-colors p-0.5"
-                    title="Remove activity"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                  activity={activity}
+                  index={index}
+                  totalCount={activities.length}
+                  activityDefinitions={activityDefinitions}
+                  onTypeChange={handleTypeChange}
+                  onDurationChange={handleDurationChange}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                  onRemove={handleRemoveActivity}
+                />
               ))}
 
               {/* Add Activity Row */}

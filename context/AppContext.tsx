@@ -1238,7 +1238,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, []);
 
 
-    const value: AppContextType = {
+    // Memoize context value to prevent unnecessary re-renders
+    // Only recreate when actual dependencies change, not on every AppProvider render
+    const value: AppContextType = useMemo(() => ({
         layers,
         activeLayerId,
         isLoading,
@@ -1354,7 +1356,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onRedo,
         latRange: LAT_RANGE,
         lonRange: LON_RANGE
-    };
+    }), [
+        // State values
+        layers, activeLayerId, isLoading, timeRange, currentDateIndex, hoveredCoords,
+        showGraticule, viewState, graticuleDensity, activeTool, selectedPixel,
+        timeSeriesData, timeZoomDomain, daylightFractionHoverData, flickeringLayerId,
+        showGrid, gridSpacing, gridColor, selectedCells, selectionColor, selectedCellForPlot,
+        isPlaying, isPaused, playbackSpeed, importRequest, artifacts, activeArtifactId,
+        artifactCreationMode, isAppendingWaypoints, draggedInfo, artifactDisplayOptions,
+        nightfallPlotYAxisRange, isCreatingExpression, events, activeEventId,
+        // Derived values
+        baseMapLayer, primaryDataLayer, activeLayer, proj, fullTimeDomain,
+        coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
+        pathCreationOptions, activityDefinitions, undoStack.length, redoStack.length,
+        // Callbacks (stable across renders due to useCallback)
+        setLayers, setActiveLayerId, setIsLoading, setTimeRange, setCurrentDateIndex,
+        setHoveredCoords, setShowGraticule, setViewState, setGraticuleDensity,
+        setActiveTool, setSelectedPixel, setTimeZoomDomain, onToggleFlicker,
+        setShowGrid, setGridSpacing, setGridColor, setSelectedCells, setSelectionColor,
+        setSelectedCellForPlot, setIsPlaying, setIsPaused, setPlaybackSpeed,
+        setImportRequest, setArtifacts, setActiveArtifactId, setArtifactCreationMode,
+        setIsAppendingWaypoints, setDraggedInfo, setArtifactDisplayOptions,
+        setPathCreationOptions, setActivityDefinitions, setNightfallPlotYAxisRange,
+        setIsCreatingExpression, setEvents, setActiveEventId, onUpdateEvent,
+        onRemoveEvent, onAddEvent, clearHoverState, onAddDataLayer, onAddDteCommsLayer,
+        onAddLpfCommsLayer, onAddBaseMapLayer, onAddImageLayer, onUpdateLayer,
+        onRemoveLayer, onMoveLayerUp, onMoveLayerDown, onCalculateNightfallLayer,
+        onCalculateDaylightFractionLayer, onCreateExpressionLayer, onRecalculateExpressionLayer,
+        handleManualTimeRangeChange, onTogglePlay, onUpdateArtifact, onRemoveArtifact,
+        onFinishArtifactCreation, onStartAppendWaypoints, onClearSelection,
+        onZoomToSelection, onResetZoom, onExportConfig, onImportConfig,
+        handleRestoreSession, onUndo, onRedo
+    ]);
 
     return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
