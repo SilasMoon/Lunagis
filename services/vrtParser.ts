@@ -45,7 +45,6 @@ export function parseVrt(xmlString: string): VrtData | null {
       height,
     };
   } catch (e) {
-    console.error("Failed to parse VRT file:", e);
     // Error is handled by caller
     return null;
   }

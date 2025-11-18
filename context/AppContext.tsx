@@ -5,6 +5,7 @@ import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange,
 import { indexToDate } from '../utils/time';
 import * as analysisService from '../services/analysisService';
 import { useToast } from '../components/Toast';
+import { useCoordinateTransformation } from '../hooks/useCoordinateTransformation';
 
 // Geographic bounding box for the data
 const LAT_RANGE: [number, number] = [-85.505, -85.26];
@@ -256,9 +257,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(activityDefinitions));
       } catch (error) {
-        console.error('Error saving activity definitions:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        showError(`Failed to save activity definitions: ${errorMessage}`, 'Save Error');
       }
-    }, [activityDefinitions]);
+    }, [activityDefinitions, showError]);
 
     // Undo/Redo state (only for artifacts and events - layers contain non-serializable binary data)
     type HistoryState = {
@@ -294,36 +296,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [indexToDate(0), indexToDate(primaryDataLayer.dimensions.time - 1)];
     }, [primaryDataLayer]);
 
-    const coordinateTransformer = useMemo(() => {
-      if (!primaryDataLayer) return null;
-      const { width, height } = primaryDataLayer.dimensions;
-      const [lonMin, lonMax] = LON_RANGE;
-      const [latMin, latMax] = LAT_RANGE;
-
-      if (proj) {
-        const c_tl = proj.forward([lonMin, latMax]); const c_tr = proj.forward([lonMax, latMax]);
-        const c_bl = proj.forward([lonMin, latMin]);
-        const a = (c_tr[0] - c_tl[0]) / width; const b = (c_tr[1] - c_tl[1]) / width;
-        const c = (c_bl[0] - c_tl[0]) / height; const d = (c_bl[1] - c_tl[1]) / height;
-        const e = c_tl[0]; const f = c_tl[1];
-        const determinant = a * d - b * c;
-        if (Math.abs(determinant) < 1e-9) return null;
-
-        return (lat: number, lon: number): PixelCoords => {
-          try {
-            const [projX, projY] = proj.forward([lon, lat]);
-            const u = (d * (projX - e) - c * (projY - f)) / determinant;
-            const v = (a * (projY - f) - b * (projX - e)) / determinant;
-            const pixelX = Math.round(u); const pixelY = Math.round(v);
-            if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
-              return { x: pixelX, y: pixelY };
-            }
-            return null;
-          } catch (error) { return null; }
-        };
-      }
-      return null;
-    }, [proj, primaryDataLayer]);
+    const coordinateTransformer = useCoordinateTransformation({
+      proj,
+      primaryDataLayer,
+      lonRange: LON_RANGE,
+      latRange: LAT_RANGE,
+    });
 
     // Function to snap projected coordinates to the nearest data cell corner
     const snapToCellCorner = useMemo(() => {
@@ -1260,7 +1238,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, []);
 
 
-    const value: AppContextType = {
+    // Memoize context value to prevent unnecessary re-renders
+    // Only recreate when actual dependencies change, not on every AppProvider render
+    const value: AppContextType = useMemo(() => ({
         layers,
         activeLayerId,
         isLoading,
@@ -1376,7 +1356,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onRedo,
         latRange: LAT_RANGE,
         lonRange: LON_RANGE
-    };
+    }), [
+        // State values
+        layers, activeLayerId, isLoading, timeRange, currentDateIndex, hoveredCoords,
+        showGraticule, viewState, graticuleDensity, activeTool, selectedPixel,
+        timeSeriesData, timeZoomDomain, daylightFractionHoverData, flickeringLayerId,
+        showGrid, gridSpacing, gridColor, selectedCells, selectionColor, selectedCellForPlot,
+        isPlaying, isPaused, playbackSpeed, importRequest, artifacts, activeArtifactId,
+        artifactCreationMode, isAppendingWaypoints, draggedInfo, artifactDisplayOptions,
+        nightfallPlotYAxisRange, isCreatingExpression, events, activeEventId,
+        // Derived values
+        baseMapLayer, primaryDataLayer, activeLayer, proj, fullTimeDomain,
+        coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
+        pathCreationOptions, activityDefinitions, undoStack.length, redoStack.length,
+        // Callbacks (stable across renders due to useCallback)
+        setLayers, setActiveLayerId, setIsLoading, setTimeRange, setCurrentDateIndex,
+        setHoveredCoords, setShowGraticule, setViewState, setGraticuleDensity,
+        setActiveTool, setSelectedPixel, setTimeZoomDomain, onToggleFlicker,
+        setShowGrid, setGridSpacing, setGridColor, setSelectedCells, setSelectionColor,
+        setSelectedCellForPlot, setIsPlaying, setIsPaused, setPlaybackSpeed,
+        setImportRequest, setArtifacts, setActiveArtifactId, setArtifactCreationMode,
+        setIsAppendingWaypoints, setDraggedInfo, setArtifactDisplayOptions,
+        setPathCreationOptions, setActivityDefinitions, setNightfallPlotYAxisRange,
+        setIsCreatingExpression, setEvents, setActiveEventId, onUpdateEvent,
+        onRemoveEvent, onAddEvent, clearHoverState, onAddDataLayer, onAddDteCommsLayer,
+        onAddLpfCommsLayer, onAddBaseMapLayer, onAddImageLayer, onUpdateLayer,
+        onRemoveLayer, onMoveLayerUp, onMoveLayerDown, onCalculateNightfallLayer,
+        onCalculateDaylightFractionLayer, onCreateExpressionLayer, onRecalculateExpressionLayer,
+        handleManualTimeRangeChange, onTogglePlay, onUpdateArtifact, onRemoveArtifact,
+        onFinishArtifactCreation, onStartAppendWaypoints, onClearSelection,
+        onZoomToSelection, onResetZoom, onExportConfig, onImportConfig,
+        handleRestoreSession, onUndo, onRedo
+    ]);
 
     return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
