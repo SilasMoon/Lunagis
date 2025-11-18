@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Waypoint, Activity, ActivityTemplate } from '../types';
+import React from 'react';
+import type { Waypoint, Activity, ActivityDefinition } from '../types';
 import { ChevronUp, ChevronDown, Trash2, Plus, Save, FolderOpen } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useToast } from './Toast';
+import { useActivityTimeline } from '../hooks/useActivityTimeline';
 
 interface ActivityTimelineModalProps {
   isOpen: boolean;
@@ -10,29 +11,6 @@ interface ActivityTimelineModalProps {
   onClose: () => void;
   onSave: (updates: Partial<Waypoint>) => void;
 }
-
-const TEMPLATES_STORAGE_KEY = 'lunagis_activity_templates';
-
-// Helper functions for template management
-const loadTemplates = (showError?: (message: string, title?: string) => void): ActivityTemplate[] => {
-  try {
-    const stored = localStorage.getItem(TEMPLATES_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    showError?.(`Failed to load activity templates: ${errorMessage}`, 'Template Load Error');
-    return [];
-  }
-};
-
-const saveTemplates = (templates: ActivityTemplate[], showError?: (message: string, title?: string) => void) => {
-  try {
-    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    showError?.(`Failed to save activity templates: ${errorMessage}`, 'Template Save Error');
-  }
-};
 
 // Memoized ActivityItem component to prevent unnecessary re-renders
 interface ActivityItemProps {
@@ -132,157 +110,51 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
 }) => {
   const { activityDefinitions } = useAppContext();
   const { showError } = useToast();
-  const [activities, setActivities] = useState<Activity[]>(waypoint.activities || []);
-  const [description, setDescription] = useState(waypoint.description || '');
-  const [isAddDropdownOpen, setIsAddDropdownOpen] = useState(false);
-  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
-  const [templates, setTemplates] = useState<ActivityTemplate[]>(loadTemplates(showError));
-  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
-  const [templateName, setTemplateName] = useState('');
-  const [showLoadConfirmation, setShowLoadConfirmation] = useState(false);
-  const [templateToLoad, setTemplateToLoad] = useState<ActivityTemplate | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  const addDropdownRef = useRef<HTMLDivElement>(null);
-  const templateDropdownRef = useRef<HTMLDivElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  // Track unsaved changes
-  useEffect(() => {
-    const originalActivities = waypoint.activities || [];
-    const originalDescription = waypoint.description || '';
-    const activitiesChanged = JSON.stringify(activities) !== JSON.stringify(originalActivities);
-    const descriptionChanged = description !== originalDescription;
-    setHasUnsavedChanges(activitiesChanged || descriptionChanged);
-  }, [activities, description, waypoint.activities, waypoint.description]);
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (addDropdownRef.current && !addDropdownRef.current.contains(event.target as Node)) {
-        setIsAddDropdownOpen(false);
-      }
-      if (templateDropdownRef.current && !templateDropdownRef.current.contains(event.target as Node)) {
-        setIsTemplateDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Use custom hook for all business logic
+  const {
+    activities,
+    description,
+    isAddDropdownOpen,
+    isTemplateDropdownOpen,
+    templates,
+    showSaveTemplateDialog,
+    templateName,
+    showLoadConfirmation,
+    templateToLoad,
+    addDropdownRef,
+    templateDropdownRef,
+    setDescription,
+    setIsAddDropdownOpen,
+    setIsTemplateDropdownOpen,
+    setShowSaveTemplateDialog,
+    setTemplateName,
+    setShowLoadConfirmation,
+    handleAddActivity,
+    handleRemoveActivity,
+    handleMoveUp,
+    handleMoveDown,
+    handleDurationChange,
+    handleTypeChange,
+    handleSaveTemplate,
+    handleLoadTemplate,
+    confirmLoadTemplate,
+    handleDeleteTemplate,
+    validateAndGetUpdates,
+  } = useActivityTimeline({ waypoint, activityDefinitions, showError });
 
   if (!isOpen) return null;
 
-  const generateId = () => `activity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  // Wrap in useCallback to ensure we always use the latest activityDefinitions
-  const handleAddActivity = useCallback((type: string) => {
-    const definition = activityDefinitions.find(def => def.id === type);
-    const newActivity: Activity = {
-      id: generateId(),
-      type,
-      duration: definition?.defaultDuration ?? 60, // Use ?? not || to allow 0 as valid value
-    };
-    setActivities(prev => [...prev, newActivity]);
-    setIsAddDropdownOpen(false);
-  }, [activityDefinitions]);
-
-  const handleRemoveActivity = (id: string) => {
-    setActivities(activities.filter(a => a.id !== id));
-  };
-
-  const handleMoveUp = (index: number) => {
-    if (index === 0) return;
-    const newActivities = [...activities];
-    [newActivities[index - 1], newActivities[index]] = [newActivities[index], newActivities[index - 1]];
-    setActivities(newActivities);
-  };
-
-  const handleMoveDown = (index: number) => {
-    if (index === activities.length - 1) return;
-    const newActivities = [...activities];
-    [newActivities[index], newActivities[index + 1]] = [newActivities[index + 1], newActivities[index]];
-    setActivities(newActivities);
-  };
-
-  const handleDurationChange = (id: string, value: string) => {
-    const numValue = parseInt(value);
-    if (value === '' || (!isNaN(numValue) && numValue >= 0)) {
-      setActivities(activities.map(a =>
-        a.id === id ? { ...a, duration: value === '' ? 0 : numValue } : a
-      ));
-    }
-  };
-
-  const handleTypeChange = (id: string, type: string) => {
-    setActivities(activities.map(a =>
-      a.id === id ? { ...a, type } : a
-    ));
-  };
-
-  const handleSaveTemplate = () => {
-    if (!templateName.trim()) {
-      alert('Please enter a template name');
-      return;
-    }
-
-    const newTemplate: ActivityTemplate = {
-      id: generateId(),
-      name: templateName.trim(),
-      activities: activities.map(a => ({ ...a, id: generateId() })), // Clone with new IDs
-    };
-
-    const updatedTemplates = [...templates, newTemplate];
-    setTemplates(updatedTemplates);
-    saveTemplates(updatedTemplates, showError);
-    setShowSaveTemplateDialog(false);
-    setTemplateName('');
-  };
-
-  const handleLoadTemplate = (template: ActivityTemplate) => {
-    if (hasUnsavedChanges && activities.length > 0) {
-      setTemplateToLoad(template);
-      setShowLoadConfirmation(true);
-      setIsTemplateDropdownOpen(false);
-    } else {
-      confirmLoadTemplate(template);
-    }
-  };
-
-  const confirmLoadTemplate = (template: ActivityTemplate) => {
-    // Clone activities with new IDs
-    const clonedActivities = template.activities.map(a => ({
-      ...a,
-      id: generateId(),
-    }));
-    setActivities(clonedActivities);
-    setShowLoadConfirmation(false);
-    setTemplateToLoad(null);
-    setIsTemplateDropdownOpen(false);
-  };
-
-  const handleDeleteTemplate = (templateId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm('Are you sure you want to delete this template?')) {
-      const updatedTemplates = templates.filter(t => t.id !== templateId);
-      setTemplates(updatedTemplates);
-      saveTemplates(updatedTemplates, showError);
-    }
-  };
-
+  // View-specific handlers
   const handleSave = () => {
-    // Validate all durations are non-negative integers
-    const hasInvalidDuration = activities.some(a => a.duration < 0 || !Number.isInteger(a.duration));
-    if (hasInvalidDuration) {
-      alert('All activity durations must be non-negative integers');
-      return;
+    const updates = validateAndGetUpdates();
+    if (updates) {
+      onSave({
+        activities: updates.activities && updates.activities.length > 0 ? updates.activities : undefined,
+        description: updates.description || undefined,
+      });
+      onClose();
     }
-
-    onSave({
-      activities: activities.length > 0 ? activities : undefined,
-      description: description.trim() || undefined,
-    });
-    onClose();
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
