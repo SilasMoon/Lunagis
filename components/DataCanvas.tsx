@@ -941,9 +941,26 @@ export const DataCanvas: React.FC = () => {
             if (artifact.waypoints.length === 0) return;
             
             const projectedWaypoints = artifact.waypoints.map(wp => {
+                // Validate geoPosition before projection
+                if (!wp.geoPosition ||
+                    !Array.isArray(wp.geoPosition) ||
+                    wp.geoPosition.length !== 2 ||
+                    !isFinite(wp.geoPosition[0]) ||
+                    !isFinite(wp.geoPosition[1])) {
+                    console.warn('DataCanvas: Invalid waypoint geoPosition during rendering', wp);
+                    return { ...wp, projPos: null };
+                }
                 try {
-                    return { ...wp, projPos: proj.forward(wp.geoPosition) as [number, number] };
+                    const projPos = proj.forward(wp.geoPosition) as [number, number];
+                    // Validate projection result
+                    if (!projPos || !Array.isArray(projPos) || projPos.length !== 2 ||
+                        !isFinite(projPos[0]) || !isFinite(projPos[1])) {
+                        console.warn('DataCanvas: Invalid projection result for waypoint', wp);
+                        return { ...wp, projPos: null };
+                    }
+                    return { ...wp, projPos };
                 } catch(e) {
+                    console.warn('DataCanvas: Failed to project waypoint during rendering', wp, e);
                     return { ...wp, projPos: null };
                 }
             }).filter(p => p.projPos !== null);
@@ -1028,7 +1045,27 @@ export const DataCanvas: React.FC = () => {
         }
         
         ctx.save();
-        const centerPos = artifact.type === 'path' ? (artifact.waypoints.length > 0 ? proj.forward(artifact.waypoints[0].geoPosition) : null) : artifact.center;
+        let centerPos = null;
+        if (artifact.type === 'path') {
+            // Validate first waypoint geoPosition before projecting
+            if (artifact.waypoints.length > 0) {
+                const firstWaypoint = artifact.waypoints[0];
+                if (firstWaypoint.geoPosition &&
+                    Array.isArray(firstWaypoint.geoPosition) &&
+                    firstWaypoint.geoPosition.length === 2 &&
+                    isFinite(firstWaypoint.geoPosition[0]) &&
+                    isFinite(firstWaypoint.geoPosition[1])) {
+                    try {
+                        centerPos = proj.forward(firstWaypoint.geoPosition);
+                    } catch (e) {
+                        console.warn('DataCanvas: Failed to project first waypoint for label', e);
+                    }
+                }
+            }
+        } else {
+            centerPos = artifact.center;
+        }
+
         if (centerPos) {
             ctx.translate(centerPos[0], centerPos[1]);
             ctx.scale(1 / effectiveScale, -1 / effectiveScale);
@@ -1528,7 +1565,23 @@ export const DataCanvas: React.FC = () => {
         if (artifact.type === 'circle' || artifact.type === 'rectangle') {
             setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.center });
         } else if (artifact.type === 'path') {
-            const initialWaypointProjPositions = artifact.waypoints.map(wp => proj.forward(wp.geoPosition));
+            // Validate and project waypoints for drag operation
+            const initialWaypointProjPositions = artifact.waypoints.map(wp => {
+                if (!wp.geoPosition ||
+                    !Array.isArray(wp.geoPosition) ||
+                    wp.geoPosition.length !== 2 ||
+                    !isFinite(wp.geoPosition[0]) ||
+                    !isFinite(wp.geoPosition[1])) {
+                    console.warn('DataCanvas: Invalid waypoint geoPosition during drag initialization', wp);
+                    return [0, 0] as [number, number];
+                }
+                try {
+                    return proj.forward(wp.geoPosition) as [number, number];
+                } catch (e) {
+                    console.warn('DataCanvas: Failed to project waypoint during drag initialization', wp, e);
+                    return [0, 0] as [number, number];
+                }
+            });
             setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
         }
     }
@@ -1744,15 +1797,30 @@ export const DataCanvas: React.FC = () => {
                 let waypointHit = false;
                 if (artifact.type === 'path') {
                     for (const waypoint of artifact.waypoints) {
+                        // Validate geoPosition before projection
+                        if (!waypoint.geoPosition ||
+                            !Array.isArray(waypoint.geoPosition) ||
+                            waypoint.geoPosition.length !== 2 ||
+                            !isFinite(waypoint.geoPosition[0]) ||
+                            !isFinite(waypoint.geoPosition[1])) {
+                            continue; // Skip invalid waypoints
+                        }
                         try {
                             const wpProjPos = proj.forward(waypoint.geoPosition);
+                            if (!wpProjPos || !Array.isArray(wpProjPos) || wpProjPos.length !== 2 ||
+                                !isFinite(wpProjPos[0]) || !isFinite(wpProjPos[1])) {
+                                continue; // Skip invalid projections
+                            }
                             const dist = Math.sqrt(Math.pow(projCoords[0] - wpProjPos[0], 2) + Math.pow(projCoords[1] - wpProjPos[1], 2));
                             if (dist < hitRadiusProj) {
                                 newHoveredWaypointInfo = { artifactId: artifact.id, waypointId: waypoint.id };
                                 waypointHit = true;
                                 break;
                             }
-                        } catch (err) { /* ignore */ }
+                        } catch (err) {
+                            // Skip waypoints that fail to project
+                            continue;
+                        }
                     }
                 }
                 if (waypointHit) break;
@@ -1889,6 +1957,16 @@ export const DataCanvas: React.FC = () => {
 
     const waypoint = artifact.waypoints.find(wp => wp.id === hoveredWaypointInfo.waypointId);
     if (!waypoint) return;
+
+    // Validate waypoint has valid geoPosition [lon, lat] before opening modal
+    if (!waypoint.geoPosition ||
+        !Array.isArray(waypoint.geoPosition) ||
+        waypoint.geoPosition.length !== 2 ||
+        !isFinite(waypoint.geoPosition[0]) ||
+        !isFinite(waypoint.geoPosition[1])) {
+      console.error('DataCanvas: Cannot edit waypoint with invalid geoPosition', waypoint);
+      return;
+    }
 
     setEditingWaypointActivities({ artifactId: artifact.id, waypoint });
   };
