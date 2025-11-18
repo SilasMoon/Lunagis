@@ -50,12 +50,29 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
   containerHeight,
   showActivitySymbols,
 }) => {
+  // Validate all required conditions including container dimensions
   if (!showActivitySymbols || !proj || !viewState) return null;
+  if (containerWidth <= 0 || containerHeight <= 0) return null;
+  if (!viewState.scale || viewState.scale <= 0) return null;
 
-  const projToCanvas = (projCoords: [number, number]): [number, number] => {
+  const projToCanvas = (projCoords: [number, number]): [number, number] | null => {
+    // Additional safety check for valid projection coordinates
+    if (!projCoords || !Array.isArray(projCoords) || projCoords.length !== 2) {
+      return null;
+    }
+    if (!isFinite(projCoords[0]) || !isFinite(projCoords[1])) {
+      return null;
+    }
+
     const dpr = window.devicePixelRatio || 1;
     const canvasX = (projCoords[0] - viewState.center[0]) * viewState.scale * dpr + (containerWidth * dpr) / 2;
     const canvasY = (viewState.center[1] - projCoords[1]) * viewState.scale * dpr + (containerHeight * dpr) / 2;
+
+    // Validate calculated positions
+    if (!isFinite(canvasX) || !isFinite(canvasY)) {
+      return null;
+    }
+
     return [canvasX / dpr, canvasY / dpr];
   };
 
@@ -68,8 +85,28 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
           if (!waypoint.activitySymbol) return null;
 
           try {
+            // Validate waypoint has valid geoPosition [lon, lat]
+            if (!waypoint.geoPosition ||
+                !Array.isArray(waypoint.geoPosition) ||
+                waypoint.geoPosition.length !== 2 ||
+                !isFinite(waypoint.geoPosition[0]) ||
+                !isFinite(waypoint.geoPosition[1])) {
+              console.warn(`ActivitySymbolsOverlay: Waypoint ${waypoint.id} has invalid geoPosition`, waypoint);
+              return null;
+            }
+
             const projPos = proj.forward(waypoint.geoPosition) as [number, number];
-            const [canvasX, canvasY] = projToCanvas(projPos);
+            if (!projPos || !Array.isArray(projPos) || projPos.length !== 2) {
+              console.warn(`ActivitySymbolsOverlay: Invalid projection result for waypoint ${waypoint.id}`, projPos);
+              return null;
+            }
+
+            const canvasPos = projToCanvas(projPos);
+            if (!canvasPos) {
+              console.warn(`ActivitySymbolsOverlay: Invalid canvas position for waypoint ${waypoint.id}`);
+              return null;
+            }
+            const [canvasX, canvasY] = canvasPos;
 
             // Calculate perpendicular offset based on outgoing segment IN CANVAS SPACE
             let offsetX = 0;
@@ -84,30 +121,34 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
               if (waypointIndex === 0) {
                 const nextWaypoint = artifact.waypoints[1];
                 const nextProjPos = proj.forward(nextWaypoint.geoPosition) as [number, number];
-                const [nextCanvasX, nextCanvasY] = projToCanvas(nextProjPos);
-
-                const dx = nextCanvasX - canvasX;
-                const dy = nextCanvasY - canvasY;
-                const magnitude = Math.sqrt(dx * dx + dy * dy);
-                if (magnitude > 0) {
-                  const outgoingDir = [dx / magnitude, dy / magnitude];
-                  // Perpendicular: rotate 90° counterclockwise
-                  directionVector = [-outgoingDir[1], outgoingDir[0]];
+                const nextCanvasPos = projToCanvas(nextProjPos);
+                if (nextCanvasPos) {
+                  const [nextCanvasX, nextCanvasY] = nextCanvasPos;
+                  const dx = nextCanvasX - canvasX;
+                  const dy = nextCanvasY - canvasY;
+                  const magnitude = Math.sqrt(dx * dx + dy * dy);
+                  if (magnitude > 0) {
+                    const outgoingDir = [dx / magnitude, dy / magnitude];
+                    // Perpendicular: rotate 90° counterclockwise
+                    directionVector = [-outgoingDir[1], outgoingDir[0]];
+                  }
                 }
               }
               // Last waypoint: use perpendicular to incoming segment
               else if (waypointIndex === artifact.waypoints.length - 1) {
                 const prevWaypoint = artifact.waypoints[waypointIndex - 1];
                 const prevProjPos = proj.forward(prevWaypoint.geoPosition) as [number, number];
-                const [prevCanvasX, prevCanvasY] = projToCanvas(prevProjPos);
-
-                const dx = canvasX - prevCanvasX;
-                const dy = canvasY - prevCanvasY;
-                const magnitude = Math.sqrt(dx * dx + dy * dy);
-                if (magnitude > 0) {
-                  const incomingDir = [dx / magnitude, dy / magnitude];
-                  // Perpendicular: rotate 90° counterclockwise
-                  directionVector = [-incomingDir[1], incomingDir[0]];
+                const prevCanvasPos = projToCanvas(prevProjPos);
+                if (prevCanvasPos) {
+                  const [prevCanvasX, prevCanvasY] = prevCanvasPos;
+                  const dx = canvasX - prevCanvasX;
+                  const dy = canvasY - prevCanvasY;
+                  const magnitude = Math.sqrt(dx * dx + dy * dy);
+                  if (magnitude > 0) {
+                    const incomingDir = [dx / magnitude, dy / magnitude];
+                    // Perpendicular: rotate 90° counterclockwise
+                    directionVector = [-incomingDir[1], incomingDir[0]];
+                  }
                 }
               }
               // Middle waypoints: use outer angle bisector
@@ -118,50 +159,55 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                 const prevProjPos = proj.forward(prevWaypoint.geoPosition) as [number, number];
                 const nextProjPos = proj.forward(nextWaypoint.geoPosition) as [number, number];
 
-                const [prevCanvasX, prevCanvasY] = projToCanvas(prevProjPos);
-                const [nextCanvasX, nextCanvasY] = projToCanvas(nextProjPos);
+                const prevCanvasPos = projToCanvas(prevProjPos);
+                const nextCanvasPos = projToCanvas(nextProjPos);
 
-                // Incoming direction (from previous to current)
-                const dx1 = canvasX - prevCanvasX;
-                const dy1 = canvasY - prevCanvasY;
-                const mag1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+                if (prevCanvasPos && nextCanvasPos) {
+                  const [prevCanvasX, prevCanvasY] = prevCanvasPos;
+                  const [nextCanvasX, nextCanvasY] = nextCanvasPos;
 
-                // Outgoing direction (from current to next)
-                const dx2 = nextCanvasX - canvasX;
-                const dy2 = nextCanvasY - canvasY;
-                const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+                  // Incoming direction (from previous to current)
+                  const dx1 = canvasX - prevCanvasX;
+                  const dy1 = canvasY - prevCanvasY;
+                  const mag1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
 
-                if (mag1 > 0 && mag2 > 0) {
-                  const incomingDir: [number, number] = [dx1 / mag1, dy1 / mag1];
-                  const outgoingDir: [number, number] = [dx2 / mag2, dy2 / mag2];
+                  // Outgoing direction (from current to next)
+                  const dx2 = nextCanvasX - canvasX;
+                  const dy2 = nextCanvasY - canvasY;
+                  const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
 
-                  // Calculate angles to determine which side has the larger angle
-                  const angleIncoming = Math.atan2(incomingDir[1], incomingDir[0]);
-                  const angleOutgoing = Math.atan2(outgoingDir[1], outgoingDir[0]);
+                  if (mag1 > 0 && mag2 > 0) {
+                    const incomingDir: [number, number] = [dx1 / mag1, dy1 / mag1];
+                    const outgoingDir: [number, number] = [dx2 / mag2, dy2 / mag2];
 
-                  // Angle difference (normalized to [0, 2π))
-                  let angleDiff = angleOutgoing - angleIncoming;
-                  if (angleDiff < 0) angleDiff += 2 * Math.PI;
+                    // Calculate angles to determine which side has the larger angle
+                    const angleIncoming = Math.atan2(incomingDir[1], incomingDir[0]);
+                    const angleOutgoing = Math.atan2(outgoingDir[1], outgoingDir[0]);
 
-                  // The sum of two unit vectors bisects the angle between them
-                  let bisectorX = incomingDir[0] + outgoingDir[0];
-                  let bisectorY = incomingDir[1] + outgoingDir[1];
+                    // Angle difference (normalized to [0, 2π))
+                    let angleDiff = angleOutgoing - angleIncoming;
+                    if (angleDiff < 0) angleDiff += 2 * Math.PI;
 
-                  // If the CCW angle is < π, the outer (larger) angle is on the other side
-                  // So we negate the bisector to point toward the larger angle
-                  if (angleDiff < Math.PI) {
-                    bisectorX = -bisectorX;
-                    bisectorY = -bisectorY;
-                  }
+                    // The sum of two unit vectors bisects the angle between them
+                    let bisectorX = incomingDir[0] + outgoingDir[0];
+                    let bisectorY = incomingDir[1] + outgoingDir[1];
 
-                  const bisectorMag = Math.sqrt(bisectorX * bisectorX + bisectorY * bisectorY);
+                    // If the CCW angle is < π, the outer (larger) angle is on the other side
+                    // So we negate the bisector to point toward the larger angle
+                    if (angleDiff < Math.PI) {
+                      bisectorX = -bisectorX;
+                      bisectorY = -bisectorY;
+                    }
 
-                  if (bisectorMag > 0) {
-                    const normalizedBisectorX = bisectorX / bisectorMag;
-                    const normalizedBisectorY = bisectorY / bisectorMag;
-                    // For middle waypoints, position perpendicular to outer angle bisector (consistent with first/last)
-                    // Rotate 90° counterclockwise: (x, y) -> (-y, x)
-                    directionVector = [-normalizedBisectorY, normalizedBisectorX];
+                    const bisectorMag = Math.sqrt(bisectorX * bisectorX + bisectorY * bisectorY);
+
+                    if (bisectorMag > 0) {
+                      const normalizedBisectorX = bisectorX / bisectorMag;
+                      const normalizedBisectorY = bisectorY / bisectorMag;
+                      // For middle waypoints, position perpendicular to outer angle bisector (consistent with first/last)
+                      // Rotate 90° counterclockwise: (x, y) -> (-y, x)
+                      directionVector = [-normalizedBisectorY, normalizedBisectorX];
+                    }
                   }
                 }
               }
@@ -231,6 +277,7 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
               </React.Fragment>
             );
           } catch (e) {
+            console.error(`ActivitySymbolsOverlay: Error rendering activity symbol for waypoint ${waypoint.id}:`, e);
             return null;
           }
         });
