@@ -1,6 +1,5 @@
 import React from 'react';
 import { useAppContext } from '../context/AppContext';
-import { indexToDateString } from '../utils/time';
 
 const InfoItem: React.FC<{ label: string; value: string | number; }> = ({ label, value }) => (
     <div className="flex items-center gap-2">
@@ -9,8 +8,20 @@ const InfoItem: React.FC<{ label: string; value: string | number; }> = ({ label,
     </div>
 );
 
+const formatDateToString = (date: Date): string => {
+    return date.toLocaleString('en-US', {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'UTC',
+    }).replace(',', '');
+};
+
 export const StatusBar: React.FC = () => {
-    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer, timeSeriesData, artifactDisplayOptions, setArtifactDisplayOptions } = useAppContext();
+    const { hoveredCoords, timeRange, currentDateIndex, primaryDataLayer, timeSeriesData, artifactDisplayOptions, setArtifactDisplayOptions, getDateForIndex } = useAppContext();
 
     if (!primaryDataLayer) {
         return null;
@@ -40,9 +51,9 @@ export const StatusBar: React.FC = () => {
 
             {timeRange ? (
                 <div className="flex items-center gap-x-4">
-                    <InfoItem label="Current" value={currentDateIndex !== null ? indexToDateString(currentDateIndex) : '---'} />
-                    <InfoItem label="Start" value={indexToDateString(timeRange.start)} />
-                    <InfoItem label="End" value={indexToDateString(timeRange.end)} />
+                    <InfoItem label="Current" value={currentDateIndex !== null ? formatDateToString(getDateForIndex(currentDateIndex)) : '---'} />
+                    <InfoItem label="Start" value={formatDateToString(getDateForIndex(timeRange.start))} />
+                    <InfoItem label="End" value={formatDateToString(getDateForIndex(timeRange.end))} />
                     <InfoItem label="Duration" value={`${timeRange.end - timeRange.start + 1} hrs`} />
                 </div>
             ) : (

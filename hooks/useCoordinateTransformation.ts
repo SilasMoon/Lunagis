@@ -5,8 +5,7 @@
 
 import { useMemo } from 'react';
 import type { PixelCoords, DataLayer, DteCommsLayer, LpfCommsLayer } from '../types';
-
-declare const proj4: any;
+import { logger } from '../utils/logger';
 
 interface UseCoordinateTransformationParams {
   proj: typeof proj4 | null;
@@ -57,7 +56,7 @@ export function useCoordinateTransformation({
       // Check if transformation is singular (non-invertible)
       const determinant = a * d - b * c;
       if (Math.abs(determinant) < 1e-9) {
-        console.warn('Coordinate transformation matrix is singular (determinant ≈ 0)');
+        logger.warn('Coordinate transformation matrix is singular (determinant ≈ 0)');
         return null;
       }
 
@@ -81,12 +80,12 @@ export function useCoordinateTransformation({
 
           return null; // Out of bounds
         } catch (error) {
-          console.warn('Error transforming coordinates:', error);
+          logger.warn('Error transforming coordinates:', error);
           return null;
         }
       };
     } catch (error) {
-      console.warn('Error setting up coordinate transformation:', error);
+      logger.warn('Error setting up coordinate transformation:', error);
       return null;
     }
   }, [proj, primaryDataLayer, lonRange, latRange]);

@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, Event } from '../../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, IlluminationLayer, Event } from '../../types';
 import { COLOR_MAPS } from '../../types';
 import { Colorbar } from '../Colorbar';
-import { indexToDateString } from '../../utils/time';
 import { sanitizeLayerNameForExpression } from '../../services/analysisService';
 import { useAppContext } from '../../context/AppContext';
 import { Section, formatDuration } from './panelUtils';
-import { hasColormap, isNightfallLayer, isExpressionLayer, isAnalysisLayer, isImageLayer, isDaylightFractionLayer, isDataLayer } from '../../utils/layerHelpers';
+import { hasColormap, isNightfallLayer, isExpressionLayer, isAnalysisLayer, isImageLayer, isDaylightFractionLayer, isDataLayer, isIlluminationLayer } from '../../utils/layerHelpers';
 
 declare const d3: any;
 
@@ -171,6 +170,7 @@ const formatLayerType = (type: Layer['type']): string => {
         case 'analysis': return 'Analysis Layer';
         case 'dte_comms': return 'DTE Comms Layer';
         case 'lpf_comms': return 'LPF Comms Layer';
+        case 'illumination': return 'Illumination Layer';
         case 'image': return 'Image Layer';
         default: return 'Layer';
     }
@@ -268,6 +268,220 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                         <label className="block text-xs font-medium text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</label>
                         <input type="range" min="0" max="1" step="0.01" value={layer.opacity} onChange={(e) => onUpdateLayer(layer.id, { opacity: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
                     </div>
+                    {isIlluminationLayer(layer) && (layer.geospatial || layer.metadata || layer.temporalInfo) && (
+                        <div className="space-y-3 border-t border-gray-700 pt-3">
+                            <h4 className="text-xs font-medium text-gray-300">NetCDF Metadata</h4>
+                            {/* Grid Dimensions */}
+                            <div className="space-y-1 bg-gray-900/30 p-2 rounded-md">
+                                <p className="text-xs font-medium text-gray-400 mb-1">Grid Dimensions</p>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">Width:</span>
+                                        <span className="font-mono text-cyan-300">{layer.dimensions.width} px</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">Height:</span>
+                                        <span className="font-mono text-cyan-300">{layer.dimensions.height} px</span>
+                                    </div>
+                                    <div className="flex justify-between col-span-2">
+                                        <span className="text-gray-400">Time Steps:</span>
+                                        <span className="font-mono text-cyan-300">{layer.dimensions.time}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {/* Geographic Corner Coordinates */}
+                            {layer.geospatial?.corners && (
+                                <div className="space-y-1 bg-gray-900/30 p-2 rounded-md">
+                                    <p className="text-xs font-medium text-gray-400 mb-1">Geographic Corners</p>
+                                    <div className="text-xs text-gray-500 mb-2 italic">
+                                        Note: For polar projections, edges are curved in lat/lon space
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-400 font-medium">Top-Left:</div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lat: {layer.geospatial.corners.topLeft.lat.toFixed(5)}°
+                                            </div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lon: {layer.geospatial.corners.topLeft.lon.toFixed(5)}°
+                                            </div>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-400 font-medium">Top-Right:</div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lat: {layer.geospatial.corners.topRight.lat.toFixed(5)}°
+                                            </div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lon: {layer.geospatial.corners.topRight.lon.toFixed(5)}°
+                                            </div>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-400 font-medium">Bottom-Left:</div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lat: {layer.geospatial.corners.bottomLeft.lat.toFixed(5)}°
+                                            </div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lon: {layer.geospatial.corners.bottomLeft.lon.toFixed(5)}°
+                                            </div>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-400 font-medium">Bottom-Right:</div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lat: {layer.geospatial.corners.bottomRight.lat.toFixed(5)}°
+                                            </div>
+                                            <div className="font-mono text-cyan-300 pl-2">
+                                                Lon: {layer.geospatial.corners.bottomRight.lon.toFixed(5)}°
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {/* Projected Bounds */}
+                            {layer.geospatial && (
+                                <div className="space-y-1 bg-gray-900/30 p-2 rounded-md">
+                                    <p className="text-xs font-medium text-gray-400 mb-1">Projected Bounds (Meters)</p>
+                                    <div className="space-y-1 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">X Range:</span>
+                                            <span className="font-mono text-cyan-300">
+                                                {(layer.geospatial.projectedBounds.xMin / 1000).toFixed(1)} to {(layer.geospatial.projectedBounds.xMax / 1000).toFixed(1)} km
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Y Range:</span>
+                                            <span className="font-mono text-cyan-300">
+                                                {(layer.geospatial.projectedBounds.yMin / 1000).toFixed(1)} to {(layer.geospatial.projectedBounds.yMax / 1000).toFixed(1)} km
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {/* Temporal Info */}
+                            {layer.temporalInfo && (
+                                <div className="space-y-1 bg-gray-900/30 p-2 rounded-md">
+                                    <p className="text-xs font-medium text-gray-400 mb-1">Temporal Coverage</p>
+                                    <div className="space-y-1 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Start:</span>
+                                            <span className="font-mono text-cyan-300">
+                                                {layer.temporalInfo.startDate.toISOString().slice(0, 19).replace('T', ' ')}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">End:</span>
+                                            <span className="font-mono text-cyan-300">
+                                                {layer.temporalInfo.endDate.toISOString().slice(0, 19).replace('T', ' ')}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {/* CRS Info */}
+                            {layer.metadata?.crs && (
+                                <div className="space-y-1 bg-gray-900/30 p-2 rounded-md">
+                                    <p className="text-xs font-medium text-gray-400 mb-1">Coordinate System</p>
+                                    <div className="space-y-1 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Projection:</span>
+                                            <span className="font-mono text-cyan-300">{layer.metadata.crs.projection}</span>
+                                        </div>
+                                        {layer.metadata.crs.semiMajorAxis && (
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-400">Radius:</span>
+                                                <span className="font-mono text-cyan-300">{(layer.metadata.crs.semiMajorAxis / 1000).toFixed(1)} km</span>
+                                            </div>
+                                        )}
+                                        {layer.metadata.crs.spatialRef && (
+                                            <details className="mt-1">
+                                                <summary className="text-gray-400 cursor-pointer hover:text-gray-300">Proj4 String</summary>
+                                                <pre className="mt-1 text-xs font-mono text-gray-300 bg-gray-800 p-1 rounded overflow-x-auto whitespace-pre-wrap break-all">
+                                                    {layer.metadata.crs.spatialRef}
+                                                </pre>
+                                            </details>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            {/* General Metadata */}
+                            {layer.metadata && (layer.metadata.title || layer.metadata.institution || layer.metadata.source) && (
+                                <div className="space-y-1 bg-gray-900/30 p-2 rounded-md">
+                                    <p className="text-xs font-medium text-gray-400 mb-1">General Information</p>
+                                    <div className="space-y-1 text-xs">
+                                        {layer.metadata.title && (
+                                            <div>
+                                                <span className="text-gray-400">Title: </span>
+                                                <span className="text-cyan-300">{layer.metadata.title}</span>
+                                            </div>
+                                        )}
+                                        {layer.metadata.institution && (
+                                            <div>
+                                                <span className="text-gray-400">Institution: </span>
+                                                <span className="text-cyan-300">{layer.metadata.institution}</span>
+                                            </div>
+                                        )}
+                                        {layer.metadata.source && (
+                                            <div>
+                                                <span className="text-gray-400">Source: </span>
+                                                <span className="text-cyan-300">{layer.metadata.source}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {isIlluminationLayer(layer) && (
+                        <div className="space-y-3 border-t border-gray-700 pt-3">
+                            <h4 className="text-xs font-medium text-gray-300">Debug: Axis Orientation</h4>
+                            <div className="space-y-2 bg-yellow-900/20 p-2 rounded-md border border-yellow-600/30">
+                                <p className="text-xs text-yellow-300 mb-2">Toggle to test axis flipping if data appears inverted</p>
+                                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={!!layer.debugFlipX}
+                                        onChange={(e) => onUpdateLayer(layer.id, { debugFlipX: e.target.checked })}
+                                        className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500"
+                                    />
+                                    Flip X Axis (Left ⟷ Right)
+                                </label>
+                                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={!!layer.debugFlipY}
+                                        onChange={(e) => onUpdateLayer(layer.id, { debugFlipY: e.target.checked })}
+                                        className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500"
+                                    />
+                                    Flip Y Axis (Top ⟷ Bottom)
+                                </label>
+                            </div>
+                        </div>
+                    )}
+                    {isIlluminationLayer(layer) && (
+                        <div className="border-t border-gray-700 pt-3 space-y-3">
+                            <h4 className="text-xs font-medium text-gray-300">Analysis</h4>
+                            <div className="space-y-2">
+                                <label className="block text-xs text-gray-400">
+                                    Illumination Threshold: {layer.illuminationThreshold !== undefined ? layer.illuminationThreshold : 0}
+                                    <span className="ml-1 text-gray-500">(values &gt; threshold count as daylight)</span>
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max={Math.max(1, layer.range.max)}
+                                    step={layer.range.max > 10 ? 1 : 0.01}
+                                    value={layer.illuminationThreshold !== undefined ? layer.illuminationThreshold : 0}
+                                    onChange={(e) => onUpdateLayer(layer.id, { illuminationThreshold: Number(e.target.value) })}
+                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                />
+                            </div>
+                            <button
+                                onClick={() => onCalculateDaylightFractionLayer(layer.id, layer.illuminationThreshold)}
+                                className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 px-3 rounded-md text-xs transition-all"
+                            >
+                                Calculate Daylight Fraction
+                            </button>
+                        </div>
+                    )}
                     {isImageLayer(layer) && (
                         <div className="space-y-3 border-t border-gray-700 pt-3">
                             <h4 className="text-xs font-medium text-gray-300">Transformation</h4>
@@ -642,11 +856,12 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
 });
 
 const AddLayerMenu: React.FC = () => {
-    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddBaseMapLayer, onAddImageLayer, isLoading } = useAppContext();
+    const { onAddDataLayer, onAddDteCommsLayer, onAddLpfCommsLayer, onAddIlluminationLayer, onAddBaseMapLayer, onAddImageLayer, isLoading } = useAppContext();
     const [isOpen, setIsOpen] = useState(false);
     const npyInputRef = useRef<HTMLInputElement>(null);
     const dteInputRef = useRef<HTMLInputElement>(null);
     const lpfInputRef = useRef<HTMLInputElement>(null);
+    const netcdfInputRef = useRef<HTMLInputElement>(null);
     const pngInputRef = useRef<HTMLInputElement>(null);
     const vrtInputRef = useRef<HTMLInputElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
@@ -712,6 +927,8 @@ const AddLayerMenu: React.FC = () => {
                 <button onClick={() => dteInputRef.current?.click()} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-xs transition-all text-left">DTE Comms Layer (.npy)</button>
                 <input ref={lpfInputRef} type="file" accept=".npy" className="hidden" onChange={(e) => handleNpySelect(e, onAddLpfCommsLayer)} />
                 <button onClick={() => lpfInputRef.current?.click()} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-xs transition-all text-left">LPF Comms Layer (.npy)</button>
+                <input ref={netcdfInputRef} type="file" accept=".nc,.nc4" className="hidden" onChange={(e) => handleNpySelect(e, onAddIlluminationLayer)} />
+                <button onClick={() => netcdfInputRef.current?.click()} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-xs transition-all text-left">Illumination Layer (.nc)</button>
                 <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
                 <button onClick={() => imageInputRef.current?.click()} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-xs transition-all text-left">Image Layer</button>
                 <div className="border-t border-gray-700 pt-2">

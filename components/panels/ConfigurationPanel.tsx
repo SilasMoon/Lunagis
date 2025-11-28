@@ -7,6 +7,7 @@ export const ConfigurationPanel: React.FC = () => {
         primaryDataLayer, baseMapLayer, activeLayer, timeRange,
         showGraticule, setShowGraticule,
         graticuleDensity, setGraticuleDensity,
+        graticuleLabelFontSize, setGraticuleLabelFontSize,
         selectedPixel,
         showGrid, setShowGrid,
         gridSpacing, setGridSpacing,
@@ -70,9 +71,15 @@ export const ConfigurationPanel: React.FC = () => {
                   <Section title="View Options" defaultOpen={true}>
                     <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showGraticule} onChange={(e) => setShowGraticule(e.target.checked)} className="w-4 h-4 text-cyan-600 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500" /><span>Show Graticule</span></label>
                     {showGraticule && (
-                      <div className="pt-3">
-                        <label className="block text-xs font-medium text-gray-400">Density: {graticuleDensity.toFixed(1)}x</label>
-                        <input type="range" min="0.2" max="5" step="0.1" value={graticuleDensity} onChange={(e) => setGraticuleDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                      <div className="pt-3 space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400">Density: {graticuleDensity.toFixed(1)}x</label>
+                          <input type="range" min="0.2" max="5" step="0.1" value={graticuleDensity} onChange={(e) => setGraticuleDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400">Label Font Size: {graticuleLabelFontSize}px</label>
+                          <input type="range" min="8" max="24" step="1" value={graticuleLabelFontSize} onChange={(e) => setGraticuleLabelFontSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-1" />
+                        </div>
                       </div>
                     )}
                   </Section>

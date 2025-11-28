@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
 import type { Event } from '../../types';
-import { indexToDateString } from '../../utils/time';
 import { useAppContext } from '../../context/AppContext';
 import { Section } from './panelUtils';
+import { generateSecureId } from '../../utils/crypto';
+
+const formatDateToString = (date: Date): string => {
+    return date.toLocaleString('en-US', {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'UTC',
+    }).replace(',', '');
+};
 
 export const EventsPanel: React.FC = () => {
     const {
@@ -15,7 +27,8 @@ export const EventsPanel: React.FC = () => {
         primaryDataLayer,
         currentDateIndex,
         setCurrentDateIndex,
-        timeRange
+        timeRange,
+        getDateForIndex
     } = useAppContext();
 
     const [newEventName, setNewEventName] = useState('');
@@ -35,7 +48,7 @@ export const EventsPanel: React.FC = () => {
             : Math.max(0, Math.min(customDateIndex, maxTimeIndex));
 
         const newEvent: Event = {
-            id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: generateSecureId('event'),
             name: newEventName.trim(),
             description: newEventDescription.trim(),
             dateIndex,
@@ -101,7 +114,7 @@ export const EventsPanel: React.FC = () => {
                                 onChange={() => setUseCurrentDate(true)}
                                 className="w-4 h-4"
                             />
-                            <span className="text-gray-300">Use current date {currentDateIndex !== null && `(${indexToDateString(currentDateIndex)})`}</span>
+                            <span className="text-gray-300">Use current date {currentDateIndex !== null && `(${formatDateToString(getDateForIndex(currentDateIndex))})`}</span>
                         </label>
                         <label className="flex items-center gap-2 text-sm">
                             <input
@@ -122,7 +135,7 @@ export const EventsPanel: React.FC = () => {
                                     onChange={(e) => setCustomDateIndex(parseInt(e.target.value) || 0)}
                                     className="bg-gray-700 text-white rounded p-2 border border-gray-600 text-sm w-full"
                                 />
-                                <span className="text-xs text-gray-500">Index: {customDateIndex} / {maxTimeIndex} ({indexToDateString(customDateIndex)})</span>
+                                <span className="text-xs text-gray-500">Index: {customDateIndex} / {maxTimeIndex} ({formatDateToString(getDateForIndex(customDateIndex))})</span>
                             </div>
                         )}
                     </div>
@@ -187,7 +200,7 @@ export const EventsPanel: React.FC = () => {
                                             <span className="text-sm font-medium text-white truncate">{event.name}</span>
                                         </div>
                                         <div className="text-xs text-gray-400 mt-1">
-                                            {indexToDateString(event.dateIndex)}
+                                            {formatDateToString(getDateForIndex(event.dateIndex))}
                                         </div>
                                         {event.description && (
                                             <div className="text-xs text-gray-500 mt-1 line-clamp-2">
@@ -260,7 +273,7 @@ export const EventsPanel: React.FC = () => {
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="bg-gray-700 text-white rounded p-2 border border-gray-600 text-sm"
                                             />
-                                            <span className="text-xs text-gray-500">{indexToDateString(event.dateIndex)}</span>
+                                            <span className="text-xs text-gray-500">{formatDateToString(getDateForIndex(event.dateIndex))}</span>
                                         </label>
                                     </div>
                                 )}

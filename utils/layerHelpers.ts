@@ -3,17 +3,18 @@
  * Provides type-safe helper functions for working with different layer types
  */
 
-import type { Layer, DataLayer, DteCommsLayer, LpfCommsLayer, AnalysisLayer, BaseMapLayer, ImageLayer } from '../types';
+import type { Layer, DataLayer, DteCommsLayer, LpfCommsLayer, IlluminationLayer, AnalysisLayer, BaseMapLayer, ImageLayer } from '../types';
 
 /**
  * Type guard: checks if layer has a dataset and grid structure
- * Includes: DataLayer, DteCommsLayer, LpfCommsLayer, AnalysisLayer
+ * Includes: DataLayer, DteCommsLayer, LpfCommsLayer, IlluminationLayer, AnalysisLayer
  */
-export function isDataGridLayer(layer: Layer): layer is DataLayer | DteCommsLayer | LpfCommsLayer | AnalysisLayer {
+export function isDataGridLayer(layer: Layer): layer is DataLayer | DteCommsLayer | LpfCommsLayer | IlluminationLayer | AnalysisLayer {
   return layer.type === 'data' ||
          layer.type === 'analysis' ||
          layer.type === 'dte_comms' ||
-         layer.type === 'lpf_comms';
+         layer.type === 'lpf_comms' ||
+         layer.type === 'illumination';
 }
 
 /**
@@ -59,9 +60,16 @@ export function isImageLayer(layer: Layer): layer is ImageLayer {
 }
 
 /**
+ * Type guard: checks if layer is an IlluminationLayer
+ */
+export function isIlluminationLayer(layer: Layer): layer is IlluminationLayer {
+  return layer.type === 'illumination';
+}
+
+/**
  * Type guard: checks if layer has colormap properties
  */
-export function hasColormap(layer: Layer): layer is DataLayer | DteCommsLayer | LpfCommsLayer | AnalysisLayer {
+export function hasColormap(layer: Layer): layer is DataLayer | DteCommsLayer | LpfCommsLayer | IlluminationLayer | AnalysisLayer {
   return isDataGridLayer(layer);
 }
 

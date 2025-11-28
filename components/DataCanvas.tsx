@@ -5,15 +5,16 @@ import { getColorScale } from '../services/colormap';
 import { ZoomControls } from './ZoomControls';
 import { useAppContext } from '../context/AppContext';
 import { OptimizedCanvasLRUCache } from '../utils/OptimizedLRUCache';
-import { isDataGridLayer, isNightfallLayer, isDaylightFractionLayer, getLayerTimeIndex } from '../utils/layerHelpers';
+import { isDataGridLayer, isNightfallLayer, isDaylightFractionLayer, getLayerTimeIndex, isIlluminationLayer } from '../utils/layerHelpers';
 import { useDebounce } from '../hooks/useDebounce';
 import { WaypointEditModal } from './WaypointEditModal';
 import { ActivityTimelineModal } from './ActivityTimelineModal';
 import { ActivitySymbolsOverlay } from './ActivitySymbolsOverlay';
 import { useToast } from './Toast';
-
-declare const d3: any;
-declare const proj4: any;
+import { logger } from '../utils/logger';
+import { useWaypointOperations } from '../hooks/useWaypointOperations';
+import { WaypointContextMenu } from './WaypointContextMenu';
+import { exportMapAsImage } from '../utils/exportMap';
 
 /**
  * Fast hash function for custom colormap
@@ -239,7 +240,7 @@ const drawWaypointSymbol = (ctx: CanvasRenderingContext2D, symbol: string, x: nu
 export const DataCanvas: React.FC = () => {
   const {
     layers, timeRange, currentDateIndex, setHoveredCoords, setSelectedPixel, onFinishArtifactCreation, onUpdateArtifact,
-    clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, proj, viewState,
+    clearHoverState, latRange, lonRange, showGraticule, graticuleDensity, graticuleLabelFontSize, proj, viewState,
     setViewState, primaryDataLayer, baseMapLayer, showGrid, gridSpacing, gridColor, activeTool, selectedCells,
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
@@ -324,6 +325,15 @@ export const DataCanvas: React.FC = () => {
     try {
       const { minX, maxX, minY, maxY } = combinedBounds;
 
+      // Add padding to viewport bounds to include lines just outside view
+      const padding = Math.max(maxX - minX, maxY - minY) * 0.1;
+      const viewportBounds = {
+        minX: minX - padding,
+        maxX: maxX + padding,
+        minY: minY - padding,
+        maxY: maxY + padding
+      };
+
       // Sample bounds to determine appropriate step size
       const samplePoints = [
         [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]
@@ -334,11 +344,13 @@ export const DataCanvas: React.FC = () => {
       }).filter((p): p is [number, number] => p !== null);
 
       let lonSpan = 360, latSpan = 180;
+      let viewLonMin = -180, viewLonMax = 180, viewLatMin = -90, viewLatMax = 90;
+
       if (geoPoints.length > 0) {
-        const viewLonMin = Math.min(...geoPoints.map(p => p[0]));
-        const viewLonMax = Math.max(...geoPoints.map(p => p[0]));
-        const viewLatMin = Math.min(...geoPoints.map(p => p[1]));
-        const viewLatMax = Math.max(...geoPoints.map(p => p[1]));
+        viewLonMin = Math.min(...geoPoints.map(p => p[0]));
+        viewLonMax = Math.max(...geoPoints.map(p => p[0]));
+        viewLatMin = Math.min(...geoPoints.map(p => p[1]));
+        viewLatMax = Math.max(...geoPoints.map(p => p[1]));
         lonSpan = Math.abs(viewLonMax - viewLonMin);
         if (lonSpan > 180) lonSpan = 360 - lonSpan;
         latSpan = Math.abs(viewLatMax - viewLatMin);
@@ -359,47 +371,149 @@ export const DataCanvas: React.FC = () => {
       const lonStep = calcStep(lonSpan);
       const latStep = calcStep(latSpan);
 
-      // Pre-calculate all graticule lines as arrays of projected points
+      // Adaptive point density based on visible span
+      const calcPointCount = (span: number, isLon: boolean) => {
+        // Fewer points when zoomed out, more when zoomed in
+        if (span > 90) return isLon ? 20 : 40; // Very zoomed out
+        if (span > 45) return isLon ? 30 : 60; // Zoomed out
+        if (span > 20) return isLon ? 40 : 80; // Medium
+        return isLon ? 50 : 100; // Zoomed in
+      };
+
+      const lonPointCount = calcPointCount(latSpan, true); // meridians span latitude
+      const latPointCount = calcPointCount(lonSpan, false); // parallels span longitude
+
+      // Helper to clip a line to the viewport bounds
+      // Returns only the points that are reasonably close to the viewport
+      const clipLineToViewport = (points: Array<[number, number]>) => {
+        if (points.length === 0) return [];
+
+        // Expanded bounds for clipping (5x viewport size to catch nearby segments)
+        const clipMargin = Math.max(
+          viewportBounds.maxX - viewportBounds.minX,
+          viewportBounds.maxY - viewportBounds.minY
+        ) * 2;
+
+        const clipBounds = {
+          minX: viewportBounds.minX - clipMargin,
+          maxX: viewportBounds.maxX + clipMargin,
+          minY: viewportBounds.minY - clipMargin,
+          maxY: viewportBounds.maxY + clipMargin
+        };
+
+        const clippedPoints: Array<[number, number]> = [];
+
+        for (const [x, y] of points) {
+          // Only include points within reasonable distance of viewport
+          if (x >= clipBounds.minX && x <= clipBounds.maxX &&
+              y >= clipBounds.minY && y <= clipBounds.maxY) {
+            clippedPoints.push([x, y]);
+          }
+        }
+
+        return clippedPoints;
+      };
+
+      // Pre-calculate graticule lines, only if they intersect viewport
       const lonLines: Array<{ lon: number; points: Array<[number, number]> }> = [];
       const latLines: Array<{ lat: number; points: Array<[number, number]> }> = [];
 
-      // Calculate longitude lines (meridians)
-      for (let lon = -180; lon <= 180; lon += lonStep) {
-        const points: Array<[number, number]> = [];
-        for (let i = 0; i <= 100; i++) {
-          const lat = -90 + (i / 100) * 180;
+      // Calculate longitude lines (meridians) - only in visible longitude range
+      const lonStart = Math.floor(viewLonMin / lonStep) * lonStep;
+      const lonEnd = Math.ceil(viewLonMax / lonStep) * lonStep;
+
+      // Add padding to latitude range for meridian sampling
+      const latPadding = Math.max(5, latSpan * 0.2); // At least 5° padding
+      const meridianLatMin = Math.max(-90, viewLatMin - latPadding);
+      const meridianLatMax = Math.min(90, viewLatMax + latPadding);
+
+      console.log('Generating longitude lines:', {
+        lonStart, lonEnd, lonStep, lonPointCount,
+        viewLonMin, viewLonMax,
+        meridianLatMin, meridianLatMax,
+        viewLatMin, viewLatMax
+      });
+
+      for (let lon = lonStart; lon <= lonEnd; lon += lonStep) {
+        if (lon < -180 || lon > 180) continue;
+
+        const allPoints: Array<[number, number]> = [];
+
+        // Sample the meridian ONLY in the visible latitude range (with padding)
+        for (let i = 0; i <= lonPointCount; i++) {
+          const lat = meridianLatMin + (i / lonPointCount) * (meridianLatMax - meridianLatMin);
           try {
             const pt = proj.forward([lon, lat]);
             if (isFinite(pt[0]) && isFinite(pt[1])) {
-              points.push([pt[0], pt[1]]);
+              allPoints.push([pt[0], pt[1]]);
             }
           } catch (err) {
             // Skip invalid points
           }
         }
-        if (points.length >= 2) {
-          lonLines.push({ lon, points });
+
+        // Clip the line to viewport bounds to avoid extreme coordinates
+        const clippedPoints = clipLineToViewport(allPoints);
+
+        // Log details for first longitude line
+        if (lon === lonStart) {
+          console.log(`First lon line (${lon}°):`, {
+            totalPoints: allPoints.length,
+            clippedPoints: clippedPoints.length,
+            firstPoint: allPoints[0],
+            lastPoint: allPoints[allPoints.length - 1],
+            firstClipped: clippedPoints[0],
+            lastClipped: clippedPoints[clippedPoints.length - 1],
+            viewportBounds
+          });
+        }
+
+        // Only include lines that have clipped points
+        if (clippedPoints.length >= 2) {
+          lonLines.push({ lon, points: clippedPoints });
         }
       }
 
-      // Calculate latitude lines (parallels)
-      for (let lat = -90; lat <= 90; lat += latStep) {
-        const points: Array<[number, number]> = [];
-        for (let i = 0; i <= 200; i++) {
-          const lon = -180 + (i / 200) * 360;
+      // Calculate latitude lines (parallels) - only in visible latitude range
+      const latStart = Math.floor(viewLatMin / latStep) * latStep;
+      const latEnd = Math.ceil(viewLatMax / latStep) * latStep;
+
+      for (let lat = latStart; lat <= latEnd; lat += latStep) {
+        if (lat < -90 || lat > 90) continue;
+
+        const allPoints: Array<[number, number]> = [];
+
+        for (let i = 0; i <= latPointCount; i++) {
+          const lon = -180 + (i / latPointCount) * 360;
           try {
             const pt = proj.forward([lon, lat]);
             if (isFinite(pt[0]) && isFinite(pt[1])) {
-              points.push([pt[0], pt[1]]);
+              allPoints.push([pt[0], pt[1]]);
             }
           } catch (err) {
             // Skip invalid points
           }
         }
-        if (points.length >= 2) {
-          latLines.push({ lat, points });
+
+        // Clip the line to viewport bounds
+        const clippedPoints = clipLineToViewport(allPoints);
+
+        // Only include lines that have clipped points
+        if (clippedPoints.length >= 2) {
+          latLines.push({ lat, points: clippedPoints });
         }
       }
+
+      // Debug logging
+      console.log('Graticule cache updated:', {
+        lonLines: lonLines.length,
+        latLines: latLines.length,
+        lonStep,
+        latStep,
+        lonPointCount,
+        latPointCount,
+        viewBounds: { lonMin: viewLonMin, lonMax: viewLonMax, latMin: viewLatMin, latMax: viewLatMax }
+      });
 
       return { lonLines, latLines, lonStep, latStep };
     } catch (error) {
@@ -418,6 +532,33 @@ export const DataCanvas: React.FC = () => {
   const [hoveredWaypointInfo, setHoveredWaypointInfo] = useState<{ artifactId: string; waypointId: string } | null>(null);
   const [rectangleFirstCorner, setRectangleFirstCorner] = useState<[number, number] | null>(null);
   const [currentMouseProjCoords, setCurrentMouseProjCoords] = useState<[number, number] | null>(null);
+
+  // Delete artifact handler
+  const onDeleteArtifact = useCallback((artifactId: string) => {
+    setArtifacts(prev => prev.filter(a => a.id !== artifactId));
+  }, [setArtifacts]);
+
+  // Add artifact handler
+  const onAddArtifact = useCallback((artifact: Artifact) => {
+    setArtifacts(prev => [...prev, artifact]);
+  }, [setArtifacts]);
+
+  // Waypoint context menu operations
+  const {
+    contextMenu,
+    handleContextMenu,
+    handleInsertWaypointAfter,
+    handleDeleteWaypoint,
+    handleDisconnectAfter,
+    handleConnectToPath,
+    availablePathsToConnect,
+  } = useWaypointOperations({
+    artifacts,
+    hoveredWaypointInfo,
+    onUpdateArtifact,
+    onDeleteArtifact,
+    onAddArtifact,
+  });
 
   // Image layer transformation state
   const [imageLayerDragInfo, setImageLayerDragInfo] = useState<{
@@ -734,11 +875,61 @@ export const DataCanvas: React.FC = () => {
         }
         
         dataCtx.save(); dataCtx.globalAlpha = layer.opacity;
-        const [lonMin, lonMax] = lonRange; const [latMin, latMax] = latRange;
-        const c_tl = proj.forward([lonMin, latMax]); const c_tr = proj.forward([lonMax, latMax]); const c_bl = proj.forward([lonMin, latMin]);
-        const a = (c_tr[0] - c_tl[0]) / offscreenCanvas.width; const b = (c_tr[1] - c_tl[1]) / offscreenCanvas.width;
-        const c = (c_bl[0] - c_tl[0]) / offscreenCanvas.height; const d = (c_bl[1] - c_tl[1]) / offscreenCanvas.height;
-        const e = c_tl[0]; const f = c_tl[1];
+
+        // For layers with projected coordinates (illumination or analysis with geospatial info), use them directly!
+        // Geographic bounds are curved in polar projections - don't use them for transformation
+        let c_tl, c_tr, c_bl;
+
+        const hasGeospatialInfo = (isIlluminationLayer(layer) || layer.type === 'analysis') && layer.geospatial;
+
+        if (hasGeospatialInfo) {
+          // Use PROJECTED bounds directly (they form a rectangle in projected space)
+          let { xMin, xMax, yMin, yMax } = layer.geospatial.projectedBounds;
+
+          // Apply debug axis flips in PROJECTED space (only for illumination layers)
+          if (isIlluminationLayer(layer) && layer.debugFlipX) {
+            [xMin, xMax] = [xMax, xMin];
+          }
+          if (isIlluminationLayer(layer) && layer.debugFlipY) {
+            [yMin, yMax] = [yMax, yMin];
+          }
+
+          // Corners in projected space (no conversion needed!)
+          c_tl = [xMin, yMax];  // Top-left
+          c_tr = [xMax, yMax];  // Top-right
+          c_bl = [xMin, yMin];  // Bottom-left
+
+          console.log('Layer with geospatial transform (PROJECTED):', {
+            layerType: layer.type,
+            layerName: layer.name,
+            projectedBounds: { xMin, xMax, yMin, yMax },
+            flips: isIlluminationLayer(layer) ? { flipX: layer.debugFlipX, flipY: layer.debugFlipY } : undefined,
+            canvasSize: { width: offscreenCanvas.width, height: offscreenCanvas.height },
+            projCorners: { tl: c_tl, tr: c_tr, bl: c_bl }
+          });
+        } else {
+          // For other layers, use geographic bounds and convert to projected
+          let layerLonMin, layerLonMax, layerLatMin, layerLatMax;
+          [layerLonMin, layerLonMax] = lonRange;
+          [layerLatMin, layerLatMax] = latRange;
+
+          c_tl = proj.forward([layerLonMin, layerLatMax]);
+          c_tr = proj.forward([layerLonMax, layerLatMax]);
+          c_bl = proj.forward([layerLonMin, layerLatMin]);
+        }
+
+        // Compute affine transformation matrix from 3 corners
+        const a = (c_tr[0] - c_tl[0]) / offscreenCanvas.width;
+        const b = (c_tr[1] - c_tl[1]) / offscreenCanvas.width;
+        const c = (c_bl[0] - c_tl[0]) / offscreenCanvas.height;
+        const d = (c_bl[1] - c_tl[1]) / offscreenCanvas.height;
+        const e = c_tl[0];
+        const f = c_tl[1];
+
+        if (hasGeospatialInfo) {
+          console.log('Transform matrix:', { a, b, c, d, e, f });
+        }
+
         dataCtx.transform(a, b, c, d, e, f);
         dataCtx.drawImage(offscreenCanvas, 0, 0);
         dataCtx.restore();
@@ -775,12 +966,6 @@ export const DataCanvas: React.FC = () => {
 
         // --- Render Graticule from cached points ---
         if (showGraticule && proj && graticuleLinesCache) {
-            gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            gratCtx.lineWidth = 1 / (scale * dpr);
-
-            const drawLabel = (text: string, p: [number, number]) => { gratCtx.save(); gratCtx.translate(p[0], p[1]); const invScale = 1 / (scale * dpr); gratCtx.scale(invScale, -invScale); gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)'; gratCtx.font = `12px sans-serif`; gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; gratCtx.lineWidth = 2; gratCtx.textAlign = 'left'; gratCtx.textBaseline = 'top'; gratCtx.strokeText(text, 5, 5); gratCtx.fillText(text, 5, 5); gratCtx.restore(); };
-
-            // Use cached graticule lines (avoids expensive proj4 calculations during pan/zoom)
             const { lonLines, latLines, lonStep, latStep } = graticuleLinesCache;
 
             // Calculate anchor position for labels
@@ -794,48 +979,117 @@ export const DataCanvas: React.FC = () => {
                 anchorLat = 0;
             }
 
+            // Label collision detection - track occupied label regions
+            const labelRegions: Array<{ x: number; y: number; width: number; height: number }> = [];
+            const minLabelDistance = 40; // Minimum distance in screen pixels between labels
+
+            const checkLabelCollision = (x: number, y: number, width: number, height: number): boolean => {
+                for (const region of labelRegions) {
+                    // Check if bounding boxes overlap with padding
+                    if (x < region.x + region.width + minLabelDistance &&
+                        x + width + minLabelDistance > region.x &&
+                        y < region.y + region.height + minLabelDistance &&
+                        y + height + minLabelDistance > region.y) {
+                        return true; // Collision detected
+                    }
+                }
+                return false; // No collision
+            };
+
+            const drawLabel = (text: string, p: [number, number]): boolean => {
+                // Convert to screen coordinates for collision detection
+                const screenX = (p[0] - viewState.center[0]) * scale * dpr + gratCtx.canvas.width / 2;
+                const screenY = -(p[1] - viewState.center[1]) * scale * dpr + gratCtx.canvas.height / 2;
+
+                const estimatedWidth = text.length * graticuleLabelFontSize * 0.6; // Rough estimate
+                const estimatedHeight = graticuleLabelFontSize * 1.2;
+
+                if (checkLabelCollision(screenX, screenY, estimatedWidth, estimatedHeight)) {
+                    return false; // Skip label due to collision
+                }
+
+                // Add to collision regions
+                labelRegions.push({ x: screenX, y: screenY, width: estimatedWidth, height: estimatedHeight });
+
+                // Draw the label
+                gratCtx.save();
+                gratCtx.translate(p[0], p[1]);
+                const invScale = 1 / (scale * dpr);
+                gratCtx.scale(invScale, -invScale);
+                gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                gratCtx.font = `${graticuleLabelFontSize}px sans-serif`;
+                gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                gratCtx.lineWidth = 3;
+                gratCtx.textAlign = 'left';
+                gratCtx.textBaseline = 'top';
+                gratCtx.strokeText(text, 5, 5);
+                gratCtx.fillText(text, 5, 5);
+                gratCtx.restore();
+                return true;
+            };
+
+            let lonLinesDrawn = 0, latLinesDrawn = 0;
+
+            // Draw all lines in white
+            gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            gratCtx.lineWidth = 1.5 / (scale * dpr);
+
             // Draw longitude lines (meridians) from cached points
             for (const { lon, points } of lonLines) {
+                if (points.length < 2) continue;
+
                 gratCtx.beginPath();
-                for (let i = 0; i < points.length; i++) {
-                    const [x, y] = points[i];
-                    if (i === 0) gratCtx.moveTo(x, y);
-                    else gratCtx.lineTo(x, y);
+                gratCtx.moveTo(points[0][0], points[0][1]);
+                for (let i = 1; i < points.length; i++) {
+                    gratCtx.lineTo(points[i][0], points[i][1]);
                 }
                 gratCtx.stroke();
+                lonLinesDrawn++;
 
-                // Draw label
+                // Draw label if no collision
                 try {
                     const p = proj.forward([lon, anchorLat]);
                     if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) {
-                        drawLabel(`${lon.toFixed(1)}°`, p);
+                        drawLabel(`${lon.toFixed(1)}°E`, p);
                     }
                 } catch(e) {}
             }
 
             // Draw latitude lines (parallels) from cached points
             for (const { lat, points } of latLines) {
+                if (points.length < 2) continue;
+
                 gratCtx.beginPath();
-                for (let i = 0; i < points.length; i++) {
-                    const [x, y] = points[i];
-                    if (i === 0) gratCtx.moveTo(x, y);
-                    else gratCtx.lineTo(x, y);
+                gratCtx.moveTo(points[0][0], points[0][1]);
+                for (let i = 1; i < points.length; i++) {
+                    gratCtx.lineTo(points[i][0], points[i][1]);
                 }
                 gratCtx.stroke();
+                latLinesDrawn++;
 
-                // Draw label
+                // Draw label if no collision
                 try {
                     const p = proj.forward([anchorLon, lat]);
                     if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) {
-                        drawLabel(`${lat.toFixed(1)}°`, p);
+                        drawLabel(`${lat.toFixed(1)}°N`, p);
                     }
                 } catch(e) {}
+            }
+
+            // Debug logging (throttled to avoid spam)
+            if (Math.random() < 0.02) { // Log ~2% of frames
+                console.log('Graticule rendered:', {
+                    lonLinesDrawn,
+                    latLinesDrawn,
+                    labelsDrawn: labelRegions.length,
+                    fontSize: graticuleLabelFontSize
+                });
             }
         }
     }
     contexts.forEach(ctx => ctx.restore());
     if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
-  }, [layers, timeIndex, showGraticule, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor, graticuleLinesCache]);
+  }, [layers, timeIndex, showGraticule, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor, graticuleLinesCache, graticuleLabelFontSize]);
 
   // Helper function to get the 4 corners of a rectangle artifact in projected coordinates
   const getRectangleCorners = useCallback((artifact: RectangleArtifact): [number, number][] | null => {
@@ -952,7 +1206,7 @@ export const DataCanvas: React.FC = () => {
                     wp.geoPosition.length !== 2 ||
                     !isFinite(wp.geoPosition[0]) ||
                     !isFinite(wp.geoPosition[1])) {
-                    console.warn('DataCanvas: Invalid waypoint geoPosition during rendering', wp);
+                    logger.warn('DataCanvas: Invalid waypoint geoPosition during rendering', wp);
                     return { ...wp, projPos: null };
                 }
                 try {
@@ -960,12 +1214,12 @@ export const DataCanvas: React.FC = () => {
                     // Validate projection result
                     if (!projPos || !Array.isArray(projPos) || projPos.length !== 2 ||
                         !isFinite(projPos[0]) || !isFinite(projPos[1])) {
-                        console.warn('DataCanvas: Invalid projection result for waypoint', wp);
+                        logger.warn('DataCanvas: Invalid projection result for waypoint', wp);
                         return { ...wp, projPos: null };
                     }
                     return { ...wp, projPos };
                 } catch(e) {
-                    console.warn('DataCanvas: Failed to project waypoint during rendering', wp, e);
+                    logger.warn('DataCanvas: Failed to project waypoint during rendering', wp, e);
                     return { ...wp, projPos: null };
                 }
             }).filter(p => p.projPos !== null);
@@ -1063,7 +1317,7 @@ export const DataCanvas: React.FC = () => {
                     try {
                         centerPos = proj.forward(firstWaypoint.geoPosition);
                     } catch (e) {
-                        console.warn('DataCanvas: Failed to project first waypoint for label', e);
+                        logger.warn('DataCanvas: Failed to project first waypoint for label', e);
                     }
                 }
             }
@@ -1439,14 +1693,23 @@ export const DataCanvas: React.FC = () => {
             onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
         } else {
             // First click: create the path
-            const newId = `path-${Date.now()}`;
+            // Find the next available path number
+            const pathNumbers = artifacts
+              .filter(a => a.type === 'path')
+              .map(a => {
+                const match = a.id.match(/^path-(\d+)$/);
+                return match ? parseInt(match[1], 10) : 0;
+              });
+            const nextPathNumber = pathNumbers.length > 0 ? Math.max(...pathNumbers) + 1 : 1;
+            const newId = `path-${nextPathNumber}`;
+
             const newWaypoint: Waypoint = {
               id: `wp-${Date.now()}`,
               geoPosition: [coords.lon, coords.lat],
               label: 'WP1',
               activities: createDefaultActivities(),
             };
-            const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${artifacts.length + 1}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
+            const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${nextPathNumber}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
             setArtifacts(prev => [...prev, newArtifact]);
             setActiveArtifactId(newId);
         }
@@ -1577,13 +1840,13 @@ export const DataCanvas: React.FC = () => {
                     wp.geoPosition.length !== 2 ||
                     !isFinite(wp.geoPosition[0]) ||
                     !isFinite(wp.geoPosition[1])) {
-                    console.warn('DataCanvas: Invalid waypoint geoPosition during drag initialization', wp);
+                    logger.warn('DataCanvas: Invalid waypoint geoPosition during drag initialization', wp);
                     return [0, 0] as [number, number];
                 }
                 try {
                     return proj.forward(wp.geoPosition) as [number, number];
                 } catch (e) {
-                    console.warn('DataCanvas: Failed to project waypoint during drag initialization', wp, e);
+                    logger.warn('DataCanvas: Failed to project waypoint during drag initialization', wp, e);
                     return [0, 0] as [number, number];
                 }
             });
@@ -1971,7 +2234,7 @@ export const DataCanvas: React.FC = () => {
         waypoint.geoPosition.length !== 2 ||
         !isFinite(waypoint.geoPosition[0]) ||
         !isFinite(waypoint.geoPosition[1])) {
-      console.error('DataCanvas: Cannot edit waypoint with invalid geoPosition', waypoint);
+      logger.error('DataCanvas: Cannot edit waypoint with invalid geoPosition', waypoint);
       return;
     }
 
@@ -2009,6 +2272,23 @@ export const DataCanvas: React.FC = () => {
   const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; setViewState({ ...viewState, scale: viewState.scale * factor }); }, [viewState, setViewState]);
   const handleResetView = useCallback(() => { if(initialViewState) { setViewState(initialViewState); } }, [initialViewState, setViewState]);
 
+  const handleExportMap = useCallback(() => {
+    if (!viewState || !proj || !containerRef.current) return;
+
+    exportMapAsImage({
+      baseCanvas: baseCanvasRef.current,
+      dataCanvas: dataCanvasRef.current,
+      artifactCanvas: artifactCanvasRef.current,
+      graticuleCanvas: graticuleCanvasRef.current,
+      selectionCanvas: selectionCanvasRef.current,
+      currentDateIndex,
+      viewState,
+      proj,
+      containerWidth: containerRef.current.clientWidth,
+      containerHeight: containerRef.current.clientHeight,
+    });
+  }, [viewState, proj, currentDateIndex]);
+
   const cursorStyle = useMemo(() => {
     if (artifactCreationMode || isAppendingWaypoints) return 'crosshair';
     if (imageLayerDragInfo) {
@@ -2036,6 +2316,7 @@ export const DataCanvas: React.FC = () => {
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
       style={{ cursor: cursorStyle }}
     >
       {isRendering && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 z-50"><LoadingSpinner /></div>}
@@ -2052,7 +2333,7 @@ export const DataCanvas: React.FC = () => {
         containerHeight={containerRef.current?.clientHeight || 0}
         showActivitySymbols={artifactDisplayOptions.showActivitySymbols}
       />
-      <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} />
+      <ZoomControls onZoomIn={() => handleZoomAction(1.5)} onZoomOut={() => handleZoomAction(1 / 1.5)} onResetView={handleResetView} onExportMap={handleExportMap} />
       {editingWaypoint && (() => {
         const artifact = artifacts.find(a => a.id === editingWaypoint.artifactId);
         const defaultColor = artifact?.color || '#ef4444';
@@ -2135,6 +2416,16 @@ export const DataCanvas: React.FC = () => {
           </div>
         );
       })()}
+      {contextMenu && (
+        <WaypointContextMenu
+          contextMenu={contextMenu}
+          onInsertAfter={handleInsertWaypointAfter}
+          onDelete={handleDeleteWaypoint}
+          onDisconnectAfter={handleDisconnectAfter}
+          onConnectToPath={handleConnectToPath}
+          availablePathsToConnect={availablePathsToConnect}
+        />
+      )}
     </div>
   );
 };

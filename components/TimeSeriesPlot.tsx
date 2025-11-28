@@ -1,10 +1,8 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { TimeRange, TimeDomain, ColorStop, Layer } from '../types';
-import { indexToDate } from '../utils/time';
 import { useAppContext } from '../context/AppContext';
-
-declare const d3: any;
+import { MAX_TIME_SERIES_POINTS } from '../config/defaults';
 
 interface TimeSeriesPlotProps {
   yAxisUnit?: 'days';
@@ -21,6 +19,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
     currentDateIndex,
     fullTimeDomain,
     timeZoomDomain,
+    getDateForIndex,
     onZoomToSelection,
     onResetZoom,
     activeLayer,
@@ -55,15 +54,77 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
   const innerWidth = dims.width - MARGIN.left - MARGIN.right;
   const innerHeight = dims.height - MARGIN.top - MARGIN.bottom;
 
+  // Downsample data for performance - limit to MAX_TIME_SERIES_POINTS
   const dataWithDates = useMemo(() => {
     if (!timeSeriesData?.data) return [];
     const isDays = yAxisUnit === 'days';
-    return timeSeriesData.data.map((value, i) => {
-        const date = indexToDate(i);
+    const data = timeSeriesData.data;
+    const dataLength = data.length;
+
+    // Calculate downsample factor based on data length and max points
+    // Use Math.max with innerWidth to ensure good visual density
+    const maxPoints = Math.min(MAX_TIME_SERIES_POINTS, Math.max(innerWidth, 100));
+    const downsampleFactor = Math.ceil(dataLength / maxPoints);
+
+    if (downsampleFactor <= 1) {
+      // No downsampling needed
+      return data.map((value, i) => {
+        const date = getDateForIndex(i);
         const finalValue = isDays ? value / 24 : value;
         return { date, value: finalValue };
-    });
-  }, [timeSeriesData, yAxisUnit]);
+      });
+    }
+
+    // Downsample using min-max preservation to maintain visual peaks/valleys
+    const result: Array<{ date: Date; value: number }> = [];
+
+    for (let i = 0; i < dataLength; i += downsampleFactor) {
+      const chunkEnd = Math.min(i + downsampleFactor, dataLength);
+      let minVal = data[i];
+      let maxVal = data[i];
+      let minIdx = i;
+      let maxIdx = i;
+
+      // Find min and max in this chunk
+      for (let j = i; j < chunkEnd; j++) {
+        if (data[j] < minVal) {
+          minVal = data[j];
+          minIdx = j;
+        }
+        if (data[j] > maxVal) {
+          maxVal = data[j];
+          maxIdx = j;
+        }
+      }
+
+      // Add points in chronological order to preserve shape
+      if (minIdx < maxIdx) {
+        result.push({
+          date: getDateForIndex(minIdx),
+          value: isDays ? minVal / 24 : minVal
+        });
+        if (minIdx !== maxIdx) {
+          result.push({
+            date: getDateForIndex(maxIdx),
+            value: isDays ? maxVal / 24 : maxVal
+          });
+        }
+      } else {
+        result.push({
+          date: getDateForIndex(maxIdx),
+          value: isDays ? maxVal / 24 : maxVal
+        });
+        if (minIdx !== maxIdx) {
+          result.push({
+            date: getDateForIndex(minIdx),
+            value: isDays ? minVal / 24 : minVal
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [timeSeriesData, yAxisUnit, innerWidth, getDateForIndex]);
 
   useEffect(() => {
     if (!isDataLoaded || !timeSeriesData || !dataRange || !timeZoomDomain || innerWidth <= 0 || innerHeight <= 0) {
@@ -98,8 +159,8 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
      .attr('height', innerHeight);
 
     if (timeRange) {
-        const start = indexToDate(timeRange.start);
-        const end = indexToDate(timeRange.end);
+        const start = getDateForIndex(timeRange.start);
+        const end = getDateForIndex(timeRange.end);
 
         g.append('rect')
          .attr('x', xScale(start))
@@ -110,7 +171,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
     }
 
     if (currentDateIndex !== null) {
-        const currentDate = indexToDate(currentDateIndex);
+        const currentDate = getDateForIndex(currentDateIndex);
 
         g.append('line')
          .attr('x1', xScale(currentDate))
@@ -197,7 +258,7 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
         .attr('fill', '#90CDF4')
         .style('font-size', '10px'));
 
-  }, [isDataLoaded, timeSeriesData, timeRange, currentDateIndex, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, yAxisUnit, yAxisRange, colormapThresholds]);
+  }, [isDataLoaded, timeSeriesData, timeRange, currentDateIndex, dataRange, innerWidth, innerHeight, dataWithDates, timeZoomDomain, yAxisUnit, yAxisRange, colormapThresholds, getDateForIndex]);
   
   const isAtFullZoom = useMemo(() => (
     timeZoomDomain && fullTimeDomain &&
@@ -208,16 +269,16 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
   const targetZoomDomain: TimeDomain | null = useMemo(() => {
     if (!timeRange || !fullTimeDomain) return null;
     if (timeRange.start === timeRange.end) {
-        const centerDate = indexToDate(timeRange.start);
+        const centerDate = getDateForIndex(timeRange.start);
         const twelveHours = 12 * 60 * 60 * 1000;
         return [
             new Date(Math.max(fullTimeDomain[0].getTime(), centerDate.getTime() - twelveHours)),
             new Date(Math.min(fullTimeDomain[1].getTime(), centerDate.getTime() + twelveHours))
         ];
     } else {
-        return [indexToDate(timeRange.start), indexToDate(timeRange.end)];
+        return [getDateForIndex(timeRange.start), getDateForIndex(timeRange.end)];
     }
-  }, [timeRange, fullTimeDomain]);
+  }, [timeRange, fullTimeDomain, getDateForIndex]);
 
   const isZoomedToSelection = useMemo(() => (
     timeZoomDomain && targetZoomDomain &&

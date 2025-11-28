@@ -145,14 +145,18 @@ export const calculateDaylightFraction = (
     dataset: DataSet,
     timeRange: TimeRange,
     dimensions: {height: number, width: number},
-    sourceLayerId?: string
+    sourceLayerId?: string,
+    threshold?: number
 ) => {
     const { height, width } = dimensions;
+
+    // Default threshold: 1 for binary data (backward compatible), 0 for continuous data
+    const effectiveThreshold = threshold !== undefined ? threshold : 1;
 
     // Check cache before computing (if we have a source layer ID)
     if (sourceLayerId) {
         const datasetHash = AnalysisCacheKey.hashDataset(dataset, { time: dataset.length, height, width });
-        const cacheKey = AnalysisCacheKey.forDaylightFraction(sourceLayerId, datasetHash, timeRange);
+        const cacheKey = AnalysisCacheKey.forDaylightFraction(sourceLayerId, datasetHash, timeRange, effectiveThreshold);
         const cachedResult = analysisCache.getDaylightFraction(cacheKey);
         if (cachedResult) {
             return cachedResult;
@@ -172,7 +176,13 @@ export const calculateDaylightFraction = (
             for (let t = timeRange.start; t <= timeRange.end; t++) {
                 if (t >= dataset.length) continue;
                 const value = dataset[t][y][x];
-                if (value === 1) dayHours++;
+                // For binary data: value === 1
+                // For continuous data (e.g., illumination): value > threshold
+                if (effectiveThreshold === 1) {
+                    if (value === 1) dayHours++;
+                } else {
+                    if (value > effectiveThreshold) dayHours++;
+                }
             }
             const fraction = (dayHours / totalHours) * 100;
             resultSlice[y][x] = fraction;
@@ -184,7 +194,7 @@ export const calculateDaylightFraction = (
     // Store result in cache (if we have a source layer ID)
     if (sourceLayerId) {
         const datasetHash = AnalysisCacheKey.hashDataset(dataset, { time: dataset.length, height, width });
-        const cacheKey = AnalysisCacheKey.forDaylightFraction(sourceLayerId, datasetHash, timeRange);
+        const cacheKey = AnalysisCacheKey.forDaylightFraction(sourceLayerId, datasetHash, timeRange, effectiveThreshold);
         analysisCache.setDaylightFraction(cacheKey, result);
     }
 

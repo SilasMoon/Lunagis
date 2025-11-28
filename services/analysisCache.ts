@@ -25,9 +25,11 @@ export class AnalysisCacheKey {
   static forDaylightFraction(
     sourceLayerId: string,
     datasetHash: string,
-    timeRange: TimeRange
+    timeRange: TimeRange,
+    threshold?: number
   ): string {
-    return `daylight:${sourceLayerId}:${datasetHash}:${timeRange.start}-${timeRange.end}`;
+    const thresholdStr = threshold !== undefined ? `:${threshold}` : '';
+    return `daylight:${sourceLayerId}:${datasetHash}:${timeRange.start}-${timeRange.end}${thresholdStr}`;
   }
 
   /**

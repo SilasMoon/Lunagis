@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Activity, ActivityTemplate, Waypoint, ActivityDefinition } from '../types';
+import { generateSecureId } from '../utils/crypto';
 
 const TEMPLATES_STORAGE_KEY = 'lunagis_activity_templates';
 
@@ -28,7 +29,7 @@ const saveTemplatesToStorage = (templates: ActivityTemplate[], showError?: (mess
   }
 };
 
-const generateId = () => `activity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const generateId = () => generateSecureId('activity');
 
 interface UseActivityTimelineOptions {
   waypoint: Waypoint;

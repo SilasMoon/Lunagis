@@ -2,23 +2,19 @@
  * File validation utilities to prevent loading files that could crash the browser
  */
 
+import { FILE_SIZE_LIMITS, MAX_TOTAL_FILE_SIZE } from '../config/defaults';
+
 export interface FileValidationResult {
   valid: boolean;
   error?: string;
   errorCode?: string;
 }
 
-// File size limits in bytes
-const FILE_SIZE_LIMITS = {
-  '.npy': 500 * 1024 * 1024,  // 500MB for data files
-  '.png': 50 * 1024 * 1024,   // 50MB for basemap images
-  '.vrt': 10 * 1024 * 1024,   // 10MB for VRT files
-  '.json': 20 * 1024 * 1024,  // 20MB for config files
-} as const;
-
 // MIME type validation (optional but recommended)
 const ALLOWED_MIME_TYPES = {
   '.npy': ['application/octet-stream', 'application/x-numpy'],
+  '.nc': ['application/netcdf', 'application/x-netcdf', 'application/octet-stream'],
+  '.nc4': ['application/netcdf', 'application/x-netcdf', 'application/octet-stream'],
   '.png': ['image/png'],
   '.vrt': ['text/xml', 'application/xml', 'text/plain'],
   '.json': ['application/json', 'text/plain'],
@@ -92,9 +88,12 @@ export function validateFileMimeType(file: File): FileValidationResult {
     return { valid: true }; // Unknown extension, skip MIME check
   }
 
-  // Note: MIME type validation can be unreliable, so we only warn
+  // Note: MIME type validation can be unreliable, so we only log in development
   if (file.type && !allowedTypes.includes(file.type)) {
-    console.warn(`File "${file.name}" has unexpected MIME type: ${file.type}. Expected one of: ${allowedTypes.join(', ')}`);
+    // MIME type mismatch is non-critical, just for debugging
+    if (process.env.NODE_ENV === 'development') {
+      // File has unexpected MIME type - may be browser-specific behavior
+    }
   }
 
   return { valid: true };
@@ -170,7 +169,7 @@ export function getTotalFileSize(files: File[]): number {
 /**
  * Validate that total file size doesn't exceed system limits
  */
-export function validateTotalSize(files: File[], maxTotalSize: number = 1024 * 1024 * 1024): FileValidationResult {
+export function validateTotalSize(files: File[], maxTotalSize: number = MAX_TOTAL_FILE_SIZE): FileValidationResult {
   const totalSize = getTotalFileSize(files);
 
   if (totalSize > maxTotalSize) {

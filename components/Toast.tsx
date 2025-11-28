@@ -1,4 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { generateSecureId } from '../utils/crypto';
+import {
+  DEFAULT_TOAST_DURATION,
+  ERROR_TOAST_DURATION,
+  WARNING_TOAST_DURATION
+} from '../config/defaults';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -37,10 +43,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const showToast = useCallback((toast: Omit<Toast, 'id'>) => {
-    const id = `toast-${Date.now()}-${Math.random()}`;
+    const id = generateSecureId('toast');
     const newToast: Toast = {
       id,
-      duration: 5000, // Default 5 seconds
+      duration: DEFAULT_TOAST_DURATION,
       ...toast,
     };
 
@@ -63,11 +69,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [showToast]);
 
   const showError = useCallback((message: string, title?: string) => {
-    showToast({ type: 'error', message, title, duration: 8000 }); // Longer for errors
+    showToast({ type: 'error', message, title, duration: ERROR_TOAST_DURATION });
   }, [showToast]);
 
   const showWarning = useCallback((message: string, title?: string) => {
-    showToast({ type: 'warning', message, title, duration: 6000 });
+    showToast({ type: 'warning', message, title, duration: WARNING_TOAST_DURATION });
   }, [showToast]);
 
   const showInfo = useCallback((message: string, title?: string) => {

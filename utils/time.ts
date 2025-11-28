@@ -1,5 +1,7 @@
 // Fix: Removed invalid file header which was causing parsing errors.
-export const START_DATE = new Date('2030-01-01T00:00:00Z');
+import { DEFAULT_START_DATE } from '../config/defaults';
+
+export const START_DATE = DEFAULT_START_DATE;
 
 export const indexToDate = (index: number): Date => {
   const date = new Date(START_DATE.getTime());

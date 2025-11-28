@@ -1,5 +1,6 @@
 import React from 'react';
 import { PathArtifact, Waypoint } from '../types';
+import { logger } from '../utils/logger';
 import {
   Drill,
   CirclePause,
@@ -91,19 +92,19 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
                 waypoint.geoPosition.length !== 2 ||
                 !isFinite(waypoint.geoPosition[0]) ||
                 !isFinite(waypoint.geoPosition[1])) {
-              console.warn(`ActivitySymbolsOverlay: Waypoint ${waypoint.id} has invalid geoPosition`, waypoint);
+              logger.warn(`ActivitySymbolsOverlay: Waypoint ${waypoint.id} has invalid geoPosition`, waypoint);
               return null;
             }
 
             const projPos = proj.forward(waypoint.geoPosition) as [number, number];
             if (!projPos || !Array.isArray(projPos) || projPos.length !== 2) {
-              console.warn(`ActivitySymbolsOverlay: Invalid projection result for waypoint ${waypoint.id}`, projPos);
+              logger.warn(`ActivitySymbolsOverlay: Invalid projection result for waypoint ${waypoint.id}`, projPos);
               return null;
             }
 
             const canvasPos = projToCanvas(projPos);
             if (!canvasPos) {
-              console.warn(`ActivitySymbolsOverlay: Invalid canvas position for waypoint ${waypoint.id}`);
+              logger.warn(`ActivitySymbolsOverlay: Invalid canvas position for waypoint ${waypoint.id}`);
               return null;
             }
             const [canvasX, canvasY] = canvasPos;
@@ -277,7 +278,7 @@ export const ActivitySymbolsOverlay: React.FC<ActivitySymbolsOverlayProps> = ({
               </React.Fragment>
             );
           } catch (e) {
-            console.error(`ActivitySymbolsOverlay: Error rendering activity symbol for waypoint ${waypoint.id}:`, e);
+            logger.error(`ActivitySymbolsOverlay: Error rendering activity symbol for waypoint ${waypoint.id}:`, e);
             return null;
           }
         });

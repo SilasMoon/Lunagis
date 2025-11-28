@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import type { Waypoint, Activity, ActivityDefinition } from '../types';
 import { ChevronUp, ChevronDown, Trash2, Plus, Save, FolderOpen } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
@@ -142,6 +142,8 @@ export const ActivityTimelineModal: React.FC<ActivityTimelineModalProps> = ({
     handleDeleteTemplate,
     validateAndGetUpdates,
   } = useActivityTimeline({ waypoint, activityDefinitions, showError });
+
+  const modalRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen) return null;
 

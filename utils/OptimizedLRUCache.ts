@@ -1,3 +1,5 @@
+import { logger } from './logger';
+
 /**
  * Doubly-Linked List Node for LRU Cache
  */
@@ -276,7 +278,7 @@ export class OptimizedCanvasLRUCache extends OptimizedLRUCache<string, HTMLCanva
 
     // If canvas is too large for cache, don't store it
     if (canvasSize > this.maxMemoryBytes) {
-      console.warn(`Canvas too large for cache: ${(canvasSize / 1024 / 1024).toFixed(2)}MB`);
+      logger.warn(`Canvas too large for cache: ${(canvasSize / 1024 / 1024).toFixed(2)}MB`);
       return;
     }
 

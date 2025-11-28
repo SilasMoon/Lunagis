@@ -4,7 +4,7 @@ import type { Tool } from '../types';
 import logoUrl from '../utils/LunaGis_logo.svg?url';
 
 interface ToolBarProps {
-  activeTool: Tool;
+  activeTool: Tool | null;
   onToolSelect: (tool: Tool) => void;
   onUserManualClick?: () => void;
   onImportConfig: (file: File) => void;

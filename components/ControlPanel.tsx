@@ -23,6 +23,11 @@ export const SidePanel: React.FC = () => {
         }
     };
 
+    // Don't render the panel container if no tool is selected
+    if (!activeTool) {
+        return null;
+    }
+
     return (
         <aside className="bg-gray-800/50 border-r border-gray-700 p-4 w-80 flex-shrink-0 flex flex-col gap-6 overflow-y-auto">
             {renderPanel()}

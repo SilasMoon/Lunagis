@@ -1,23 +1,44 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { parseNpy } from '../services/npyParser';
 import { parseVrt } from '../services/vrtParser';
-import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer, Event, ActivityDefinition, Activity } from '../types';
-import { indexToDate } from '../utils/time';
+import { parseNetCdf4, parseTimeValues } from '../services/netcdf4Parser';
+import type { DataSet, DataSlice, GeoCoordinates, VrtData, ViewState, TimeRange, PixelCoords, TimeDomain, Tool, Layer, DataLayer, BaseMapLayer, AnalysisLayer, ImageLayer, DaylightFractionHoverData, AppStateConfig, SerializableLayer, Artifact, CircleArtifact, RectangleArtifact, PathArtifact, SerializableArtifact, Waypoint, ColorStop, DteCommsLayer, LpfCommsLayer, IlluminationLayer, Event, ActivityDefinition, Activity } from '../types';
+import { indexToDate, dateToIndex } from '../utils/time';
 import * as analysisService from '../services/analysisService';
 import { useToast } from '../components/Toast';
 import { useCoordinateTransformation } from '../hooks/useCoordinateTransformation';
+import { useDebounce } from '../hooks/useDebounce';
+import { generateSecureId } from '../utils/crypto';
+import { logger } from '../utils/logger';
+import {
+  DEFAULT_LAT_RANGE,
+  DEFAULT_LON_RANGE,
+  MAX_HISTORY_STATES,
+  IMAGE_LOAD_TIMEOUT_MS,
+  DEFAULT_ARTIFACT_DISPLAY_OPTIONS,
+  DEFAULT_PATH_CREATION_OPTIONS,
+  DEFAULT_NIGHTFALL_PLOT_Y_AXIS_RANGE
+} from '../config/defaults';
 
 // Geographic bounding box for the data
-const LAT_RANGE: [number, number] = [-85.505, -85.26];
-const LON_RANGE: [number, number] = [28.97, 32.53];
+const LAT_RANGE: [number, number] = DEFAULT_LAT_RANGE;
+const LON_RANGE: [number, number] = DEFAULT_LON_RANGE;
 
-declare const proj4: any;
-
-const dataUrlToImage = (dataUrl: string): Promise<HTMLImageElement> => {
+const dataUrlToImage = (dataUrl: string, timeout: number = IMAGE_LOAD_TIMEOUT_MS): Promise<HTMLImageElement> => {
     return new Promise((resolve, reject) => {
         const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = reject;
+        const timeoutId = setTimeout(() => {
+            reject(new Error('Image load timeout'));
+        }, timeout);
+
+        image.onload = () => {
+            clearTimeout(timeoutId);
+            resolve(image);
+        };
+        image.onerror = (e) => {
+            clearTimeout(timeoutId);
+            reject(e);
+        };
         image.src = dataUrl;
     });
 };
@@ -33,7 +54,8 @@ interface AppContextType {
     showGraticule: boolean;
     viewState: ViewState | null;
     graticuleDensity: number;
-    activeTool: Tool;
+    graticuleLabelFontSize: number;
+    activeTool: Tool | null;
     selectedPixel: (PixelCoords & { layerId: string; }) | null;
     timeSeriesData: { data: number[]; range: { min: number; max: number; }; } | null;
     timeZoomDomain: TimeDomain | null;
@@ -68,6 +90,8 @@ interface AppContextType {
     activeLayer: Layer | undefined;
     proj: any;
     fullTimeDomain: TimeDomain | null;
+    getDateForIndex: (index: number) => Date;  // Layer-aware date conversion
+    getIndexForDate: (date: Date) => number;  // Layer-aware inverse conversion
     coordinateTransformer: ((lat: number, lon: number) => PixelCoords) | null;
     snapToCellCorner: ((projCoords: [number, number]) => [number, number] | null) | null;
     calculateRectangleFromCellCorners: ((corner1: [number, number], corner2: [number, number]) => { center: [number, number]; width: number; height: number; rotation: number } | null) | null;
@@ -82,6 +106,7 @@ interface AppContextType {
     setShowGraticule: React.Dispatch<React.SetStateAction<boolean>>;
     setViewState: React.Dispatch<React.SetStateAction<ViewState | null>>;
     setGraticuleDensity: React.Dispatch<React.SetStateAction<number>>;
+    setGraticuleLabelFontSize: React.Dispatch<React.SetStateAction<number>>;
     onToolSelect: (tool: Tool) => void;
     setSelectedPixel: React.Dispatch<React.SetStateAction<(PixelCoords & { layerId: string; }) | null>>;
     setTimeZoomDomain: React.Dispatch<React.SetStateAction<TimeDomain | null>>;
@@ -116,6 +141,7 @@ interface AppContextType {
     onAddDataLayer: (file: File) => void;
     onAddDteCommsLayer: (file: File) => void;
     onAddLpfCommsLayer: (file: File) => void;
+    onAddIlluminationLayer: (file: File) => void;
     onAddBaseMapLayer: (pngFile: File, vrtFile: File) => void;
     onAddImageLayer: (file: File, initialPosition?: [number, number]) => Promise<void>;
     onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
@@ -157,6 +183,168 @@ export const useAppContext = () => {
     return context;
 };
 
+/**
+ * Memoized hooks for performance optimization
+ * Use these instead of useAppContext when you only need specific state slices
+ * Components will only re-render when the specific slice changes
+ */
+
+/** Hook for layer-related state and operations */
+export const useLayerState = () => {
+    const ctx = useAppContext();
+    return useMemo(() => ({
+        layers: ctx.layers,
+        activeLayerId: ctx.activeLayerId,
+        activeLayer: ctx.activeLayer,
+        baseMapLayer: ctx.baseMapLayer,
+        primaryDataLayer: ctx.primaryDataLayer,
+        setLayers: ctx.setLayers,
+        setActiveLayerId: ctx.setActiveLayerId,
+        onAddDataLayer: ctx.onAddDataLayer,
+        onAddDteCommsLayer: ctx.onAddDteCommsLayer,
+        onAddLpfCommsLayer: ctx.onAddLpfCommsLayer,
+        onAddBaseMapLayer: ctx.onAddBaseMapLayer,
+        onAddImageLayer: ctx.onAddImageLayer,
+        onUpdateLayer: ctx.onUpdateLayer,
+        onRemoveLayer: ctx.onRemoveLayer,
+        onCalculateNightfallLayer: ctx.onCalculateNightfallLayer,
+        onCalculateDaylightFractionLayer: ctx.onCalculateDaylightFractionLayer,
+        onCreateExpressionLayer: ctx.onCreateExpressionLayer,
+        onRecalculateExpressionLayer: ctx.onRecalculateExpressionLayer,
+    }), [
+        ctx.layers, ctx.activeLayerId, ctx.activeLayer, ctx.baseMapLayer, ctx.primaryDataLayer,
+        ctx.setLayers, ctx.setActiveLayerId, ctx.onAddDataLayer, ctx.onAddDteCommsLayer,
+        ctx.onAddLpfCommsLayer, ctx.onAddBaseMapLayer, ctx.onAddImageLayer, ctx.onUpdateLayer,
+        ctx.onRemoveLayer, ctx.onCalculateNightfallLayer, ctx.onCalculateDaylightFractionLayer,
+        ctx.onCreateExpressionLayer, ctx.onRecalculateExpressionLayer
+    ]);
+};
+
+/** Hook for viewport and display settings */
+export const useViewState = () => {
+    const ctx = useAppContext();
+    return useMemo(() => ({
+        viewState: ctx.viewState,
+        showGraticule: ctx.showGraticule,
+        graticuleDensity: ctx.graticuleDensity,
+        showGrid: ctx.showGrid,
+        gridSpacing: ctx.gridSpacing,
+        gridColor: ctx.gridColor,
+        setViewState: ctx.setViewState,
+        setShowGraticule: ctx.setShowGraticule,
+        setGraticuleDensity: ctx.setGraticuleDensity,
+        setGraticuleLabelFontSize: ctx.setGraticuleLabelFontSize,
+        setShowGrid: ctx.setShowGrid,
+        setGridSpacing: ctx.setGridSpacing,
+        setGridColor: ctx.setGridColor,
+    }), [
+        ctx.viewState, ctx.showGraticule, ctx.graticuleDensity, ctx.graticuleLabelFontSize, ctx.showGrid,
+        ctx.gridSpacing, ctx.gridColor, ctx.setViewState, ctx.setShowGraticule,
+        ctx.setGraticuleDensity, ctx.setGraticuleLabelFontSize, ctx.setShowGrid, ctx.setGridSpacing, ctx.setGridColor
+    ]);
+};
+
+/** Hook for time-related state and playback */
+export const useTimeState = () => {
+    const ctx = useAppContext();
+    return useMemo(() => ({
+        timeRange: ctx.timeRange,
+        currentDateIndex: ctx.currentDateIndex,
+        timeZoomDomain: ctx.timeZoomDomain,
+        fullTimeDomain: ctx.fullTimeDomain,
+        isPlaying: ctx.isPlaying,
+        isPaused: ctx.isPaused,
+        playbackSpeed: ctx.playbackSpeed,
+        setTimeRange: ctx.setTimeRange,
+        setCurrentDateIndex: ctx.setCurrentDateIndex,
+        setTimeZoomDomain: ctx.setTimeZoomDomain,
+        setIsPlaying: ctx.setIsPlaying,
+        setIsPaused: ctx.setIsPaused,
+        onPlaybackSpeedChange: ctx.onPlaybackSpeedChange,
+        handleManualTimeRangeChange: ctx.handleManualTimeRangeChange,
+        onTogglePlay: ctx.onTogglePlay,
+        onZoomToSelection: ctx.onZoomToSelection,
+        onResetZoom: ctx.onResetZoom,
+    }), [
+        ctx.timeRange, ctx.currentDateIndex, ctx.timeZoomDomain, ctx.fullTimeDomain,
+        ctx.isPlaying, ctx.isPaused, ctx.playbackSpeed, ctx.setTimeRange,
+        ctx.setCurrentDateIndex, ctx.setTimeZoomDomain, ctx.setIsPlaying, ctx.setIsPaused,
+        ctx.onPlaybackSpeedChange, ctx.handleManualTimeRangeChange, ctx.onTogglePlay,
+        ctx.onZoomToSelection, ctx.onResetZoom
+    ]);
+};
+
+/** Hook for artifact and event state with undo/redo */
+export const useArtifactState = () => {
+    const ctx = useAppContext();
+    return useMemo(() => ({
+        artifacts: ctx.artifacts,
+        activeArtifactId: ctx.activeArtifactId,
+        artifactCreationMode: ctx.artifactCreationMode,
+        isAppendingWaypoints: ctx.isAppendingWaypoints,
+        draggedInfo: ctx.draggedInfo,
+        artifactDisplayOptions: ctx.artifactDisplayOptions,
+        pathCreationOptions: ctx.pathCreationOptions,
+        events: ctx.events,
+        activeEventId: ctx.activeEventId,
+        canUndo: ctx.canUndo,
+        canRedo: ctx.canRedo,
+        setArtifacts: ctx.setArtifacts,
+        setActiveArtifactId: ctx.setActiveArtifactId,
+        setArtifactCreationMode: ctx.setArtifactCreationMode,
+        setIsAppendingWaypoints: ctx.setIsAppendingWaypoints,
+        setDraggedInfo: ctx.setDraggedInfo,
+        setArtifactDisplayOptions: ctx.setArtifactDisplayOptions,
+        setPathCreationOptions: ctx.setPathCreationOptions,
+        setEvents: ctx.setEvents,
+        setActiveEventId: ctx.setActiveEventId,
+        onUpdateArtifact: ctx.onUpdateArtifact,
+        onRemoveArtifact: ctx.onRemoveArtifact,
+        onFinishArtifactCreation: ctx.onFinishArtifactCreation,
+        onStartAppendWaypoints: ctx.onStartAppendWaypoints,
+        onUpdateEvent: ctx.onUpdateEvent,
+        onRemoveEvent: ctx.onRemoveEvent,
+        onAddEvent: ctx.onAddEvent,
+        onUndo: ctx.onUndo,
+        onRedo: ctx.onRedo,
+    }), [
+        ctx.artifacts, ctx.activeArtifactId, ctx.artifactCreationMode, ctx.isAppendingWaypoints,
+        ctx.draggedInfo, ctx.artifactDisplayOptions, ctx.pathCreationOptions, ctx.events,
+        ctx.activeEventId, ctx.canUndo, ctx.canRedo, ctx.setArtifacts, ctx.setActiveArtifactId,
+        ctx.setArtifactCreationMode, ctx.setIsAppendingWaypoints, ctx.setDraggedInfo,
+        ctx.setArtifactDisplayOptions, ctx.setPathCreationOptions, ctx.setEvents,
+        ctx.setActiveEventId, ctx.onUpdateArtifact, ctx.onRemoveArtifact,
+        ctx.onFinishArtifactCreation, ctx.onStartAppendWaypoints, ctx.onUpdateEvent,
+        ctx.onRemoveEvent, ctx.onAddEvent, ctx.onUndo, ctx.onRedo
+    ]);
+};
+
+/** Hook for selection and hover state */
+export const useSelectionState = () => {
+    const ctx = useAppContext();
+    return useMemo(() => ({
+        selectedCells: ctx.selectedCells,
+        selectionColor: ctx.selectionColor,
+        selectedCellForPlot: ctx.selectedCellForPlot,
+        selectedPixel: ctx.selectedPixel,
+        hoveredCoords: ctx.hoveredCoords,
+        timeSeriesData: ctx.timeSeriesData,
+        daylightFractionHoverData: ctx.daylightFractionHoverData,
+        setSelectedCells: ctx.setSelectedCells,
+        setSelectionColor: ctx.setSelectionColor,
+        setSelectedCellForPlot: ctx.setSelectedCellForPlot,
+        setSelectedPixel: ctx.setSelectedPixel,
+        setHoveredCoords: ctx.setHoveredCoords,
+        clearHoverState: ctx.clearHoverState,
+        onClearSelection: ctx.onClearSelection,
+    }), [
+        ctx.selectedCells, ctx.selectionColor, ctx.selectedCellForPlot, ctx.selectedPixel,
+        ctx.hoveredCoords, ctx.timeSeriesData, ctx.daylightFractionHoverData,
+        ctx.setSelectedCells, ctx.setSelectionColor, ctx.setSelectedCellForPlot,
+        ctx.setSelectedPixel, ctx.setHoveredCoords, ctx.clearHoverState, ctx.onClearSelection
+    ]);
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { showError, showWarning, showSuccess } = useToast();
     const [layers, setLayers] = useState<Layer[]>([]);
@@ -164,12 +352,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const [isLoading, setIsLoading] = useState<string | null>(null);
     const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
+    const debouncedTimeRange = useDebounce(timeRange, 800); // Debounce expensive daylight fraction recalculations
     const [currentDateIndex, setCurrentDateIndex] = useState<number | null>(null);
     const [hoveredCoords, setHoveredCoords] = useState<GeoCoordinates>(null);
     const [showGraticule, setShowGraticule] = useState<boolean>(false);
     const [viewState, setViewState] = useState<ViewState | null>(null);
     const [graticuleDensity, setGraticuleDensity] = useState(1.0);
-    const [activeTool, setActiveTool] = useState<Tool>('layers');
+    const [graticuleLabelFontSize, setGraticuleLabelFontSize] = useState(14);
+    const [activeTool, setActiveTool] = useState<Tool | null>('layers');
     
     const [selectedPixel, setSelectedPixel] = useState<PixelCoords & { layerId: string } | null>(null);
     const [timeSeriesData, setTimeSeriesData] = useState<{data: number[], range: {min: number, max: number}} | null>(null);
@@ -229,7 +419,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return JSON.parse(stored);
         }
       } catch (error) {
-        console.error('Error loading activity definitions:', error);
+        logger.error('Error loading activity definitions:', error);
       }
       // Return default activity definitions
       return [
@@ -270,18 +460,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [undoStack, setUndoStack] = useState<HistoryState[]>([]);
     const [redoStack, setRedoStack] = useState<HistoryState[]>([]);
 
-    // Function to save current state to undo stack
+    // Function to save current state to undo stack (capped at MAX_HISTORY_STATES)
     const saveStateToHistory = useCallback(() => {
         const currentState: HistoryState = {
-            artifacts: JSON.parse(JSON.stringify(artifacts)),
-            events: JSON.parse(JSON.stringify(events)),
+            // Deep clone artifacts and events for history
+            artifacts: artifacts.map(a => {
+                if (a.type === 'path') {
+                    return { ...a, waypoints: a.waypoints.map(w => ({ ...w, activities: w.activities ? [...w.activities] : undefined })) };
+                }
+                return { ...a };
+            }) as Artifact[],
+            events: events.map(e => ({ ...e })),
         };
-        setUndoStack(prev => [...prev, currentState]);
+        setUndoStack(prev => {
+            const newStack = [...prev, currentState];
+            // Cap the stack size to prevent memory issues
+            if (newStack.length > MAX_HISTORY_STATES) {
+                return newStack.slice(newStack.length - MAX_HISTORY_STATES);
+            }
+            return newStack;
+        });
         setRedoStack([]); // Clear redo stack when new action is performed
     }, [artifacts, events]);
 
     const baseMapLayer = useMemo(() => layers.find(l => l.type === 'basemap') as BaseMapLayer | undefined, [layers]);
-    const primaryDataLayer = useMemo(() => layers.find(l => l.type === 'data') as DataLayer | undefined, [layers]);
+    const primaryDataLayer = useMemo(() =>
+      layers.find(l => l.type === 'data' || l.type === 'illumination' || l.type === 'dte_comms' || l.type === 'lpf_comms') as DataLayer | undefined,
+      [layers]
+    );
     const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
     
     const proj = useMemo(() => (baseMapLayer ? proj4(baseMapLayer.vrt.srs) : null), [baseMapLayer]);
@@ -291,10 +497,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSelectedPixel(null);
     };
 
+    // Layer-aware date conversion function
+    const getDateForIndex = useCallback((index: number): Date => {
+      // Use temporal info from illumination layers if available
+      if (primaryDataLayer?.type === 'illumination' && primaryDataLayer.temporalInfo) {
+        const { dates } = primaryDataLayer.temporalInfo;
+        if (index >= 0 && index < dates.length) {
+          return dates[index];
+        }
+      }
+      // Fall back to index-based calculation
+      return indexToDate(index);
+    }, [primaryDataLayer]);
+
+    // Layer-aware inverse: date to index conversion
+    const getIndexForDate = useCallback((date: Date): number => {
+      // Use temporal info from illumination layers if available
+      if (primaryDataLayer?.type === 'illumination' && primaryDataLayer.temporalInfo) {
+        const { dates } = primaryDataLayer.temporalInfo;
+
+        // Find the closest time index by comparing timestamps
+        let closestIndex = 0;
+        let minDiff = Math.abs(dates[0].getTime() - date.getTime());
+
+        for (let i = 1; i < dates.length; i++) {
+          const diff = Math.abs(dates[i].getTime() - date.getTime());
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestIndex = i;
+          }
+        }
+
+        return closestIndex;
+      }
+      // Fall back to index-based calculation
+      return dateToIndex(date);
+    }, [primaryDataLayer]);
+
     const fullTimeDomain: TimeDomain | null = useMemo(() => {
       if (!primaryDataLayer) return null;
+
+      // Use temporal info if available (from NetCDF illumination layers)
+      if (primaryDataLayer.type === 'illumination' && primaryDataLayer.temporalInfo) {
+        return [primaryDataLayer.temporalInfo.startDate, primaryDataLayer.temporalInfo.endDate];
+      }
+
+      // Otherwise use index-based dates
       return [indexToDate(0), indexToDate(primaryDataLayer.dimensions.time - 1)];
     }, [primaryDataLayer]);
+
+    // Auto-update timeZoomDomain when fullTimeDomain changes (when switching between layers)
+    useEffect(() => {
+      if (fullTimeDomain && (!timeZoomDomain ||
+          timeZoomDomain[0].getTime() !== fullTimeDomain[0].getTime() ||
+          timeZoomDomain[1].getTime() !== fullTimeDomain[1].getTime())) {
+        setTimeZoomDomain(fullTimeDomain);
+      }
+    }, [fullTimeDomain]);
 
     const coordinateTransformer = useCoordinateTransformation({
       proj,
@@ -542,7 +801,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         
         const newLayer: DataLayer | DteCommsLayer | LpfCommsLayer = {
-          id: `${layerType}-${Date.now()}`, name: file.name, type: layerType, visible: true, opacity: 1.0,
+          id: generateSecureId(layerType), name: file.name, type: layerType, visible: true, opacity: 1.0,
           fileName: file.name, dataset, range: { min, max }, colormap: 'Viridis',
           colormapInverted: false,
           customColormap: [{ value: min, color: '#000000' }, { value: max, color: '#ffffff' }],
@@ -572,20 +831,209 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const onAddDataLayer = useCallback((file: File) => handleAddNpyLayer(file, 'data'), [handleAddNpyLayer]);
     const onAddDteCommsLayer = useCallback((file: File) => handleAddNpyLayer(file, 'dte_comms'), [handleAddNpyLayer]);
     const onAddLpfCommsLayer = useCallback((file: File) => handleAddNpyLayer(file, 'lpf_comms'), [handleAddNpyLayer]);
-    
+
+    const handleAddNetCdf4Layer = useCallback(async (file: File) => {
+      if (!file) return;
+      setIsLoading(`Parsing NetCDF4 file "${file.name}"...`);
+      const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const { data: float32Array, shape, dimensions, metadata, coordinates } = await parseNetCdf4(arrayBuffer);
+
+        const { time, height, width } = dimensions;
+        let min = Infinity, max = -Infinity;
+        for (const value of float32Array) {
+          if (value < min) min = value;
+          if (value > max) max = value;
+        }
+
+        // Create the 3D dataset array [time][height][width]
+        const dataset: DataSet = Array.from({ length: time }, () =>
+          Array.from({ length: height }, () => new Array(width))
+        );
+
+        // NetCDF4 data is typically in [time, y, x] order (C-order)
+        let flatIndex = 0;
+        for (let t = 0; t < time; t++) {
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              dataset[t][y][x] = float32Array[flatIndex++];
+            }
+          }
+          if (t % 100 === 0) await yieldToMain();
+        }
+
+        // Calculate bounds from projected coordinates if available
+        let geospatial: IlluminationLayer['geospatial'] = undefined;
+        if (coordinates && metadata.crs) {
+          const { x: xCoords, y: yCoords } = coordinates;
+
+          // Use NetCDF's own projection (from spatial_ref or construct from parameters)
+          let projDef: string;
+          if (metadata.crs.spatialRef) {
+            // Use Proj4 string from NetCDF if available
+            projDef = metadata.crs.spatialRef;
+            console.log('Using Proj4 from NetCDF spatial_ref:', projDef);
+          } else {
+            // Construct Proj4 string from CF parameters
+            const { latitudeOfOrigin, centralMeridian, semiMajorAxis } = metadata.crs;
+            projDef = `+proj=stere +lat_0=${latitudeOfOrigin || -90} +lon_0=${centralMeridian || 0} +k=1 +x_0=0 +y_0=0 +R=${semiMajorAxis || 1737400} +units=m +no_defs`;
+            console.log('Constructed Proj4 from NetCDF parameters:', projDef);
+          }
+
+          const proj = proj4(projDef);
+
+          // Get projected bounds
+          // According to DATA_FORMAT.md spec:
+          // - x is STRICTLY INCREASING (left to right): x[0] < x[N]
+          // - y is STRICTLY DECREASING (top to bottom): y[0] > y[N]
+          const projectedBounds = {
+            xMin: xCoords[0],                    // Left edge (west)
+            xMax: xCoords[xCoords.length - 1],   // Right edge (east)
+            yMin: yCoords[yCoords.length - 1],   // Bottom edge (south) - smallest value
+            yMax: yCoords[0],                    // Top edge (north) - largest value
+          };
+
+          console.log('Projected bounds:', {
+            xMin: projectedBounds.xMin,
+            xMax: projectedBounds.xMax,
+            yMin: projectedBounds.yMin,
+            yMax: projectedBounds.yMax,
+            xCoords_first: xCoords[0],
+            xCoords_last: xCoords[xCoords.length - 1],
+            yCoords_first: yCoords[0],
+            yCoords_last: yCoords[yCoords.length - 1],
+          });
+
+          // Compute geographic bounds using proj.inverse on the corners
+          // Order: [bottomLeft, bottomRight, topRight, topLeft]
+          const cornersProj = [
+            [projectedBounds.xMin, projectedBounds.yMin], // Bottom-Left
+            [projectedBounds.xMax, projectedBounds.yMin], // Bottom-Right
+            [projectedBounds.xMax, projectedBounds.yMax], // Top-Right
+            [projectedBounds.xMin, projectedBounds.yMax], // Top-Left
+          ];
+          const corners = cornersProj.map(([x, y]) => proj.inverse([x, y]));
+
+          const geographicBounds = {
+            lonMin: Math.min(...corners.map(c => c[0])),
+            lonMax: Math.max(...corners.map(c => c[0])),
+            latMin: Math.min(...corners.map(c => c[1])),
+            latMax: Math.max(...corners.map(c => c[1])),
+          };
+
+          geospatial = {
+            projectedBounds,
+            geographicBounds,
+            corners: {
+              bottomLeft: { lon: corners[0][0], lat: corners[0][1] },
+              bottomRight: { lon: corners[1][0], lat: corners[1][1] },
+              topRight: { lon: corners[2][0], lat: corners[2][1] },
+              topLeft: { lon: corners[3][0], lat: corners[3][1] },
+            },
+          };
+
+          console.log('Illumination layer geospatial metadata:', {
+            projected: projectedBounds,
+            geographic: geographicBounds,
+            corners: geospatial.corners,
+            proj: projDef,
+          });
+        } else if (coordinates && !metadata.crs) {
+          console.warn('NetCDF has coordinates but no CRS metadata - cannot compute geographic bounds');
+        }
+
+        // Parse temporal metadata to get actual dates
+        let temporalInfo: IlluminationLayer['temporalInfo'] = undefined;
+        if (metadata.timeValues && metadata.timeUnit) {
+          try {
+            const dates = parseTimeValues(metadata.timeValues, metadata.timeUnit);
+            temporalInfo = {
+              dates,
+              startDate: dates[0],
+              endDate: dates[dates.length - 1],
+            };
+            console.log('Parsed temporal info:', {
+              startDate: temporalInfo.startDate.toISOString(),
+              endDate: temporalInfo.endDate.toISOString(),
+              numDates: dates.length,
+            });
+          } catch (error) {
+            console.warn('Failed to parse temporal metadata:', error);
+          }
+        }
+
+        const newLayer: IlluminationLayer = {
+          id: generateSecureId('illumination'),
+          name: file.name,
+          type: 'illumination',
+          visible: true,
+          opacity: 1.0,
+          fileName: file.name,
+          dataset,
+          range: { min, max },
+          colormap: 'Grayscale',
+          colormapInverted: false,
+          customColormap: [
+            { value: min, color: '#000000' },
+            { value: max, color: '#ffffff' }
+          ],
+          dimensions: { time, height, width },
+          metadata: {
+            title: metadata.title,
+            institution: metadata.institution,
+            source: metadata.source,
+            conventions: metadata.conventions,
+            timeUnit: metadata.timeUnit,
+            timeValues: metadata.timeValues,
+            crs: metadata.crs,
+          },
+          temporalInfo,
+          geospatial,
+        };
+
+        setLayers(prev => [...prev, newLayer]);
+        setActiveLayerId(newLayer.id);
+
+        // Set as primary layer if it's the first data layer
+        if (!primaryDataLayer) {
+          const initialTimeRange = { start: 0, end: time - 1 };
+          setTimeRange(initialTimeRange);
+          setCurrentDateIndex(0);
+
+          // Use temporal info if available, otherwise use index-based dates
+          if (temporalInfo) {
+            setTimeZoomDomain([temporalInfo.startDate, temporalInfo.endDate]);
+          } else {
+            setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
+          }
+
+          // Only reset viewState if not already set to preserve user's zoom level
+          if (!viewState) {
+            setViewState(null);
+          }
+        }
+      } catch (error) {
+        showError(`Error loading NetCDF4 file: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsLoading(null);
+      }
+    }, [primaryDataLayer, viewState]);
+
+    const onAddIlluminationLayer = useCallback((file: File) => handleAddNetCdf4Layer(file), [handleAddNetCdf4Layer]);
+
     const onAddBaseMapLayer = useCallback(async (pngFile: File, vrtFile: File) => {
       setIsLoading(`Loading basemap "${pngFile.name}"...`);
       try {
           const vrtContent = await vrtFile.text();
           const vrtData = parseVrt(vrtContent);
-          if (!vrtData) throw new Error("Failed to parse VRT file.");
 
           const objectUrl = URL.createObjectURL(pngFile);
           const image = await dataUrlToImage(objectUrl);
           URL.revokeObjectURL(objectUrl);
 
           const newLayer: BaseMapLayer = {
-              id: `basemap-${Date.now()}`, name: pngFile.name, type: 'basemap',
+              id: generateSecureId('basemap'), name: pngFile.name, type: 'basemap',
               visible: true, opacity: 1.0, image, vrt: vrtData,
               pngFileName: pngFile.name, vrtFileName: vrtFile.name,
           };
@@ -614,7 +1062,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const position: [number, number] = initialPosition || (viewState ? viewState.center : [0, 0]);
 
           const newLayer: ImageLayer = {
-              id: `image-${Date.now()}`,
+              id: generateSecureId('image'),
               name: file.name,
               type: 'image',
               visible: true,
@@ -692,7 +1140,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const defaultClip = Math.min(1000, Math.ceil(maxDuration / 24) * 24 || 24);
 
       const newLayer: AnalysisLayer = {
-          id: `analysis-${Date.now()}`,
+          id: generateSecureId('analysis'),
           name: `Nightfall Forecast for ${sourceLayer.name}`,
           type: 'analysis', analysisType: 'nightfall',
           visible: true, opacity: 1.0,
@@ -709,22 +1157,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsLoading(null);
     }, [layers]);
 
-    const onCalculateDaylightFractionLayer = useCallback((sourceLayerId: string) => {
-      const sourceLayer = layers.find(l => l.id === sourceLayerId) as DataLayer | undefined;
+    const onCalculateDaylightFractionLayer = useCallback((sourceLayerId: string, threshold?: number) => {
+      const sourceLayer = layers.find(l => l.id === sourceLayerId) as (DataLayer | IlluminationLayer) | undefined;
       if (!sourceLayer || !timeRange) return;
 
-      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions, sourceLayer.id);
-      
+      // For DataLayer, use default (1). For IlluminationLayer, use threshold or default to 0
+      const effectiveThreshold = threshold !== undefined ? threshold : (sourceLayer.type === 'illumination' ? 0 : undefined);
+
+      const { slice, range } = analysisService.calculateDaylightFraction(
+        sourceLayer.dataset,
+        timeRange,
+        sourceLayer.dimensions,
+        sourceLayer.id,
+        effectiveThreshold
+      );
+
       const resultDataset: DataSet = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
 
       const newLayer: AnalysisLayer = {
-          id: `analysis-${Date.now()}`,
+          id: generateSecureId('analysis'),
           name: `Daylight Fraction for ${sourceLayer.name}`,
           type: 'analysis', analysisType: 'daylight_fraction',
           visible: true, opacity: 1.0, colormap: 'Turbo',
           dataset: resultDataset, range,
           dimensions: sourceLayer.dimensions, sourceLayerId,
-          params: {},
+          params: { illuminationThreshold: effectiveThreshold },
+          // Copy geospatial and temporal info from illumination layers
+          geospatial: sourceLayer.type === 'illumination' ? sourceLayer.geospatial : undefined,
+          temporalInfo: sourceLayer.type === 'illumination' ? sourceLayer.temporalInfo : undefined,
       };
 
       setLayers(prev => [...prev, newLayer]);
@@ -742,7 +1202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
 
           const newLayer: AnalysisLayer = {
-              id: `analysis-expr-${Date.now()}`,
+              id: generateSecureId('analysis-expr'),
               name: name,
               type: 'analysis',
               analysisType: 'expression',
@@ -803,8 +1263,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }, [layers]);
 
+    // Recalculate daylight fraction layers when time range changes (debounced for performance)
     useEffect(() => {
-      if (!timeRange) return;
+      if (!debouncedTimeRange) return;
       setLayers(currentLayers => {
           const fractionLayersToUpdate = currentLayers.filter(l => l.type === 'analysis' && l.analysisType === 'daylight_fraction');
           if (fractionLayersToUpdate.length === 0) return currentLayers;
@@ -812,9 +1273,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let hasChanged = false;
           const newLayers = currentLayers.map(l => {
               if (l.type === 'analysis' && l.analysisType === 'daylight_fraction') {
-                  const sourceLayer = currentLayers.find(src => src.id === l.sourceLayerId) as DataLayer | undefined;
+                  const sourceLayer = currentLayers.find(src => src.id === l.sourceLayerId) as (DataLayer | IlluminationLayer) | undefined;
                   if (sourceLayer) {
-                      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, timeRange, sourceLayer.dimensions, sourceLayer.id);
+                      const threshold = l.params.illuminationThreshold;
+                      const { slice, range } = analysisService.calculateDaylightFraction(sourceLayer.dataset, debouncedTimeRange, sourceLayer.dimensions, sourceLayer.id, threshold);
                       const newDataset = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
                       hasChanged = true;
                       return { ...l, dataset: newDataset, range };
@@ -824,7 +1286,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
           return hasChanged ? newLayers : currentLayers;
       });
-    }, [timeRange]);
+    }, [debouncedTimeRange]);
 
     useEffect(() => {
       if (!isPlaying) {
@@ -921,38 +1383,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveEventId(event.id);
     }, [saveStateToHistory]);
 
+    // Helper function for cloning history state
+    const cloneHistoryState = useCallback((): HistoryState => ({
+      artifacts: artifacts.map(a => {
+        if (a.type === 'path') {
+          return { ...a, waypoints: a.waypoints.map(w => ({ ...w, activities: w.activities ? [...w.activities] : undefined })) };
+        }
+        return { ...a };
+      }) as Artifact[],
+      events: events.map(e => ({ ...e })),
+    }), [artifacts, events]);
+
     // Undo/Redo handlers
     const onUndo = useCallback(() => {
       if (undoStack.length === 0) return;
 
-      const currentState: HistoryState = {
-        artifacts: JSON.parse(JSON.stringify(artifacts)),
-        events: JSON.parse(JSON.stringify(events)),
-      };
-
+      const currentState = cloneHistoryState();
       const previousState = undoStack[undoStack.length - 1];
       setArtifacts(previousState.artifacts);
       setEvents(previousState.events);
 
-      setRedoStack(prev => [...prev, currentState]);
+      setRedoStack(prev => {
+        const newStack = [...prev, currentState];
+        if (newStack.length > MAX_HISTORY_STATES) {
+          return newStack.slice(newStack.length - MAX_HISTORY_STATES);
+        }
+        return newStack;
+      });
       setUndoStack(prev => prev.slice(0, -1));
-    }, [undoStack, artifacts, events]);
+    }, [undoStack, cloneHistoryState]);
 
     const onRedo = useCallback(() => {
       if (redoStack.length === 0) return;
 
-      const currentState: HistoryState = {
-        artifacts: JSON.parse(JSON.stringify(artifacts)),
-        events: JSON.parse(JSON.stringify(events)),
-      };
-
+      const currentState = cloneHistoryState();
       const nextState = redoStack[redoStack.length - 1];
       setArtifacts(nextState.artifacts);
       setEvents(nextState.events);
 
-      setUndoStack(prev => [...prev, currentState]);
+      setUndoStack(prev => {
+        const newStack = [...prev, currentState];
+        if (newStack.length > MAX_HISTORY_STATES) {
+          return newStack.slice(newStack.length - MAX_HISTORY_STATES);
+        }
+        return newStack;
+      });
       setRedoStack(prev => prev.slice(0, -1));
-    }, [redoStack, artifacts, events]);
+    }, [redoStack, cloneHistoryState]);
 
     const onClearSelection = useCallback(() => { setSelectedCells([]); }, []);
 
@@ -981,6 +1458,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (layerToFlicker) { originalVisibilityRef.current = layerToFlicker.visible; setFlickeringLayerId(layerId); }
       }
     }, [layers, flickeringLayerId, onUpdateLayer]);
+
+    const onToolSelect = useCallback((tool: Tool) => {
+      // Toggle: if clicking the same tool, collapse the panel
+      setActiveTool(current => current === tool ? null : tool);
+    }, []);
 
     useEffect(() => {
       if (flickeringLayerId) {
@@ -1123,7 +1605,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
                   const vrtContent = await vrtFile.text();
                   const vrtData = parseVrt(vrtContent);
-                  if (!vrtData) throw new Error(`Failed to parse VRT file: ${vrtFile.name}`);
 
                   const objectUrl = URL.createObjectURL(pngFile);
                   const image = await dataUrlToImage(objectUrl);
@@ -1179,15 +1660,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                       calculatedDataset = dataset;
                       finalAnalysisLayer = { ...sLayer, dataset: calculatedDataset };
                   } else {
-                      const sourceLayer = finalLayers.find(l => l.id === sLayer.sourceLayerId) as DataLayer | undefined;
+                      const sourceLayer = finalLayers.find(l => l.id === sLayer.sourceLayerId) as (DataLayer | IlluminationLayer) | undefined;
                       if (!sourceLayer) throw new Error(`Source layer with ID ${sLayer.sourceLayerId} not found for analysis layer "${sLayer.name}".`);
-                      
+
                       if (sLayer.analysisType === 'nightfall') {
-                          const { dataset } = await analysisService.calculateNightfallDataset(sourceLayer);
+                          const { dataset } = await analysisService.calculateNightfallDataset(sourceLayer as DataLayer);
                           calculatedDataset = dataset;
                       } else { // daylight_fraction
                           const calcTimeRange = config.timeRange || { start: 0, end: sourceLayer.dimensions.time - 1};
-                          const { slice } = analysisService.calculateDaylightFraction(sourceLayer.dataset, calcTimeRange, sourceLayer.dimensions, sourceLayer.id);
+                          const threshold = sLayer.params.illuminationThreshold;
+                          const { slice } = analysisService.calculateDaylightFraction(sourceLayer.dataset, calcTimeRange, sourceLayer.dimensions, sourceLayer.id, threshold);
                           calculatedDataset = Array.from({ length: sourceLayer.dimensions.time }, () => slice);
                       }
                       finalAnalysisLayer = { ...sLayer, dataset: calculatedDataset };
@@ -1250,6 +1732,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         showGraticule,
         viewState,
         graticuleDensity,
+        graticuleLabelFontSize,
         activeTool,
         selectedPixel,
         timeSeriesData,
@@ -1281,6 +1764,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeLayer,
         proj,
         fullTimeDomain,
+        getDateForIndex,
+        getIndexForDate,
         coordinateTransformer,
         snapToCellCorner,
         calculateRectangleFromCellCorners,
@@ -1293,7 +1778,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setShowGraticule,
         setViewState,
         setGraticuleDensity,
-        onToolSelect: setActiveTool,
+        setGraticuleLabelFontSize,
+        onToolSelect,
         setSelectedPixel,
         setTimeZoomDomain,
         onToggleFlicker,
@@ -1328,6 +1814,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onAddDataLayer,
         onAddDteCommsLayer,
         onAddLpfCommsLayer,
+        onAddIlluminationLayer,
         onAddBaseMapLayer,
         onAddImageLayer,
         onUpdateLayer,
@@ -1359,19 +1846,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }), [
         // State values
         layers, activeLayerId, isLoading, timeRange, currentDateIndex, hoveredCoords,
-        showGraticule, viewState, graticuleDensity, activeTool, selectedPixel,
+        showGraticule, viewState, graticuleDensity, graticuleLabelFontSize, activeTool, selectedPixel,
         timeSeriesData, timeZoomDomain, daylightFractionHoverData, flickeringLayerId,
         showGrid, gridSpacing, gridColor, selectedCells, selectionColor, selectedCellForPlot,
         isPlaying, isPaused, playbackSpeed, importRequest, artifacts, activeArtifactId,
         artifactCreationMode, isAppendingWaypoints, draggedInfo, artifactDisplayOptions,
         nightfallPlotYAxisRange, isCreatingExpression, events, activeEventId,
         // Derived values
-        baseMapLayer, primaryDataLayer, activeLayer, proj, fullTimeDomain,
+        baseMapLayer, primaryDataLayer, activeLayer, proj, fullTimeDomain, getDateForIndex, getIndexForDate,
         coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
         pathCreationOptions, activityDefinitions, undoStack.length, redoStack.length,
         // Callbacks (stable across renders due to useCallback)
         setLayers, setActiveLayerId, setIsLoading, setTimeRange, setCurrentDateIndex,
-        setHoveredCoords, setShowGraticule, setViewState, setGraticuleDensity,
+        setHoveredCoords, setShowGraticule, setViewState, setGraticuleDensity, setGraticuleLabelFontSize,
         setActiveTool, setSelectedPixel, setTimeZoomDomain, onToggleFlicker,
         setShowGrid, setGridSpacing, setGridColor, setSelectedCells, setSelectionColor,
         setSelectedCellForPlot, setIsPlaying, setIsPaused, setPlaybackSpeed,
@@ -1380,7 +1867,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPathCreationOptions, setActivityDefinitions, setNightfallPlotYAxisRange,
         setIsCreatingExpression, setEvents, setActiveEventId, onUpdateEvent,
         onRemoveEvent, onAddEvent, clearHoverState, onAddDataLayer, onAddDteCommsLayer,
-        onAddLpfCommsLayer, onAddBaseMapLayer, onAddImageLayer, onUpdateLayer,
+        onAddLpfCommsLayer, onAddIlluminationLayer, onAddBaseMapLayer, onAddImageLayer, onUpdateLayer,
         onRemoveLayer, onMoveLayerUp, onMoveLayerDown, onCalculateNightfallLayer,
         onCalculateDaylightFractionLayer, onCreateExpressionLayer, onRecalculateExpressionLayer,
         handleManualTimeRangeChange, onTogglePlay, onUpdateArtifact, onRemoveArtifact,

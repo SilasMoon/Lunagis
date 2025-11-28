@@ -104,6 +104,70 @@ export interface LpfCommsLayer extends LayerBase {
   dimensions: { time: number; height: number; width: number };
 }
 
+export interface IlluminationLayer extends LayerBase {
+  type: 'illumination';
+  dataset: DataSet;
+  fileName: string;
+  range: { min: number; max: number };
+  colormap: ColorMapName;
+  colormapInverted?: boolean;
+  customColormap?: ColorStop[];
+  transparencyLowerThreshold?: number; // Values <= this become transparent
+  transparencyUpperThreshold?: number; // Values >= this become transparent
+  dimensions: { time: number; height: number; width: number };
+  // NetCDF4-specific metadata
+  metadata?: {
+    title?: string;
+    institution?: string;
+    source?: string;
+    conventions?: string;
+    timeUnit?: string;
+    timeValues?: number[];
+    crs?: {
+      projection: string;
+      latitudeOfOrigin?: number;
+      centralMeridian?: number;
+      semiMajorAxis?: number;
+      spatialRef?: string;  // Proj4 string
+    };
+  };
+  // Temporal information - parsed dates for each time index
+  temporalInfo?: {
+    dates: Date[];  // Array of actual dates, one per time index
+    startDate: Date;  // First date
+    endDate: Date;    // Last date
+  };
+  // Geospatial metadata - projected coordinates from NetCDF
+  geospatial?: {
+    // Projected coordinates in meters (from NetCDF x/y variables)
+    projectedBounds: {
+      xMin: number;  // meters
+      xMax: number;  // meters
+      yMin: number;  // meters
+      yMax: number;  // meters
+    };
+    // Geographic bounds (computed from projected bounds using proj.inverse)
+    geographicBounds: {
+      latMin: number;
+      latMax: number;
+      lonMin: number;
+      lonMax: number;
+    };
+    // Actual corner coordinates in lat/lon (for display with polar projections)
+    corners: {
+      topLeft: { lat: number; lon: number };
+      topRight: { lat: number; lon: number };
+      bottomLeft: { lat: number; lon: number };
+      bottomRight: { lat: number; lon: number };
+    };
+  };
+  // Debug options for axis flipping
+  debugFlipX?: boolean;
+  debugFlipY?: boolean;
+  // Illumination threshold for daylight fraction calculation
+  illuminationThreshold?: number;
+}
+
 export interface ImageLayer extends LayerBase {
   type: 'image';
   image: HTMLImageElement;
@@ -135,10 +199,38 @@ export interface AnalysisLayer extends LayerBase {
   params: {
     clipValue?: number;
     expression?: string;
+    illuminationThreshold?: number; // Threshold for daylight fraction on illumination layers
+  };
+  // Geospatial metadata (inherited from source illumination layer)
+  geospatial?: {
+    projectedBounds: {
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+    };
+    geographicBounds: {
+      latMin: number;
+      latMax: number;
+      lonMin: number;
+      lonMax: number;
+    };
+    corners: {
+      topLeft: { lat: number; lon: number };
+      topRight: { lat: number; lon: number };
+      bottomLeft: { lat: number; lon: number };
+      bottomRight: { lat: number; lon: number };
+    };
+  };
+  // Temporal information (inherited from source illumination layer)
+  temporalInfo?: {
+    dates: Date[];
+    startDate: Date;
+    endDate: Date;
   };
 }
 
-export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer | ImageLayer;
+export type Layer = BaseMapLayer | DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer | IlluminationLayer | ImageLayer;
 
 // --- Artifact Types ---
 
@@ -298,6 +390,7 @@ export interface SerializableAnalysisLayer extends SerializableLayerBase {
   params: {
     clipValue?: number;
     expression?: string;
+    illuminationThreshold?: number; // Threshold for daylight fraction on illumination layers
   };
 }
 

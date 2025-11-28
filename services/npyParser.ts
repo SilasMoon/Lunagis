@@ -66,8 +66,31 @@ export function parseNpy(arrayBuffer: ArrayBuffer): NpyData {
     .replace(/,(\s*\])/g, '$1')
     .replace(/,(\s*})/g, '$1');
 
-  const header: NpyHeader = JSON.parse(jsonStr);
-  
+  let header: NpyHeader;
+  try {
+    header = JSON.parse(jsonStr);
+  } catch (e) {
+    throw new Error('Failed to parse NPY header: invalid format');
+  }
+
+  // Validate header structure
+  if (!Array.isArray(header.shape) || header.shape.length === 0) {
+    throw new Error('Invalid NPY header: shape must be a non-empty array');
+  }
+  if (typeof header.descr !== 'string') {
+    throw new Error('Invalid NPY header: missing descr field');
+  }
+  if (typeof header.fortran_order !== 'boolean') {
+    throw new Error('Invalid NPY header: missing fortran_order field');
+  }
+
+  // Validate shape values
+  for (const dim of header.shape) {
+    if (typeof dim !== 'number' || dim <= 0 || !Number.isInteger(dim)) {
+      throw new Error(`Invalid NPY header: shape dimensions must be positive integers, got ${dim}`);
+    }
+  }
+
   const dataOffset = headerOffset + headerLen;
 
   // Dtype parsing. Assumes little-endian '<'.
@@ -77,7 +100,7 @@ export function parseNpy(arrayBuffer: ArrayBuffer): NpyData {
   if (dtype.includes('f4') || dtype.includes('f32')) {
     data = new Float32Array(arrayBuffer, dataOffset);
   } else if (dtype.includes('f8') || dtype.includes('f64')) {
-    console.warn("Downcasting float64 to float32. Precision may be lost.");
+    // Downcasting float64 to float32 - precision may be lost
     const float64 = new Float64Array(arrayBuffer, dataOffset);
     data = new Float32Array(float64); // This creates a copy
   } else if (dtype.includes('b1') || dtype.includes('?')) {
@@ -88,6 +111,12 @@ export function parseNpy(arrayBuffer: ArrayBuffer): NpyData {
     }
   } else {
     throw new Error(`Unsupported dtype in .npy file: ${dtype}. Only float32, float64, and boolean are supported.`);
+  }
+
+  // Validate data size matches shape
+  const expectedSize = header.shape.reduce((a, b) => a * b, 1);
+  if (data.length !== expectedSize) {
+    throw new Error(`NPY data size mismatch: expected ${expectedSize} elements based on shape, got ${data.length}`);
   }
 
   return { header, data, shape: header.shape };

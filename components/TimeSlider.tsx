@@ -1,6 +1,5 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { indexToDate, dateToIndex } from '../utils/time';
 import { MARGIN } from './TimeSeriesPlot';
 import { useAppContext } from '../context/AppContext';
 
@@ -14,7 +13,9 @@ export const TimeSlider: React.FC = () => {
     setCurrentDateIndex,
     handleManualTimeRangeChange,
     timeZoomDomain,
-    events
+    events,
+    getDateForIndex,
+    getIndexForDate
   } = useAppContext();
   
   const isDataLoaded = !!primaryDataLayer;
@@ -78,12 +79,12 @@ export const TimeSlider: React.FC = () => {
     const x = e.clientX - rect.left;
 
     const newDate = xScale.invert(x);
-    const newIndex = Math.max(0, Math.min(maxTimeIndex, dateToIndex(newDate)));
+    const newIndex = Math.max(0, Math.min(maxTimeIndex, getIndexForDate(newDate)));
 
     if (isDragStart) {
-      const startPos = xScale(indexToDate(timeRange.start));
-      const endPos = xScale(indexToDate(timeRange.end));
-      const currentPos = xScale(indexToDate(currentDateIndex));
+      const startPos = xScale(getDateForIndex(timeRange.start));
+      const endPos = xScale(getDateForIndex(timeRange.end));
+      const currentPos = xScale(getDateForIndex(currentDateIndex));
       const distToStart = Math.abs(x - startPos);
       const distToEnd = Math.abs(x - endPos);
       const distToCurrent = Math.abs(x - currentPos);
@@ -125,7 +126,7 @@ export const TimeSlider: React.FC = () => {
         rafRef.current = null;
       });
     }
-  }, [xScale, handleManualTimeRangeChange, setCurrentDateIndex, maxTimeIndex, isDataLoaded, timeRange, currentDateIndex, draggingHandle]);
+  }, [xScale, handleManualTimeRangeChange, setCurrentDateIndex, maxTimeIndex, isDataLoaded, timeRange, currentDateIndex, draggingHandle, getDateForIndex, getIndexForDate]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -180,9 +181,9 @@ export const TimeSlider: React.FC = () => {
     return () => { window.removeEventListener('keydown', handleKeyDown); };
   }, [isDataLoaded, timeRange, currentDateIndex, maxTimeIndex, setCurrentDateIndex]);
   
-  const startX = timeRange ? xScale(indexToDate(timeRange.start)) : 0;
-  const endX = timeRange ? xScale(indexToDate(timeRange.end)) : 0;
-  const currentX = currentDateIndex !== null ? xScale(indexToDate(currentDateIndex)) : 0;
+  const startX = timeRange ? xScale(getDateForIndex(timeRange.start)) : 0;
+  const endX = timeRange ? xScale(getDateForIndex(timeRange.end)) : 0;
+  const currentX = currentDateIndex !== null ? xScale(getDateForIndex(currentDateIndex)) : 0;
 
   return (
     <section className="bg-gray-800/70 backdrop-blur-sm border-t border-gray-700 w-full flex-shrink-0 z-40 h-[85px]">
@@ -206,7 +207,7 @@ export const TimeSlider: React.FC = () => {
                 })}
 
                 {isDataLoaded && events.filter(e => e.visible).map(event => {
-                const eventDate = indexToDate(event.dateIndex);
+                const eventDate = getDateForIndex(event.dateIndex);
                 const eventX = xScale(eventDate);
                 // Split event name into 2 lines of 12 characters each
                 const line1 = event.name.substring(0, 12);
