@@ -22,7 +22,7 @@ export const formatDistance = (meters: number): string => {
 };
 
 // Helper function to calculate Euclidean distance in projected space
-export const calculateProjectedDistance = (proj: any, coord1: [number, number], coord2: [number, number]): number => {
+export const calculateProjectedDistance = (proj: proj4.ProjectionDefinition | null, coord1: [number, number], coord2: [number, number]): number => {
   if (!proj) return 0;
 
   try {
@@ -39,7 +39,7 @@ export const calculateProjectedDistance = (proj: any, coord1: [number, number], 
 };
 
 // Helper function to calculate total distance of a path using projected coordinates
-export const calculatePathDistance = (proj: any, waypoints: Array<{ geoPosition: [number, number] }>): number => {
+export const calculatePathDistance = (proj: proj4.ProjectionDefinition | null, waypoints: Array<{ geoPosition: [number, number] }>): number => {
   if (!proj || waypoints.length < 2) return 0;
 
   let totalDistance = 0;

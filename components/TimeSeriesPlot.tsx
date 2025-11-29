@@ -30,8 +30,8 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
   const dataRange = timeSeriesData?.range ?? null;
   const yAxisUnit = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? 'days' : undefined;
   const yAxisRange = activeLayer?.type === 'analysis' && activeLayer.analysisType === 'nightfall' ? nightfallPlotYAxisRange : undefined;
-  const colormapThresholds = (activeLayer?.type === 'analysis' || activeLayer?.type === 'data' || activeLayer?.type === 'dte_comms' || activeLayer?.type === 'lpf_comms') && activeLayer.colormap === 'Custom' 
-      ? activeLayer.customColormap 
+  const colormapThresholds = (activeLayer?.type === 'analysis' || activeLayer?.type === 'data' || activeLayer?.type === 'dte_comms' || activeLayer?.type === 'lpf_comms' || activeLayer?.type === 'illumination') && activeLayer.colormap === 'Custom'
+      ? activeLayer.customColormap
       : undefined;
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -223,9 +223,9 @@ export const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = () => {
          .attr('opacity', 0.2);
     }
 
-    const line = d3.line()
-      .x((d: any) => xScale(d.date))
-      .y((d: any) => yScale(d.value));
+    const line = d3.line<{ date: Date; value: number }>()
+      .x((d) => xScale(d.date))
+      .y((d) => yScale(d.value));
       
     g.append('path')
      .datum(dataWithDates)

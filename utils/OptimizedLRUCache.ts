@@ -292,7 +292,7 @@ export class OptimizedCanvasLRUCache extends OptimizedLRUCache<string, HTMLCanva
    */
   delete(key: string): boolean {
     // Access the cache map directly to avoid side effects
-    const node = (this as any).cache.get(key);
+    const node = (this as OptimizedLRUCache<string, HTMLCanvasElement>)['cache'].get(key);
 
     if (node) {
       const canvas = node.value;

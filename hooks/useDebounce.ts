@@ -66,7 +66,7 @@ import { useRef, useCallback } from 'react';
  * @param delay - Minimum time between calls in milliseconds
  * @returns Throttled function
  */
-export function useThrottle<T extends (...args: any[]) => any>(
+export function useThrottle<T extends (...args: unknown[]) => unknown>(
   callback: T,
   delay: number = 16
 ): T {

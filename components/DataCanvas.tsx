@@ -15,6 +15,14 @@ import { logger } from '../utils/logger';
 import { useWaypointOperations } from '../hooks/useWaypointOperations';
 import { WaypointContextMenu } from './WaypointContextMenu';
 import { exportMapAsImage } from '../utils/exportMap';
+import { WebGLRenderer } from '../services/WebGLRenderer';
+import * as d3 from 'd3-color';
+
+// ========== WebGL Feature Flag ==========
+// Set to true to enable GPU-accelerated rendering for data/illumination/analysis layers
+// Set to false to use traditional Canvas 2D rendering
+const USE_WEBGL_RENDERER = true;
+// ========================================
 
 /**
  * Fast hash function for custom colormap
@@ -34,7 +42,7 @@ const hashColormap = (colormap: Array<{ value: number; color: string }> | undefi
  * @returns Uint8ClampedArray with RGBA values (4 bytes per color)
  */
 const createColorLookupTable = (
-  colorScale: any,
+  colorScale: (value: number) => string,
   colorDomain: [number, number],
   steps: number = 256
 ): Uint8ClampedArray => {
@@ -86,13 +94,13 @@ const calculateGeoDistance = (coord1: [number, number], coord2: [number, number]
 };
 
 const LoadingSpinner: React.FC = () => (
-    <div className="flex flex-col items-center justify-center text-gray-400">
-        <svg className="animate-spin h-10 w-10 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        <p className="mt-4">Rendering...</p>
-    </div>
+  <div className="flex flex-col items-center justify-center text-gray-400">
+    <svg className="animate-spin h-10 w-10 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    <p className="mt-4">Rendering...</p>
+  </div>
 );
 
 /**
@@ -245,7 +253,7 @@ export const DataCanvas: React.FC = () => {
     selectionColor, artifacts, artifactCreationMode, draggedInfo, setDraggedInfo, artifactDisplayOptions,
     isAppendingWaypoints, coordinateTransformer, snapToCellCorner, calculateRectangleFromCellCorners,
     setActiveArtifactId, setArtifacts, setSelectedCells, activeLayerId, onUpdateLayer, pathCreationOptions,
-    activityDefinitions, activeArtifactId, setSelectedCellForPlot, selectedCellForPlot
+    activityDefinitions, activeArtifactId, setSelectedCellForPlot, selectedCellForPlot, registerCanvasCacheCleaner
   } = useAppContext();
   const { showError } = useToast();
 
@@ -284,6 +292,10 @@ export const DataCanvas: React.FC = () => {
   const artifactCanvasRef = useRef<HTMLCanvasElement>(null);
   const graticuleCanvasRef = useRef<HTMLCanvasElement>(null);
   const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
+  const webglRendererRef = useRef<WebGLRenderer | null>(null);
+  const webglCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Track current WebGL layer state to avoid recreating textures every frame
+  const webglLayerStateRef = useRef<Map<string, { timeIndex: number; visible: boolean }>>(new Map());
 
   const [isRendering, setIsRendering] = useState(false);
   const [editingWaypoint, setEditingWaypoint] = useState<{ artifactId: string; waypoint: Waypoint } | null>(null);
@@ -297,23 +309,23 @@ export const DataCanvas: React.FC = () => {
     if (!primaryDataLayer && !baseMapLayer) return null;
     let dataProjBounds = null;
     if (primaryDataLayer && proj) {
-        const [lonMin, lonMax] = lonRange; const [latMin, latMax] = latRange;
-        const corners = [[lonMin, latMin], [lonMax, latMin], [lonMax, latMax], [lonMin, latMax]].map(c => proj.forward(c));
-        dataProjBounds = {
-            minX: Math.min(...corners.map(c => c[0])), maxX: Math.max(...corners.map(c => c[0])),
-            minY: Math.min(...corners.map(c => c[1])), maxY: Math.max(...corners.map(c => c[1])),
-        };
+      const [lonMin, lonMax] = lonRange; const [latMin, latMax] = latRange;
+      const corners = [[lonMin, latMin], [lonMax, latMin], [lonMax, latMax], [lonMin, latMax]].map(c => proj.forward(c));
+      dataProjBounds = {
+        minX: Math.min(...corners.map(c => c[0])), maxX: Math.max(...corners.map(c => c[0])),
+        minY: Math.min(...corners.map(c => c[1])), maxY: Math.max(...corners.map(c => c[1])),
+      };
     }
 
     let baseMapProjBounds = null;
     if (baseMapLayer) {
-        const gt = baseMapLayer.vrt.geoTransform;
-        baseMapProjBounds = { minX: gt[0], maxX: gt[0] + baseMapLayer.vrt.width * gt[1], minY: gt[3] + baseMapLayer.vrt.height * gt[5], maxY: gt[3] };
+      const gt = baseMapLayer.vrt.geoTransform;
+      baseMapProjBounds = { minX: gt[0], maxX: gt[0] + baseMapLayer.vrt.width * gt[1], minY: gt[3] + baseMapLayer.vrt.height * gt[5], maxY: gt[3] };
     }
 
     if (dataProjBounds && baseMapProjBounds) return {
-        minX: Math.min(dataProjBounds.minX, baseMapProjBounds.minX), maxX: Math.max(dataProjBounds.maxX, baseMapProjBounds.maxX),
-        minY: Math.min(dataProjBounds.minY, baseMapProjBounds.minY), maxY: Math.max(dataProjBounds.maxY, baseMapProjBounds.maxY),
+      minX: Math.min(dataProjBounds.minX, baseMapProjBounds.minX), maxX: Math.max(dataProjBounds.maxX, baseMapProjBounds.maxX),
+      minY: Math.min(dataProjBounds.minY, baseMapProjBounds.minY), maxY: Math.max(dataProjBounds.maxY, baseMapProjBounds.maxY),
     };
     return dataProjBounds || baseMapProjBounds;
   }, [primaryDataLayer, baseMapLayer, proj, lonRange, latRange]);
@@ -339,7 +351,7 @@ export const DataCanvas: React.FC = () => {
         [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]
       ];
       const geoPoints = samplePoints.map(p => {
-        try { return proj4('EPSG:4326', proj).inverse(p); }
+        try { return proj4('EPSG:4326', proj).inverse(p as [number, number]) as [number, number]; }
         catch (e) { return null; }
       }).filter((p): p is [number, number] => p !== null);
 
@@ -406,7 +418,7 @@ export const DataCanvas: React.FC = () => {
         for (const [x, y] of points) {
           // Only include points within reasonable distance of viewport
           if (x >= clipBounds.minX && x <= clipBounds.maxX &&
-              y >= clipBounds.minY && y <= clipBounds.maxY) {
+            y >= clipBounds.minY && y <= clipBounds.maxY) {
             clippedPoints.push([x, y]);
           }
         }
@@ -524,7 +536,7 @@ export const DataCanvas: React.FC = () => {
   }, [proj, combinedBounds, debouncedGraticuleDensity, showError]);
 
   const initialViewCalculated = useRef(false);
-  
+
   const isPanning = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const [initialViewState, setInitialViewState] = useState<ViewState | null>(null);
@@ -574,7 +586,7 @@ export const DataCanvas: React.FC = () => {
 
   // Clear rectangle first corner when exiting rectangle creation mode
   useEffect(() => {
-    if (artifactCreationMode !== 'rectangle') {
+    if (artifactCreationMode !== 'rectangle' && artifactCreationMode !== 'free_rectangle') {
       setRectangleFirstCorner(null);
     }
   }, [artifactCreationMode]);
@@ -600,6 +612,82 @@ export const DataCanvas: React.FC = () => {
   // Track layer IDs to detect when layers are added/removed (not just property changes)
   const layerIds = useMemo(() => layers.map(l => l.id).join(','), [layers]);
   useEffect(() => { initialViewCalculated.current = false; }, [layerIds]);
+
+  // Register canvas cache cleaner with context on mount
+  useEffect(() => {
+    const cleaner = (layerId: string) => {
+      // Remove all cache entries for the specified layer ID
+      const allKeys = offscreenCanvasCache.keys();
+      const keysToDelete = allKeys.filter(key => key.startsWith(`${layerId}-`));
+      keysToDelete.forEach(key => offscreenCanvasCache.delete(key));
+      console.log(`🗑️ Cleared ${keysToDelete.length} canvas cache entries for layer: ${layerId}`);
+    };
+
+    registerCanvasCacheCleaner(cleaner);
+
+    return () => {
+      registerCanvasCacheCleaner(null);
+    };
+  }, [registerCanvasCacheCleaner, offscreenCanvasCache]);
+
+  // Initialize WebGL renderer (if enabled)
+  useEffect(() => {
+    if (!USE_WEBGL_RENDERER) return;
+
+    if (webglCanvasRef.current && !webglRendererRef.current) {
+      try {
+        webglRendererRef.current = new WebGLRenderer(webglCanvasRef.current);
+        console.log('✅ WebGL renderer initialized successfully');
+        showError('GPU rendering enabled', 'success');
+      } catch (error) {
+        console.error('Failed to initialize WebGL renderer:', error);
+        showError(
+          `WebGL initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}. ` +
+          'Falling back to Canvas 2D. Set USE_WEBGL_RENDERER to false to suppress this message.',
+          'error'
+        );
+      }
+    }
+
+    return () => {
+      if (webglRendererRef.current) {
+        webglRendererRef.current.dispose();
+        webglRendererRef.current = null;
+        console.log('🗑️ WebGL renderer disposed');
+      }
+    };
+  }, [showError]);
+
+  // Clear LazyDataset cache when layers become invisible to free memory
+  useEffect(() => {
+    layers.forEach(layer => {
+      if (!layer.visible && 'lazyDataset' in layer && layer.lazyDataset) {
+        // Clear cache for invisible layers to save memory
+        const stats = layer.lazyDataset.getStats();
+        if (stats.currentSize > 0) {
+          console.log(`💾 Clearing LazyDataset cache for invisible layer: ${layer.name} (freeing ${stats.memoryUsageMB.toFixed(1)} MB)`);
+          layer.lazyDataset.clearCache();
+        }
+      }
+    });
+  }, [layers]);
+
+  // Update WebGL layer properties (opacity, colormap) without recreating textures
+  useEffect(() => {
+    if (!USE_WEBGL_RENDERER || !webglRendererRef.current) return;
+
+    const renderer = webglRendererRef.current;
+
+    layers.forEach(layer => {
+      if (layer.visible && isDataGridLayer(layer)) {
+        // Update opacity (cheap operation)
+        renderer.updateLayerOpacity(layer.id, layer.opacity);
+
+        // Update colormap (regenerates colormap texture, but not data texture)
+        renderer.updateLayerColormap(layer.id, layer);
+      }
+    });
+  }, [layers]);
 
   const canvasToProjCoords = useCallback((canvasX: number, canvasY: number): [number, number] | null => {
     const canvas = graticuleCanvasRef.current;
@@ -627,49 +715,49 @@ export const DataCanvas: React.FC = () => {
       const displayHeight = layer.originalHeight * layer.scaleY;
       const handleSize = 12 / viewState.scale;
 
-    // Transform point to layer's local coordinates
-    const dx = projCoords[0] - layer.position[0];
-    const dy = projCoords[1] - layer.position[1];
-    const rotationRad = (layer.rotation * Math.PI) / 180;
-    const cosR = Math.cos(-rotationRad);
-    const sinR = Math.sin(-rotationRad);
-    const localX = dx * cosR - dy * sinR;
-    const localY = dx * sinR + dy * cosR;
+      // Transform point to layer's local coordinates
+      const dx = projCoords[0] - layer.position[0];
+      const dy = projCoords[1] - layer.position[1];
+      const rotationRad = (layer.rotation * Math.PI) / 180;
+      const cosR = Math.cos(-rotationRad);
+      const sinR = Math.sin(-rotationRad);
+      const localX = dx * cosR - dy * sinR;
+      const localY = dx * sinR + dy * cosR;
 
-    // Check center handle
-    if (Math.abs(localX) < handleSize && Math.abs(localY) < handleSize) {
-      return { layerId: layer.id, handleType: 'center' };
-    }
-
-    // Check corner handles
-    const corners = [
-      [-displayWidth / 2, -displayHeight / 2],
-      [displayWidth / 2, -displayHeight / 2],
-      [displayWidth / 2, displayHeight / 2],
-      [-displayWidth / 2, displayHeight / 2]
-    ];
-    for (let i = 0; i < corners.length; i++) {
-      const [cx, cy] = corners[i];
-      if (Math.abs(localX - cx) < handleSize && Math.abs(localY - cy) < handleSize) {
-        return { layerId: layer.id, handleType: 'corner', handleIndex: i };
+      // Check center handle
+      if (Math.abs(localX) < handleSize && Math.abs(localY) < handleSize) {
+        return { layerId: layer.id, handleType: 'center' };
       }
-    }
 
-    // Check edge handles
-    const edges = [
-      [0, -displayHeight / 2],
-      [displayWidth / 2, 0],
-      [0, displayHeight / 2],
-      [-displayWidth / 2, 0]
-    ];
-    for (let i = 0; i < edges.length; i++) {
-      const [ex, ey] = edges[i];
-      if (Math.abs(localX - ex) < handleSize && Math.abs(localY - ey) < handleSize) {
-        return { layerId: layer.id, handleType: 'edge', handleIndex: i };
+      // Check corner handles
+      const corners = [
+        [-displayWidth / 2, -displayHeight / 2],
+        [displayWidth / 2, -displayHeight / 2],
+        [displayWidth / 2, displayHeight / 2],
+        [-displayWidth / 2, displayHeight / 2]
+      ];
+      for (let i = 0; i < corners.length; i++) {
+        const [cx, cy] = corners[i];
+        if (Math.abs(localX - cx) < handleSize && Math.abs(localY - cy) < handleSize) {
+          return { layerId: layer.id, handleType: 'corner', handleIndex: i };
+        }
       }
-    }
 
-    return null;
+      // Check edge handles
+      const edges = [
+        [0, -displayHeight / 2],
+        [displayWidth / 2, 0],
+        [0, displayHeight / 2],
+        [-displayWidth / 2, 0]
+      ];
+      for (let i = 0; i < edges.length; i++) {
+        const [ex, ey] = edges[i];
+        if (Math.abs(localX - ex) < handleSize && Math.abs(localY - ey) < handleSize) {
+          return { layerId: layer.id, handleType: 'edge', handleIndex: i };
+        }
+      }
+
+      return null;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       showError(`Failed to get image layer handle: ${errorMessage}`, 'Image Layer Error');
@@ -678,15 +766,20 @@ export const DataCanvas: React.FC = () => {
   }, [viewState, layers, activeLayerId, showError]);
 
   // Attach wheel event listener with passive: false to allow preventDefault()
+  // Keep viewState ref updated for event handlers
+  const viewStateRef = useRef(viewState);
+  useEffect(() => { viewStateRef.current = viewState; }, [viewState]);
+
+  // Attach wheel event listener with passive: false to allow preventDefault()
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (!viewState) return;
+      const currentViewState = viewStateRef.current;
+      if (!currentViewState) return;
 
       // Check if the wheel event originated from inside a modal
-      // If so, allow scrolling inside the modal and don't zoom the canvas
       const target = e.target as HTMLElement;
       if (target && target.closest('[data-modal="true"]')) {
         return; // Let the modal handle scrolling
@@ -699,12 +792,19 @@ export const DataCanvas: React.FC = () => {
       const offsetX = e.clientX - rect.left;
       const offsetY = e.clientY - rect.top;
 
-      const mouseProjBefore = canvasToProjCoords(offsetX, offsetY);
-      if (!mouseProjBefore) return;
+      // Inline canvasToProjCoords logic to avoid dependency
+      const canvas = graticuleCanvasRef.current;
+      if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const { center, scale } = currentViewState;
+      const projX = (offsetX * dpr - canvas.width / 2) / (scale * dpr) + center[0];
+      const projY = -(offsetY * dpr - canvas.height / 2) / (scale * dpr) + center[1];
+      const mouseProjBefore = [projX, projY];
 
       const zoomFactor = 1 - e.deltaY * 0.001;
-      const newScale = viewState.scale * zoomFactor;
-      const dpr = window.devicePixelRatio || 1;
+      const newScale = currentViewState.scale * zoomFactor;
+
       const newCenter: [number, number] = [
         mouseProjBefore[0] - ((offsetX) * dpr - container.offsetWidth * dpr / 2) / (newScale * dpr),
         mouseProjBefore[1] + ((offsetY) * dpr - container.offsetHeight * dpr / 2) / (newScale * dpr)
@@ -718,7 +818,7 @@ export const DataCanvas: React.FC = () => {
     return () => {
       container.removeEventListener('wheel', handleWheel);
     };
-  }, [viewState, canvasToProjCoords, setViewState]);
+  }, [setViewState]); // Only re-run if setViewState changes (stable)
 
   useEffect(() => {
     const canvases = [baseCanvasRef.current, dataCanvasRef.current, graticuleCanvasRef.current];
@@ -730,7 +830,7 @@ export const DataCanvas: React.FC = () => {
 
     const [baseCanvas, dataCanvas, graticuleCanvas] = canvases as HTMLCanvasElement[];
     const dpr = window.devicePixelRatio || 1;
-    
+
     [baseCanvas, dataCanvas, graticuleCanvas].forEach(canvas => {
       if (!canvas.parentElement) return; // Guard against null parentElement
       const { clientWidth, clientHeight } = canvas.parentElement;
@@ -745,15 +845,20 @@ export const DataCanvas: React.FC = () => {
 
     const { center, scale } = viewState;
     contexts.forEach(ctx => {
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); ctx.save();
-        ctx.translate(ctx.canvas.width / 2, ctx.canvas.height / 2);
-        const effectiveScale = scale * dpr; ctx.scale(effectiveScale, -effectiveScale);
-        ctx.translate(-center[0], -center[1]); ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); ctx.save();
+      ctx.translate(ctx.canvas.width / 2, ctx.canvas.height / 2);
+      const effectiveScale = scale * dpr; ctx.scale(effectiveScale, -effectiveScale);
+      ctx.translate(-center[0], -center[1]); ctx.imageSmoothingEnabled = false;
     });
 
     // --- Render Layers ---
     layers.forEach(layer => {
       if (!layer.visible) return;
+
+      // Skip WebGL-compatible layers if WebGL renderer is enabled
+      if (USE_WEBGL_RENDERER && webglRendererRef.current && isDataGridLayer(layer)) {
+        return; // Will be rendered by WebGL
+      }
 
       if (layer.type === 'basemap') {
         const gt = layer.vrt.geoTransform;
@@ -806,38 +911,78 @@ export const DataCanvas: React.FC = () => {
           }
         }
         if (layer.colormap === 'Custom') {
-            baseKey += `-${hashColormap(layer.customColormap)}`;
+          baseKey += `-${hashColormap(layer.customColormap)}`;
         }
         // Include transparency thresholds in cache key
         if (layer.transparencyLowerThreshold !== undefined) {
-            baseKey += `-lt${layer.transparencyLowerThreshold}`;
+          baseKey += `-lt${layer.transparencyLowerThreshold}`;
         }
         if (layer.transparencyUpperThreshold !== undefined) {
-            baseKey += `-ut${layer.transparencyUpperThreshold}`;
+          baseKey += `-ut${layer.transparencyUpperThreshold}`;
         }
         cacheKey = baseKey;
-        
+
         let offscreenCanvas = offscreenCanvasCache.get(cacheKey);
 
         if (!offscreenCanvas) {
-          const slice = layer.dataset[getLayerTimeIndex(layer, timeIndex)];
-          if (!slice) return;
+          // Handle lazy loading or traditional dataset
+          const actualTimeIndex = getLayerTimeIndex(layer, timeIndex);
+          let slice: number[][] | undefined;
+
+          if ('lazyDataset' in layer && layer.lazyDataset) {
+            // Lazy loading: check if slice already in dataset, otherwise trigger load
+            slice = layer.dataset[actualTimeIndex];
+
+            if (!slice) {
+              // Slice not yet loaded - trigger async load
+              layer.lazyDataset.getSlice(actualTimeIndex).then((flatSlice) => {
+                // Convert TypedArray to 2D array and store in dataset
+                const { width, height } = layer.dimensions;
+                const slice2D: number[][] = [];
+                for (let y = 0; y < height; y++) {
+                  const row: number[] = [];
+                  for (let x = 0; x < width; x++) {
+                    row.push(flatSlice[y * width + x]);
+                  }
+                  slice2D.push(row);
+                }
+                layer.dataset[actualTimeIndex] = slice2D;
+                // Invalidate cache to trigger re-render
+                offscreenCanvasCache.delete(cacheKey);
+              }).catch(err => {
+                console.error('Failed to load lazy slice:', err);
+              });
+              // Skip rendering this frame - will render next frame when loaded
+              return;
+            }
+          } else {
+            // Traditional dataset: synchronous access
+            slice = layer.dataset[actualTimeIndex];
+            if (!slice) return;
+          }
 
           const { width, height } = layer.dimensions;
           offscreenCanvas = document.createElement('canvas');
           offscreenCanvas.width = width; offscreenCanvas.height = height;
           const offscreenCtx = offscreenCanvas.getContext('2d')!;
-          
+
           let colorDomain: [number, number];
           const isThreshold = layer.colormap === 'Custom';
 
           if (isNightfallLayer(layer)) {
-             colorDomain = [layer.range.min, layer.params.clipValue ?? layer.range.max];
+            colorDomain = [layer.range.min, layer.params.clipValue ?? layer.range.max];
           } else {
             colorDomain = [layer.range.min, layer.range.max];
           }
-          
-          const colorScale = getColorScale(layer.colormap, colorDomain, layer.colormapInverted, layer.customColormap, isThreshold);
+
+          const colorScale = getColorScale(
+            layer.colormap,
+            colorDomain,
+            layer.colormapInverted,
+            layer.customColormap,
+            isThreshold,
+            layer.divergingThresholdConfig
+          );
           const imageData = offscreenCtx.createImageData(width, height);
 
           // Pre-compute color lookup table (256 colors instead of 1M+ d3.color() calls)
@@ -873,7 +1018,7 @@ export const DataCanvas: React.FC = () => {
           offscreenCtx.putImageData(imageData, 0, 0);
           offscreenCanvasCache.set(cacheKey, offscreenCanvas);
         }
-        
+
         dataCtx.save(); dataCtx.globalAlpha = layer.opacity;
 
         // For layers with projected coordinates (illumination or analysis with geospatial info), use them directly!
@@ -935,160 +1080,226 @@ export const DataCanvas: React.FC = () => {
         dataCtx.restore();
       }
     });
-    
+
     const { clientWidth, clientHeight } = graticuleCanvas;
     const p_tl = canvasToProjCoords(0, 0);
     const p_br = canvasToProjCoords(clientWidth * (window.devicePixelRatio || 1), clientHeight * (window.devicePixelRatio || 1));
 
     if (p_tl && p_br) {
-        const [projXMin, projYMin] = [p_tl[0], p_br[1]];
-        const [projXMax, projYMax] = [p_br[0], p_tl[1]];
+      const [projXMin, projYMin] = [p_tl[0], p_br[1]];
+      const [projXMax, projYMax] = [p_br[0], p_tl[1]];
 
-        // --- Render Grid Overlay ---
-        if (debouncedShowGrid) {
-            gratCtx.strokeStyle = gridColor;
-            gratCtx.lineWidth = 0.8 / (scale * dpr);
+      // --- Render Grid Overlay ---
+      if (debouncedShowGrid) {
+        gratCtx.strokeStyle = gridColor;
+        gratCtx.lineWidth = 0.8 / (scale * dpr);
 
-            const startX = Math.ceil(projXMin / debouncedGridSpacing) * debouncedGridSpacing;
-            const startY = Math.ceil(projYMin / debouncedGridSpacing) * debouncedGridSpacing;
+        const startX = Math.ceil(projXMin / debouncedGridSpacing) * debouncedGridSpacing;
+        const startY = Math.ceil(projYMin / debouncedGridSpacing) * debouncedGridSpacing;
 
-            gratCtx.beginPath();
-            for (let x = startX; x <= projXMax; x += debouncedGridSpacing) {
-                gratCtx.moveTo(x, projYMin);
-                gratCtx.lineTo(x, projYMax);
-            }
-            for (let y = startY; y <= projYMax; y += debouncedGridSpacing) {
-                gratCtx.moveTo(projXMin, y);
-                gratCtx.lineTo(projXMax, y);
-            }
-            gratCtx.stroke();
+        gratCtx.beginPath();
+        for (let x = startX; x <= projXMax; x += debouncedGridSpacing) {
+          gratCtx.moveTo(x, projYMin);
+          gratCtx.lineTo(x, projYMax);
+        }
+        for (let y = startY; y <= projYMax; y += debouncedGridSpacing) {
+          gratCtx.moveTo(projXMin, y);
+          gratCtx.lineTo(projXMax, y);
+        }
+        gratCtx.stroke();
+      }
+
+      // --- Render Graticule from cached points ---
+      if (showGraticule && proj && graticuleLinesCache) {
+        const { lonLines, latLines, lonStep, latStep } = graticuleLinesCache;
+
+        // Calculate anchor position for labels
+        let anchorLon = 0, anchorLat = 0;
+        try {
+          const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
+          anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep;
+          anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
+        } catch (e) {
+          anchorLon = 0;
+          anchorLat = 0;
         }
 
-        // --- Render Graticule from cached points ---
-        if (showGraticule && proj && graticuleLinesCache) {
-            const { lonLines, latLines, lonStep, latStep } = graticuleLinesCache;
+        // Label collision detection - track occupied label regions
+        const labelRegions: Array<{ x: number; y: number; width: number; height: number }> = [];
+        const minLabelDistance = 40; // Minimum distance in screen pixels between labels
 
-            // Calculate anchor position for labels
-            let anchorLon = 0, anchorLat = 0;
-            try {
-                const centerGeo = proj4('EPSG:4326', proj).inverse(viewState.center);
-                anchorLon = Math.round(centerGeo[0] / lonStep) * lonStep;
-                anchorLat = Math.round(centerGeo[1] / latStep) * latStep;
-            } catch(e) {
-                anchorLon = 0;
-                anchorLat = 0;
+        const checkLabelCollision = (x: number, y: number, width: number, height: number): boolean => {
+          for (const region of labelRegions) {
+            // Check if bounding boxes overlap with padding
+            if (x < region.x + region.width + minLabelDistance &&
+              x + width + minLabelDistance > region.x &&
+              y < region.y + region.height + minLabelDistance &&
+              y + height + minLabelDistance > region.y) {
+              return true; // Collision detected
             }
+          }
+          return false; // No collision
+        };
 
-            // Label collision detection - track occupied label regions
-            const labelRegions: Array<{ x: number; y: number; width: number; height: number }> = [];
-            const minLabelDistance = 40; // Minimum distance in screen pixels between labels
+        const drawLabel = (text: string, p: [number, number]): boolean => {
+          // Convert to screen coordinates for collision detection
+          const screenX = (p[0] - viewState.center[0]) * scale * dpr + gratCtx.canvas.width / 2;
+          const screenY = -(p[1] - viewState.center[1]) * scale * dpr + gratCtx.canvas.height / 2;
 
-            const checkLabelCollision = (x: number, y: number, width: number, height: number): boolean => {
-                for (const region of labelRegions) {
-                    // Check if bounding boxes overlap with padding
-                    if (x < region.x + region.width + minLabelDistance &&
-                        x + width + minLabelDistance > region.x &&
-                        y < region.y + region.height + minLabelDistance &&
-                        y + height + minLabelDistance > region.y) {
-                        return true; // Collision detected
-                    }
-                }
-                return false; // No collision
-            };
+          const estimatedWidth = text.length * graticuleLabelFontSize * 0.6; // Rough estimate
+          const estimatedHeight = graticuleLabelFontSize * 1.2;
 
-            const drawLabel = (text: string, p: [number, number]): boolean => {
-                // Convert to screen coordinates for collision detection
-                const screenX = (p[0] - viewState.center[0]) * scale * dpr + gratCtx.canvas.width / 2;
-                const screenY = -(p[1] - viewState.center[1]) * scale * dpr + gratCtx.canvas.height / 2;
+          if (checkLabelCollision(screenX, screenY, estimatedWidth, estimatedHeight)) {
+            return false; // Skip label due to collision
+          }
 
-                const estimatedWidth = text.length * graticuleLabelFontSize * 0.6; // Rough estimate
-                const estimatedHeight = graticuleLabelFontSize * 1.2;
+          // Add to collision regions
+          labelRegions.push({ x: screenX, y: screenY, width: estimatedWidth, height: estimatedHeight });
 
-                if (checkLabelCollision(screenX, screenY, estimatedWidth, estimatedHeight)) {
-                    return false; // Skip label due to collision
-                }
+          // Draw the label
+          gratCtx.save();
+          gratCtx.translate(p[0], p[1]);
+          const invScale = 1 / (scale * dpr);
+          gratCtx.scale(invScale, -invScale);
+          gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+          gratCtx.font = `${graticuleLabelFontSize}px sans-serif`;
+          gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+          gratCtx.lineWidth = 3;
+          gratCtx.textAlign = 'left';
+          gratCtx.textBaseline = 'top';
+          gratCtx.strokeText(text, 5, 5);
+          gratCtx.fillText(text, 5, 5);
+          gratCtx.restore();
+          return true;
+        };
 
-                // Add to collision regions
-                labelRegions.push({ x: screenX, y: screenY, width: estimatedWidth, height: estimatedHeight });
+        let lonLinesDrawn = 0, latLinesDrawn = 0;
 
-                // Draw the label
-                gratCtx.save();
-                gratCtx.translate(p[0], p[1]);
-                const invScale = 1 / (scale * dpr);
-                gratCtx.scale(invScale, -invScale);
-                gratCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-                gratCtx.font = `${graticuleLabelFontSize}px sans-serif`;
-                gratCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-                gratCtx.lineWidth = 3;
-                gratCtx.textAlign = 'left';
-                gratCtx.textBaseline = 'top';
-                gratCtx.strokeText(text, 5, 5);
-                gratCtx.fillText(text, 5, 5);
-                gratCtx.restore();
-                return true;
-            };
+        // Draw all lines in white
+        gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        gratCtx.lineWidth = 1.5 / (scale * dpr);
 
-            let lonLinesDrawn = 0, latLinesDrawn = 0;
+        // Draw longitude lines (meridians) from cached points
+        for (const { lon, points } of lonLines) {
+          if (points.length < 2) continue;
 
-            // Draw all lines in white
-            gratCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            gratCtx.lineWidth = 1.5 / (scale * dpr);
+          gratCtx.beginPath();
+          gratCtx.moveTo(points[0][0], points[0][1]);
+          for (let i = 1; i < points.length; i++) {
+            gratCtx.lineTo(points[i][0], points[i][1]);
+          }
+          gratCtx.stroke();
+          lonLinesDrawn++;
 
-            // Draw longitude lines (meridians) from cached points
-            for (const { lon, points } of lonLines) {
-                if (points.length < 2) continue;
-
-                gratCtx.beginPath();
-                gratCtx.moveTo(points[0][0], points[0][1]);
-                for (let i = 1; i < points.length; i++) {
-                    gratCtx.lineTo(points[i][0], points[i][1]);
-                }
-                gratCtx.stroke();
-                lonLinesDrawn++;
-
-                // Draw label if no collision
-                try {
-                    const p = proj.forward([lon, anchorLat]);
-                    if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) {
-                        drawLabel(`${lon.toFixed(1)}°E`, p);
-                    }
-                } catch(e) {}
+          // Draw label if no collision
+          try {
+            const p = proj.forward([lon, anchorLat]);
+            if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) {
+              drawLabel(`${lon.toFixed(1)}°E`, p);
             }
-
-            // Draw latitude lines (parallels) from cached points
-            for (const { lat, points } of latLines) {
-                if (points.length < 2) continue;
-
-                gratCtx.beginPath();
-                gratCtx.moveTo(points[0][0], points[0][1]);
-                for (let i = 1; i < points.length; i++) {
-                    gratCtx.lineTo(points[i][0], points[i][1]);
-                }
-                gratCtx.stroke();
-                latLinesDrawn++;
-
-                // Draw label if no collision
-                try {
-                    const p = proj.forward([anchorLon, lat]);
-                    if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) {
-                        drawLabel(`${lat.toFixed(1)}°N`, p);
-                    }
-                } catch(e) {}
-            }
-
-            // Debug logging (throttled to avoid spam)
-            if (Math.random() < 0.02) { // Log ~2% of frames
-                console.log('Graticule rendered:', {
-                    lonLinesDrawn,
-                    latLinesDrawn,
-                    labelsDrawn: labelRegions.length,
-                    fontSize: graticuleLabelFontSize
-                });
-            }
+          } catch (e) { }
         }
+
+        // Draw latitude lines (parallels) from cached points
+        for (const { lat, points } of latLines) {
+          if (points.length < 2) continue;
+
+          gratCtx.beginPath();
+          gratCtx.moveTo(points[0][0], points[0][1]);
+          for (let i = 1; i < points.length; i++) {
+            gratCtx.lineTo(points[i][0], points[i][1]);
+          }
+          gratCtx.stroke();
+          latLinesDrawn++;
+
+          // Draw label if no collision
+          try {
+            const p = proj.forward([anchorLon, lat]);
+            if (isFinite(p[0]) && isFinite(p[1]) && p[0] >= projXMin && p[0] <= projXMax && p[1] >= projYMin && p[1] <= projYMax) {
+              drawLabel(`${lat.toFixed(1)}°N`, p);
+            }
+          } catch (e) { }
+        }
+
+        // Debug logging (throttled to avoid spam)
+        if (Math.random() < 0.02) { // Log ~2% of frames
+          console.log('Graticule rendered:', {
+            lonLinesDrawn,
+            latLinesDrawn,
+            labelsDrawn: labelRegions.length,
+            fontSize: graticuleLabelFontSize
+          });
+        }
+      }
     }
+
+    // --- WebGL Rendering ---
+    // OPTIMIZED: Only update layers that have changed to avoid recreating textures every frame
+    if (USE_WEBGL_RENDERER && webglRendererRef.current && viewState) {
+      try {
+        const renderer = webglRendererRef.current;
+        const currentState = webglLayerStateRef.current;
+
+        // Get current visible WebGL layers
+        const webglLayers = layers.filter(layer =>
+          layer.visible && isDataGridLayer(layer)
+        );
+
+        // Build new state map
+        const newState = new Map<string, { timeIndex: number; visible: boolean }>();
+        webglLayers.forEach(layer => {
+          const layerTimeIndex = getLayerTimeIndex(layer, timeIndex);
+          newState.set(layer.id, { timeIndex: layerTimeIndex, visible: true });
+        });
+
+        // Find layers to remove (no longer visible or deleted)
+        currentState.forEach((_, layerId) => {
+          if (!newState.has(layerId)) {
+            console.log(`🗑️ Removing WebGL layer: ${layerId}`);
+            renderer.removeLayer(layerId);
+          }
+        });
+
+        // Add or update layers
+        webglLayers.forEach(layer => {
+          const layerTimeIndex = getLayerTimeIndex(layer, timeIndex);
+          const oldState = currentState.get(layer.id);
+
+          if (!oldState) {
+            // New layer - add it
+            console.log(`✨ Adding WebGL layer: ${layer.name}`);
+            renderer.addLayer(layer, layerTimeIndex);
+          } else if (oldState.timeIndex !== layerTimeIndex) {
+            // Time index changed - update texture
+            console.log(`🔄 Updating WebGL layer time: ${layer.name} (t=${layerTimeIndex})`);
+            renderer.updateLayerTime(layer.id, layer, layerTimeIndex);
+          }
+          // Note: Opacity, colormap updates are handled separately in a different effect
+        });
+
+        // Update state ref
+        webglLayerStateRef.current = newState;
+
+        // Render with WebGL
+        const layerOrder = webglLayers.map(l => l.id);
+        renderer.render(viewState, layerOrder);
+
+        // Log memory stats occasionally
+        if (Math.random() < 0.01) {
+          const stats = renderer.getMemoryStats();
+          console.log('WebGL Stats:', {
+            memory: `${stats.textureMemoryMB.toFixed(1)} MB`,
+            layers: stats.layerCount,
+            pixels: `${(stats.totalPixels / 1000000).toFixed(1)}M`
+          });
+        }
+      } catch (error) {
+        console.error('WebGL rendering error:', error);
+      }
+    }
+
     contexts.forEach(ctx => ctx.restore());
-    if(performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
+    if (performance.now() - renderStartTime > 16) requestAnimationFrame(() => setIsRendering(false)); else setIsRendering(false);
   }, [layers, timeIndex, showGraticule, proj, viewState, isDataLoaded, latRange, lonRange, canvasToProjCoords, debouncedTimeRange, debouncedShowGrid, debouncedGridSpacing, gridColor, graticuleLinesCache, graticuleLabelFontSize]);
 
   // Helper function to get the 4 corners of a rectangle artifact in projected coordinates
@@ -1152,8 +1363,8 @@ export const DataCanvas: React.FC = () => {
   useEffect(() => {
     const canvas = artifactCanvasRef.current;
     if (!canvas || !viewState || !proj) {
-        canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-        return;
+      canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+      return;
     };
 
     const dpr = window.devicePixelRatio || 1;
@@ -1164,7 +1375,7 @@ export const DataCanvas: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return; // Guard against null context
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     const { center, scale } = viewState;
     ctx.save();
     ctx.translate(ctx.canvas.width / 2, ctx.canvas.height / 2);
@@ -1173,328 +1384,372 @@ export const DataCanvas: React.FC = () => {
     ctx.translate(-center[0], -center[1]);
 
     artifacts.forEach(artifact => {
-        if (!artifact.visible) return;
+      if (!artifact.visible) return;
 
-        ctx.strokeStyle = artifact.color;
-        ctx.fillStyle = artifact.color;
+      ctx.strokeStyle = artifact.color;
+      ctx.fillStyle = artifact.color;
 
-        if (artifact.type === 'circle') {
-            const radiusInProjUnits = artifact.radius;
-            ctx.lineWidth = artifact.thickness / effectiveScale;
-            ctx.beginPath();
-            ctx.arc(artifact.center[0], artifact.center[1], radiusInProjUnits, 0, 2 * Math.PI);
-            ctx.stroke();
-        } else if (artifact.type === 'rectangle') {
-            const corners = getRectangleCorners(artifact);
-            if (corners && corners.length === 4) {
-                ctx.lineWidth = artifact.thickness / effectiveScale;
-                ctx.beginPath();
-                ctx.moveTo(corners[0][0], corners[0][1]);
-                ctx.lineTo(corners[1][0], corners[1][1]);
-                ctx.lineTo(corners[2][0], corners[2][1]);
-                ctx.lineTo(corners[3][0], corners[3][1]);
-                ctx.closePath();
-                ctx.stroke();
-            }
-        } else if (artifact.type === 'path') {
-            if (artifact.waypoints.length === 0) return;
-            
-            const projectedWaypoints = artifact.waypoints.map(wp => {
-                // Validate geoPosition before projection
-                if (!wp.geoPosition ||
-                    !Array.isArray(wp.geoPosition) ||
-                    wp.geoPosition.length !== 2 ||
-                    !isFinite(wp.geoPosition[0]) ||
-                    !isFinite(wp.geoPosition[1])) {
-                    logger.warn('DataCanvas: Invalid waypoint geoPosition during rendering', wp);
-                    return { ...wp, projPos: null };
-                }
-                try {
-                    const projPos = proj.forward(wp.geoPosition) as [number, number];
-                    // Validate projection result
-                    if (!projPos || !Array.isArray(projPos) || projPos.length !== 2 ||
-                        !isFinite(projPos[0]) || !isFinite(projPos[1])) {
-                        logger.warn('DataCanvas: Invalid projection result for waypoint', wp);
-                        return { ...wp, projPos: null };
-                    }
-                    return { ...wp, projPos };
-                } catch(e) {
-                    logger.warn('DataCanvas: Failed to project waypoint during rendering', wp, e);
-                    return { ...wp, projPos: null };
-                }
-            }).filter(p => p.projPos !== null);
-            
-            // Draw segments
-            if (projectedWaypoints.length > 1) {
-                ctx.lineWidth = artifact.thickness / effectiveScale;
-                ctx.beginPath();
-                ctx.moveTo(projectedWaypoints[0].projPos![0], projectedWaypoints[0].projPos![1]);
-                for (let i = 1; i < projectedWaypoints.length; i++) {
-                    ctx.lineTo(projectedWaypoints[i].projPos![0], projectedWaypoints[i].projPos![1]);
-                }
-                ctx.stroke();
-            }
-            
-            // Draw waypoint dots and labels
-            projectedWaypoints.forEach((pwp) => {
-                // Draw waypoint dot
-                ctx.beginPath();
-                const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
-                ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
-                ctx.fill();
+      if (artifact.type === 'circle') {
+        const radiusInProjUnits = artifact.radius;
+        ctx.lineWidth = artifact.thickness / effectiveScale;
+        ctx.beginPath();
+        ctx.arc(artifact.center[0], artifact.center[1], radiusInProjUnits, 0, 2 * Math.PI);
+        ctx.stroke();
+      } else if (artifact.type === 'rectangle') {
+        let corners: [number, number][] | null = null;
 
-                // Draw waypoint label
-                ctx.save();
-                ctx.translate(pwp.projPos![0], pwp.projPos![1]);
-                ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-                ctx.fillStyle = '#ffffff';
-                ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'bottom';
-                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                ctx.lineWidth = 2.5;
-                ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
-                ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
-                ctx.restore();
-            });
-
-            // Draw segment lengths
-            if (artifactDisplayOptions.showSegmentLengths && projectedWaypoints.length > 1) {
-                for (let i = 0; i < projectedWaypoints.length - 1; i++) {
-                    const pwp1 = projectedWaypoints[i];
-                    const pwp2 = projectedWaypoints[i+1];
-                    
-                    const dx = pwp2.projPos![0] - pwp1.projPos![0];
-                    const dy = pwp2.projPos![1] - pwp1.projPos![1];
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-
-                    const midPointProj: [number, number] = [(pwp1.projPos![0] + pwp2.projPos![0]) / 2, (pwp1.projPos![1] + pwp2.projPos![1]) / 2];
-                    const label = `${distance.toFixed(0)} m`;
-
-                    ctx.save();
-                    ctx.translate(midPointProj[0], midPointProj[1]);
-
-                    let angle = Math.atan2(pwp2.projPos![1] - pwp1.projPos![1], pwp2.projPos![0] - pwp1.projPos![0]);
-                    if (angle < -Math.PI / 2 || angle > Math.PI / 2) {
-                        angle += Math.PI;
-                    }
-
-                    ctx.rotate(angle);
-                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-                    
-                    ctx.font = `${artifactDisplayOptions.labelFontSize}px sans-serif`;
-                    const textMetrics = ctx.measureText(label);
-                    const padding = 4;
-                    const textHeight = artifactDisplayOptions.labelFontSize;
-                    const rectHeight = textHeight + padding;
-                    const rectWidth = textMetrics.width + padding * 2;
-                    
-                    const verticalOffset = -(textHeight / 2 + 5); 
-                    
-                    ctx.fillStyle = 'rgba(26, 32, 44, 0.7)';
-                    ctx.fillRect(-rectWidth / 2, verticalOffset - rectHeight / 2, rectWidth, rectHeight);
-                    
-                    ctx.fillStyle = '#fafafa';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(label, 0, verticalOffset);
-                    ctx.restore();
-                }
-            }
-        }
-        
-        ctx.save();
-        let centerPos = null;
-        if (artifact.type === 'path') {
-            // Validate first waypoint geoPosition before projecting
-            if (artifact.waypoints.length > 0) {
-                const firstWaypoint = artifact.waypoints[0];
-                if (firstWaypoint.geoPosition &&
-                    Array.isArray(firstWaypoint.geoPosition) &&
-                    firstWaypoint.geoPosition.length === 2 &&
-                    isFinite(firstWaypoint.geoPosition[0]) &&
-                    isFinite(firstWaypoint.geoPosition[1])) {
-                    try {
-                        centerPos = proj.forward(firstWaypoint.geoPosition);
-                    } catch (e) {
-                        logger.warn('DataCanvas: Failed to project first waypoint for label', e);
-                    }
-                }
-            }
+        // For free rectangles, use stored corners directly
+        if (artifact.isFreeForm && artifact.corners) {
+          corners = [
+            artifact.corners.topLeft,
+            artifact.corners.topRight,
+            artifact.corners.bottomRight,
+            artifact.corners.bottomLeft
+          ];
         } else {
-            centerPos = artifact.center;
+          // For grid-aligned rectangles, calculate corners
+          corners = getRectangleCorners(artifact);
         }
 
-        if (centerPos) {
-            ctx.translate(centerPos[0], centerPos[1]);
-            ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-            ctx.fillStyle = artifact.color;
-            ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-            ctx.lineWidth = 3;
-            ctx.strokeText(artifact.name, 0, -10);
-            ctx.fillText(artifact.name, 0, -10);
+        if (corners && corners.length === 4) {
+          ctx.lineWidth = artifact.thickness / effectiveScale;
+          ctx.beginPath();
+          ctx.moveTo(corners[0][0], corners[0][1]);
+          ctx.lineTo(corners[1][0], corners[1][1]);
+          ctx.lineTo(corners[2][0], corners[2][1]);
+          ctx.lineTo(corners[3][0], corners[3][1]);
+          ctx.closePath();
+          ctx.stroke();
         }
-        ctx.restore();
+      } else if (artifact.type === 'path') {
+        if (artifact.waypoints.length === 0) return;
+
+        const projectedWaypoints = artifact.waypoints.map(wp => {
+          // Validate geoPosition before projection
+          if (!wp.geoPosition ||
+            !Array.isArray(wp.geoPosition) ||
+            wp.geoPosition.length !== 2 ||
+            !isFinite(wp.geoPosition[0]) ||
+            !isFinite(wp.geoPosition[1])) {
+            logger.warn('DataCanvas: Invalid waypoint geoPosition during rendering', wp);
+            return { ...wp, projPos: null };
+          }
+          try {
+            const projPos = proj.forward(wp.geoPosition) as [number, number];
+            // Validate projection result
+            if (!projPos || !Array.isArray(projPos) || projPos.length !== 2 ||
+              !isFinite(projPos[0]) || !isFinite(projPos[1])) {
+              logger.warn('DataCanvas: Invalid projection result for waypoint', wp);
+              return { ...wp, projPos: null };
+            }
+            return { ...wp, projPos };
+          } catch (e) {
+            logger.warn('DataCanvas: Failed to project waypoint during rendering', wp, e);
+            return { ...wp, projPos: null };
+          }
+        }).filter(p => p.projPos !== null);
+
+        // Draw segments
+        if (projectedWaypoints.length > 1) {
+          ctx.lineWidth = artifact.thickness / effectiveScale;
+          ctx.beginPath();
+          ctx.moveTo(projectedWaypoints[0].projPos![0], projectedWaypoints[0].projPos![1]);
+          for (let i = 1; i < projectedWaypoints.length; i++) {
+            ctx.lineTo(projectedWaypoints[i].projPos![0], projectedWaypoints[i].projPos![1]);
+          }
+          ctx.stroke();
+        }
+
+        // Draw waypoint dots and labels
+        projectedWaypoints.forEach((pwp) => {
+          // Draw waypoint dot
+          ctx.beginPath();
+          const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+          ctx.arc(pwp.projPos![0], pwp.projPos![1], dotRadius, 0, 2 * Math.PI);
+          ctx.fill();
+
+          // Draw waypoint label
+          ctx.save();
+          ctx.translate(pwp.projPos![0], pwp.projPos![1]);
+          ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+          ctx.lineWidth = 2.5;
+          ctx.strokeText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
+          ctx.fillText(pwp.label, 0, - (artifactDisplayOptions.waypointDotSize / 2 + 2));
+          ctx.restore();
+        });
+
+        // Draw segment lengths
+        if (artifactDisplayOptions.showSegmentLengths && projectedWaypoints.length > 1) {
+          for (let i = 0; i < projectedWaypoints.length - 1; i++) {
+            const pwp1 = projectedWaypoints[i];
+            const pwp2 = projectedWaypoints[i + 1];
+
+            const dx = pwp2.projPos![0] - pwp1.projPos![0];
+            const dy = pwp2.projPos![1] - pwp1.projPos![1];
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            const midPointProj: [number, number] = [(pwp1.projPos![0] + pwp2.projPos![0]) / 2, (pwp1.projPos![1] + pwp2.projPos![1]) / 2];
+            const label = `${distance.toFixed(0)} m`;
+
+            ctx.save();
+            ctx.translate(midPointProj[0], midPointProj[1]);
+
+            let angle = Math.atan2(pwp2.projPos![1] - pwp1.projPos![1], pwp2.projPos![0] - pwp1.projPos![0]);
+            if (angle < -Math.PI / 2 || angle > Math.PI / 2) {
+              angle += Math.PI;
+            }
+
+            ctx.rotate(angle);
+            ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+            ctx.font = `${artifactDisplayOptions.labelFontSize}px sans-serif`;
+            const textMetrics = ctx.measureText(label);
+            const padding = 4;
+            const textHeight = artifactDisplayOptions.labelFontSize;
+            const rectHeight = textHeight + padding;
+            const rectWidth = textMetrics.width + padding * 2;
+
+            const verticalOffset = -(textHeight / 2 + 5);
+
+            ctx.fillStyle = 'rgba(26, 32, 44, 0.7)';
+            ctx.fillRect(-rectWidth / 2, verticalOffset - rectHeight / 2, rectWidth, rectHeight);
+
+            ctx.fillStyle = '#fafafa';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, 0, verticalOffset);
+            ctx.restore();
+          }
+        }
+      }
+
+      ctx.save();
+      let centerPos = null;
+      if (artifact.type === 'path') {
+        // Validate first waypoint geoPosition before projecting
+        if (artifact.waypoints.length > 0) {
+          const firstWaypoint = artifact.waypoints[0];
+          if (firstWaypoint.geoPosition &&
+            Array.isArray(firstWaypoint.geoPosition) &&
+            firstWaypoint.geoPosition.length === 2 &&
+            isFinite(firstWaypoint.geoPosition[0]) &&
+            isFinite(firstWaypoint.geoPosition[1])) {
+            try {
+              centerPos = proj.forward(firstWaypoint.geoPosition);
+            } catch (e) {
+              logger.warn('DataCanvas: Failed to project first waypoint for label', e);
+            }
+          }
+        }
+      } else {
+        centerPos = artifact.center;
+      }
+
+      if (centerPos) {
+        ctx.translate(centerPos[0], centerPos[1]);
+        ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+        ctx.fillStyle = artifact.color;
+        ctx.font = `bold ${artifactDisplayOptions.labelFontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(artifact.name, 0, -10);
+        ctx.fillText(artifact.name, 0, -10);
+      }
+      ctx.restore();
     });
 
     // Draw preview rectangle if in rectangle creation mode with first corner set
     if (rectangleFirstCorner && currentMouseProjCoords && artifactCreationMode === 'rectangle' && snapToCellCorner && calculateRectangleFromCellCorners && primaryDataLayer) {
-        const snappedSecondCorner = snapToCellCorner(currentMouseProjCoords);
-        if (snappedSecondCorner) {
-            // Calculate rectangle parameters with correct orientation
-            const rectParams = calculateRectangleFromCellCorners(rectangleFirstCorner, snappedSecondCorner);
+      const snappedSecondCorner = snapToCellCorner(currentMouseProjCoords);
+      if (snappedSecondCorner) {
+        // Calculate rectangle parameters with correct orientation
+        const rectParams = calculateRectangleFromCellCorners(rectangleFirstCorner, snappedSecondCorner);
 
-            if (rectParams) {
-                // Create a temporary artifact to get its corners
-                const tempArtifact: RectangleArtifact = {
-                    id: 'preview',
-                    type: 'rectangle',
-                    name: 'Preview',
-                    visible: true,
-                    color: '#ff00ff',
-                    thickness: 2,
-                    center: rectParams.center,
-                    width: rectParams.width,
-                    height: rectParams.height,
-                    rotation: rectParams.rotation
-                };
+        if (rectParams) {
+          // Create a temporary artifact to get its corners
+          const tempArtifact: RectangleArtifact = {
+            id: 'preview',
+            type: 'rectangle',
+            name: 'Preview',
+            visible: true,
+            color: '#ff00ff',
+            thickness: 2,
+            center: rectParams.center,
+            width: rectParams.width,
+            height: rectParams.height,
+            rotation: rectParams.rotation
+          };
 
-                const corners = getRectangleCorners(tempArtifact);
+          const corners = getRectangleCorners(tempArtifact);
 
-                if (corners && corners.length === 4) {
-                    ctx.save();
-                    ctx.strokeStyle = '#ff00ff';
-                    ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
-                    ctx.lineWidth = 2 / effectiveScale;
+          if (corners && corners.length === 4) {
+            ctx.save();
+            ctx.strokeStyle = '#ff00ff';
+            ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
+            ctx.lineWidth = 2 / effectiveScale;
 
-                    // Draw preview rectangle as quadrilateral
-                    ctx.beginPath();
-                    ctx.moveTo(corners[0][0], corners[0][1]);
-                    ctx.lineTo(corners[1][0], corners[1][1]);
-                    ctx.lineTo(corners[2][0], corners[2][1]);
-                    ctx.lineTo(corners[3][0], corners[3][1]);
-                    ctx.closePath();
-                    ctx.stroke();
-                    ctx.restore();
+            // Draw preview rectangle as quadrilateral
+            ctx.beginPath();
+            ctx.moveTo(corners[0][0], corners[0][1]);
+            ctx.lineTo(corners[1][0], corners[1][1]);
+            ctx.lineTo(corners[2][0], corners[2][1]);
+            ctx.lineTo(corners[3][0], corners[3][1]);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
 
-                    // Draw corner markers at snapped positions
-                    ctx.save();
-                    ctx.fillStyle = '#ff00ff';
-                    const markerSize = 10 / effectiveScale;
-                    [rectangleFirstCorner, snappedSecondCorner].forEach(corner => {
-                        ctx.fillRect(corner[0] - markerSize/2, corner[1] - markerSize/2, markerSize, markerSize);
-                    });
-                    ctx.restore();
-                }
-            }
+            // Draw corner markers at snapped positions
+            ctx.save();
+            ctx.fillStyle = '#ff00ff';
+            const markerSize = 10 / effectiveScale;
+            [rectangleFirstCorner, snappedSecondCorner].forEach(corner => {
+              ctx.fillRect(corner[0] - markerSize / 2, corner[1] - markerSize / 2, markerSize, markerSize);
+            });
+            ctx.restore();
+          }
         }
+      }
+    }
+
+    // Draw preview for free rectangle creation
+    if (rectangleFirstCorner && currentMouseProjCoords && artifactCreationMode === 'free_rectangle') {
+      ctx.save();
+      ctx.strokeStyle = '#ff00ff';
+      ctx.setLineDash([5 / effectiveScale, 5 / effectiveScale]);
+      ctx.lineWidth = 2 / effectiveScale;
+
+      // Draw preview rectangle
+      const [x1, y1] = rectangleFirstCorner;
+      const [x2, y2] = currentMouseProjCoords;
+
+      ctx.beginPath();
+      ctx.rect(
+        Math.min(x1, x2),
+        Math.min(y1, y2),
+        Math.abs(x2 - x1),
+        Math.abs(y2 - y1)
+      );
+      ctx.stroke();
+      ctx.restore();
+
+      // Draw corner markers
+      ctx.save();
+      ctx.fillStyle = '#ff00ff';
+      const markerSize = 10 / effectiveScale;
+      ctx.fillRect(x1 - markerSize / 2, y1 - markerSize / 2, markerSize, markerSize);
+      ctx.fillRect(x2 - markerSize / 2, y2 - markerSize / 2, markerSize, markerSize);
+      ctx.restore();
     }
 
     // Draw path creation preview (dashed circle and preview line)
     if ((artifactCreationMode === 'path' || isAppendingWaypoints) && currentMouseProjCoords && proj && activeArtifactId) {
-        const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
+      const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
 
-        if (pathBeingDrawn && pathBeingDrawn.waypoints.length > 0) {
-            const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
-            const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
-            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+      if (pathBeingDrawn && pathBeingDrawn.waypoints.length > 0) {
+        const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
+        const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+        const maxLength = pathCreationOptions.defaultMaxSegmentLength;
 
-            let previewEndProj = currentMouseProjCoords; // Default: preview to cursor
-            let radiusProj: number | null = null;
-            let distance = 0;
-            let isOverLimit = false;
+        let previewEndProj = currentMouseProjCoords; // Default: preview to cursor
+        let radiusProj: number | null = null;
+        let distance = 0;
+        let isOverLimit = false;
 
-            // Calculate radius and bounded preview point if max length is set
-            if (maxLength) {
-                try {
-                    const lastWaypointGeo = lastWaypoint.geoPosition;
+        // Calculate radius and bounded preview point if max length is set
+        if (maxLength) {
+          try {
+            const lastWaypointGeo = lastWaypoint.geoPosition;
 
-                    // Use maxLength directly as radius in projected units (meters)
-                    // This matches how circle artifacts work - the projected coordinate system is in meters
-                    radiusProj = maxLength;
+            // Use maxLength directly as radius in projected units (meters)
+            // This matches how circle artifacts work - the projected coordinate system is in meters
+            radiusProj = maxLength;
 
-                    // Calculate distance in projected space from last waypoint to cursor
-                    const dx = currentMouseProjCoords[0] - lastWaypointProj[0];
-                    const dy = currentMouseProjCoords[1] - lastWaypointProj[1];
-                    const distProj = Math.sqrt(dx * dx + dy * dy);
+            // Calculate distance in projected space from last waypoint to cursor
+            const dx = currentMouseProjCoords[0] - lastWaypointProj[0];
+            const dy = currentMouseProjCoords[1] - lastWaypointProj[1];
+            const distProj = Math.sqrt(dx * dx + dy * dy);
 
-                    // Check if cursor is beyond circle boundary in projected space
-                    isOverLimit = distProj > radiusProj;
+            // Check if cursor is beyond circle boundary in projected space
+            isOverLimit = distProj > radiusProj;
 
-                    // Use Euclidean distance for display (matches segment length calculation)
-                    distance = distProj;
+            // Use Euclidean distance for display (matches segment length calculation)
+            distance = distProj;
 
-                    // Always clamp preview to circle boundary if cursor is beyond it
-                    if (distProj > radiusProj) {
-                        // Clamp to circle boundary in direction of cursor
-                        const ratio = radiusProj / distProj;
-                        previewEndProj = [
-                            lastWaypointProj[0] + dx * ratio,
-                            lastWaypointProj[1] + dy * ratio
-                        ];
-                    }
-                } catch (e) {
-                    // Ignore calculation errors, keep preview at cursor
-                }
+            // Always clamp preview to circle boundary if cursor is beyond it
+            if (distProj > radiusProj) {
+              // Clamp to circle boundary in direction of cursor
+              const ratio = radiusProj / distProj;
+              previewEndProj = [
+                lastWaypointProj[0] + dx * ratio,
+                lastWaypointProj[1] + dy * ratio
+              ];
             }
-
-            // Draw dashed preview line from last waypoint to preview end point
-            ctx.save();
-            ctx.strokeStyle = pathBeingDrawn.color;
-            ctx.setLineDash([10 / effectiveScale, 10 / effectiveScale]);
-            ctx.lineWidth = pathBeingDrawn.thickness / effectiveScale;
-            ctx.beginPath();
-            ctx.moveTo(lastWaypointProj[0], lastWaypointProj[1]);
-            ctx.lineTo(previewEndProj[0], previewEndProj[1]);
-            ctx.stroke();
-            ctx.restore();
-
-            // Draw preview waypoint dot at the end of the preview line
-            ctx.save();
-            ctx.fillStyle = pathBeingDrawn.color;
-            ctx.globalAlpha = 0.6;
-            const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
-            ctx.beginPath();
-            ctx.arc(previewEndProj[0], previewEndProj[1], dotRadius, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.restore();
-
-            // Draw dashed circle around last waypoint if max segment length is set
-            if (maxLength && radiusProj) {
-                ctx.save();
-                ctx.strokeStyle = pathBeingDrawn.color;
-                ctx.setLineDash([15 / effectiveScale, 10 / effectiveScale]);
-                ctx.lineWidth = 1 / effectiveScale;
-                ctx.globalAlpha = 0.5;
-                ctx.beginPath();
-                ctx.arc(lastWaypointProj[0], lastWaypointProj[1], radiusProj, 0, 2 * Math.PI);
-                ctx.stroke();
-                ctx.restore();
-
-                // Display distance from last waypoint to cursor (at cursor, not at preview end)
-                try {
-                    ctx.save();
-                    ctx.translate(currentMouseProjCoords[0], currentMouseProjCoords[1]);
-                    ctx.scale(1 / effectiveScale, -1 / effectiveScale);
-
-                    const label = `${distance.toFixed(0)} m`;
-                    ctx.fillStyle = isOverLimit ? '#ff5555' : '#ffffff';
-                    ctx.font = 'bold 14px sans-serif';
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'bottom';
-                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                    ctx.lineWidth = 2.5;
-                    ctx.strokeText(label, 10, -10);
-                    ctx.fillText(label, 10, -10);
-                    ctx.restore();
-                } catch (e) {
-                    // Ignore projection errors
-                }
-            }
+          } catch (e) {
+            // Ignore calculation errors, keep preview at cursor
+          }
         }
+
+        // Draw dashed preview line from last waypoint to preview end point
+        ctx.save();
+        ctx.strokeStyle = pathBeingDrawn.color;
+        ctx.setLineDash([10 / effectiveScale, 10 / effectiveScale]);
+        ctx.lineWidth = pathBeingDrawn.thickness / effectiveScale;
+        ctx.beginPath();
+        ctx.moveTo(lastWaypointProj[0], lastWaypointProj[1]);
+        ctx.lineTo(previewEndProj[0], previewEndProj[1]);
+        ctx.stroke();
+        ctx.restore();
+
+        // Draw preview waypoint dot at the end of the preview line
+        ctx.save();
+        ctx.fillStyle = pathBeingDrawn.color;
+        ctx.globalAlpha = 0.6;
+        const dotRadius = (artifactDisplayOptions.waypointDotSize / 2) / effectiveScale;
+        ctx.beginPath();
+        ctx.arc(previewEndProj[0], previewEndProj[1], dotRadius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.restore();
+
+        // Draw dashed circle around last waypoint if max segment length is set
+        if (maxLength && radiusProj) {
+          ctx.save();
+          ctx.strokeStyle = pathBeingDrawn.color;
+          ctx.setLineDash([15 / effectiveScale, 10 / effectiveScale]);
+          ctx.lineWidth = 1 / effectiveScale;
+          ctx.globalAlpha = 0.5;
+          ctx.beginPath();
+          ctx.arc(lastWaypointProj[0], lastWaypointProj[1], radiusProj, 0, 2 * Math.PI);
+          ctx.stroke();
+          ctx.restore();
+
+          // Display distance from last waypoint to cursor (at cursor, not at preview end)
+          try {
+            ctx.save();
+            ctx.translate(currentMouseProjCoords[0], currentMouseProjCoords[1]);
+            ctx.scale(1 / effectiveScale, -1 / effectiveScale);
+
+            const label = `${distance.toFixed(0)} m`;
+            ctx.fillStyle = isOverLimit ? '#ff5555' : '#ffffff';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+            ctx.lineWidth = 2.5;
+            ctx.strokeText(label, 10, -10);
+            ctx.fillText(label, 10, -10);
+            ctx.restore();
+          } catch (e) {
+            // Ignore projection errors
+          }
+        }
+      }
     }
 
     // Draw interactive handles for active image layer
@@ -1639,80 +1894,149 @@ export const DataCanvas: React.FC = () => {
 
   }, [selectedCells, selectionColor, selectedCellForPlot, viewState, primaryDataLayer, proj, lonRange, latRange]);
 
+  // Helper function to convert lat/lon to pixel coordinates for any layer type
+  const getPixelCoordsForLayer = useCallback((layer: Layer, lat: number, lon: number): { x: number; y: number } | null => {
+    if (!proj) return null;
+
+    // Check if this is an illumination or analysis layer with its own geospatial bounds
+    const hasGeospatialInfo = (layer.type === 'illumination' || layer.type === 'analysis') && layer.geospatial;
+
+    if (hasGeospatialInfo) {
+      // Use the layer's projected bounds to compute pixel coordinates
+      const { projectedBounds } = layer.geospatial;
+      let { xMin, xMax, yMin, yMax } = projectedBounds;
+
+      // Apply debug axis flips if this is an illumination layer
+      if (layer.type === 'illumination') {
+        if (layer.debugFlipX) {
+          [xMin, xMax] = [xMax, xMin];
+        }
+        if (layer.debugFlipY) {
+          [yMin, yMax] = [yMax, yMin];
+        }
+      }
+
+      try {
+        // Convert lat/lon to projected coordinates
+        const [projX, projY] = proj.forward([lon, lat]);
+
+        // Check if projected coords are within layer bounds
+        if (projX < Math.min(xMin, xMax) || projX > Math.max(xMin, xMax) ||
+          projY < Math.min(yMin, yMax) || projY > Math.max(yMin, yMax)) {
+          return null; // Outside layer bounds
+        }
+
+        // Map projected coords to pixel coords using affine transformation
+        const { width, height } = layer.dimensions;
+
+        // Calculate pixel coordinates
+        // X: interpolate between 0 and width based on position between xMin and xMax
+        // Y: interpolate between 0 and height based on position between yMax and yMin (flipped for image coordinates)
+        const pixelX = Math.round(((projX - xMin) / (xMax - xMin)) * width);
+        const pixelY = Math.round(((yMax - projY) / (yMax - yMin)) * height);
+
+        // Check bounds
+        if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
+          return { x: pixelX, y: pixelY };
+        }
+
+        return null; // Out of pixel bounds
+      } catch (error) {
+        console.warn('Error converting coordinates for illumination layer:', error);
+        return null;
+      }
+    } else {
+      // Use the standard coordinate transformer for regular data layers
+      return coordinateTransformer ? coordinateTransformer(lat, lon) : null;
+    }
+  }, [proj, coordinateTransformer]);
+
   const onCellHover = useCallback((coords: GeoCoordinates) => {
     setHoveredCoords(coords);
-    if (!coords || !coordinateTransformer) { setSelectedPixel(null); return; }
-    const pixel = coordinateTransformer(coords.lat, coords.lon);
-    if (pixel) {
-        const topDataLayer = [...layers].reverse().find(l => l.visible && (l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms'));
-        if (topDataLayer) setSelectedPixel({ ...pixel, layerId: topDataLayer.id }); else setSelectedPixel(null);
-    } else {
-        setSelectedPixel(null);
+    if (!coords) { setSelectedPixel(null); return; }
+
+    // Find the topmost visible data layer
+    const topDataLayer = [...layers].reverse().find(l =>
+      l.visible && (l.type === 'data' || l.type === 'analysis' || l.type === 'dte_comms' || l.type === 'lpf_comms' || l.type === 'illumination')
+    );
+
+    if (!topDataLayer) {
+      setSelectedPixel(null);
+      return;
     }
-  }, [coordinateTransformer, layers, setHoveredCoords, setSelectedPixel]);
+
+    // Get pixel coordinates using the appropriate transformation for this layer
+    const pixel = getPixelCoordsForLayer(topDataLayer, coords.lat, coords.lon);
+
+    if (pixel) {
+      setSelectedPixel({ ...pixel, layerId: topDataLayer.id });
+    } else {
+      setSelectedPixel(null);
+    }
+  }, [layers, setHoveredCoords, setSelectedPixel, getPixelCoordsForLayer]);
 
   const onMapClick = useCallback((coords: GeoCoordinates, projCoords: [number, number]) => {
     if (!coords) return;
 
     if (artifactCreationMode === 'path') {
-        const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
-        if (pathBeingDrawn) {
-            // Add waypoint to existing path-in-progress
-            let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+      const pathBeingDrawn = artifacts.find(a => a.id === activeArtifactId && a.type === 'path') as PathArtifact | undefined;
+      if (pathBeingDrawn) {
+        // Add waypoint to existing path-in-progress
+        let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
 
-            // Clamp to max distance if configured
-            const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-            if (maxLength && pathBeingDrawn.waypoints.length > 0) {
-                const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
-                const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+        // Clamp to max distance if configured
+        const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+        if (maxLength && pathBeingDrawn.waypoints.length > 0) {
+          const lastWaypoint = pathBeingDrawn.waypoints[pathBeingDrawn.waypoints.length - 1];
+          const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
 
-                // Calculate distance in projected space
-                const dx = projCoords[0] - lastWaypointProj[0];
-                const dy = projCoords[1] - lastWaypointProj[1];
-                const distProj = Math.sqrt(dx * dx + dy * dy);
+          // Calculate distance in projected space
+          const dx = projCoords[0] - lastWaypointProj[0];
+          const dy = projCoords[1] - lastWaypointProj[1];
+          const distProj = Math.sqrt(dx * dx + dy * dy);
 
-                // If beyond max distance, clamp to circle boundary
-                if (distProj > maxLength) {
-                    const ratio = maxLength / distProj;
-                    const clampedProjCoords: [number, number] = [
-                        lastWaypointProj[0] + dx * ratio,
-                        lastWaypointProj[1] + dy * ratio
-                    ];
-                    // Convert back to geographic coordinates
-                    const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
-                    waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
-                }
-            }
-
-            const newWaypoint: Waypoint = {
-              id: `wp-${Date.now()}`,
-              geoPosition: waypointGeoPosition,
-              label: `WP${pathBeingDrawn.waypoints.length + 1}`,
-              activities: createDefaultActivities(),
-            };
-            onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
-        } else {
-            // First click: create the path
-            // Find the next available path number
-            const pathNumbers = artifacts
-              .filter(a => a.type === 'path')
-              .map(a => {
-                const match = a.id.match(/^path-(\d+)$/);
-                return match ? parseInt(match[1], 10) : 0;
-              });
-            const nextPathNumber = pathNumbers.length > 0 ? Math.max(...pathNumbers) + 1 : 1;
-            const newId = `path-${nextPathNumber}`;
-
-            const newWaypoint: Waypoint = {
-              id: `wp-${Date.now()}`,
-              geoPosition: [coords.lon, coords.lat],
-              label: 'WP1',
-              activities: createDefaultActivities(),
-            };
-            const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${nextPathNumber}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
-            setArtifacts(prev => [...prev, newArtifact]);
-            setActiveArtifactId(newId);
+          // If beyond max distance, clamp to circle boundary
+          if (distProj > maxLength) {
+            const ratio = maxLength / distProj;
+            const clampedProjCoords: [number, number] = [
+              lastWaypointProj[0] + dx * ratio,
+              lastWaypointProj[1] + dy * ratio
+            ];
+            // Convert back to geographic coordinates
+            const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+            waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
+          }
         }
+
+        const newWaypoint: Waypoint = {
+          id: `wp-${Date.now()}`,
+          geoPosition: waypointGeoPosition,
+          label: `WP${pathBeingDrawn.waypoints.length + 1}`,
+          activities: createDefaultActivities(),
+        };
+        onUpdateArtifact(activeArtifactId, { waypoints: [...pathBeingDrawn.waypoints, newWaypoint] });
+      } else {
+        // First click: create the path
+        // Find the next available path number
+        const pathNumbers = artifacts
+          .filter(a => a.type === 'path')
+          .map(a => {
+            const match = a.id.match(/^path-(\d+)$/);
+            return match ? parseInt(match[1], 10) : 0;
+          });
+        const nextPathNumber = pathNumbers.length > 0 ? Math.max(...pathNumbers) + 1 : 1;
+        const newId = `path-${nextPathNumber}`;
+
+        const newWaypoint: Waypoint = {
+          id: `wp-${Date.now()}`,
+          geoPosition: [coords.lon, coords.lat],
+          label: 'WP1',
+          activities: createDefaultActivities(),
+        };
+        const newArtifact: PathArtifact = { id: newId, type: 'path', name: `Path ${nextPathNumber}`, visible: true, color: '#ffff00', thickness: 2, waypoints: [newWaypoint] };
+        setArtifacts(prev => [...prev, newArtifact]);
+        setActiveArtifactId(newId);
+      }
     } else if (artifactCreationMode) { // Circle or Rectangle
       const newId = `${artifactCreationMode}-${Date.now()}`;
       if (artifactCreationMode === 'circle') {
@@ -1751,43 +2075,89 @@ export const DataCanvas: React.FC = () => {
           setRectangleFirstCorner(null);
           onFinishArtifactCreation();
         }
+      } else if (artifactCreationMode === 'free_rectangle') {
+        if (!rectangleFirstCorner) {
+          // First click: Store the first corner (no snapping)
+          setRectangleFirstCorner(projCoords);
+        } else {
+          // Second click: Create free rectangle from first corner to second corner
+          const [x1, y1] = rectangleFirstCorner;
+          const [x2, y2] = projCoords;
+
+          // Calculate rectangle parameters
+          const width = Math.abs(x2 - x1);
+          const height = Math.abs(y2 - y1);
+          const centerX = (x1 + x2) / 2;
+          const centerY = (y1 + y2) / 2;
+
+          // Only create rectangle if it has non-zero dimensions
+          if (width > 0 && height > 0) {
+            // Calculate corner coordinates (in projected space)
+            const corners = {
+              topLeft: [Math.min(x1, x2), Math.max(y1, y2)] as [number, number],
+              topRight: [Math.max(x1, x2), Math.max(y1, y2)] as [number, number],
+              bottomRight: [Math.max(x1, x2), Math.min(y1, y2)] as [number, number],
+              bottomLeft: [Math.min(x1, x2), Math.min(y1, y2)] as [number, number],
+            };
+
+            const newArtifact: RectangleArtifact = {
+              id: newId,
+              type: 'rectangle',
+              name: `Free Rect ${artifacts.filter(a => a.type === 'rectangle' && (a as RectangleArtifact).isFreeForm).length + 1}`,
+              visible: true,
+              color: '#ff00ff',
+              thickness: 2,
+              center: [centerX, centerY],
+              width: width,
+              height: height,
+              rotation: 0,
+              isFreeForm: true,
+              corners: corners
+            };
+            setArtifacts(prev => [...prev, newArtifact]);
+            setActiveArtifactId(newId);
+          }
+
+          setRectangleFirstCorner(null);
+          onFinishArtifactCreation();
+        }
       }
     } else if (isAppendingWaypoints) {
       const activeArtifact = artifacts.find(a => a.id === activeArtifactId) as PathArtifact | undefined;
       if (activeArtifact && activeArtifact.type === 'path') {
-          let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
+        let waypointGeoPosition: [number, number] = [coords.lon, coords.lat];
 
-          // Clamp to max distance if configured
-          const maxLength = pathCreationOptions.defaultMaxSegmentLength;
-          if (maxLength && activeArtifact.waypoints.length > 0) {
-              const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
-              const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
+        // Clamp to max distance if configured
+        const maxLength = pathCreationOptions.defaultMaxSegmentLength;
+        if (maxLength && activeArtifact.waypoints.length > 0) {
+          const lastWaypoint = activeArtifact.waypoints[activeArtifact.waypoints.length - 1];
+          const lastWaypointProj = proj.forward(lastWaypoint.geoPosition);
 
-              // Calculate distance in projected space
-              const dx = projCoords[0] - lastWaypointProj[0];
-              const dy = projCoords[1] - lastWaypointProj[1];
-              const distProj = Math.sqrt(dx * dx + dy * dy);
+          // Calculate distance in projected space
+          const dx = projCoords[0] - lastWaypointProj[0];
+          const dy = projCoords[1] - lastWaypointProj[1];
+          const distProj = Math.sqrt(dx * dx + dy * dy);
 
-              // If beyond max distance, clamp to circle boundary
-              if (distProj > maxLength) {
-                  const ratio = maxLength / distProj;
-                  const clampedProjCoords: [number, number] = [
-                      lastWaypointProj[0] + dx * ratio,
-                      lastWaypointProj[1] + dy * ratio
-                  ];
-                  // Convert back to geographic coordinates
-                  const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
-                  waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
-              }
+          // If beyond max distance, clamp to circle boundary
+          if (distProj > maxLength) {
+            const ratio = maxLength / distProj;
+            const clampedProjCoords: [number, number] = [
+              lastWaypointProj[0] + dx * ratio,
+              lastWaypointProj[1] + dy * ratio
+            ];
+            // Convert back to geographic coordinates
+            const clampedGeo = proj4('EPSG:4326', proj).inverse(clampedProjCoords);
+            waypointGeoPosition = [clampedGeo[0], clampedGeo[1]];
           }
+        }
 
-          const newWaypoint: Waypoint = {
-            id: `wp-${Date.now()}`,
-            geoPosition: waypointGeoPosition,
-            label: `WP${activeArtifact.waypoints.length + 1}`,
-            activities: createDefaultActivities(),
-          };
-          onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
+        const newWaypoint: Waypoint = {
+          id: `wp-${Date.now()}`,
+          geoPosition: waypointGeoPosition,
+          label: `WP${activeArtifact.waypoints.length + 1}`,
+          activities: createDefaultActivities(),
+        };
+        onUpdateArtifact(activeArtifactId, { waypoints: [...activeArtifact.waypoints, newWaypoint] });
       }
     } else if (activeTool === 'measurement') {
       const pixel = coordinateTransformer ? coordinateTransformer(coords.lat, coords.lon) : null;
@@ -1807,51 +2177,61 @@ export const DataCanvas: React.FC = () => {
     } else {
       // Logic for selecting an artifact by clicking on it
       if (hoveredArtifactId) {
-          setActiveArtifactId(hoveredArtifactId);
+        setActiveArtifactId(hoveredArtifactId);
       } else if (!hoveredWaypointInfo) { // Don't deselect if clicking a waypoint
-          setActiveArtifactId(null);
+        setActiveArtifactId(null);
       }
     }
   }, [
-      artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
-      setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
-      rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners, pathCreationOptions, proj, setSelectedCellForPlot
+    artifactCreationMode, isAppendingWaypoints, activeTool, artifacts, activeArtifactId, onFinishArtifactCreation, setArtifacts,
+    setActiveArtifactId, onUpdateArtifact, coordinateTransformer, setSelectedCells, hoveredArtifactId, hoveredWaypointInfo,
+    rectangleFirstCorner, snapToCellCorner, calculateRectangleFromCellCorners, pathCreationOptions, proj, setSelectedCellForPlot
   ]);
 
   const onArtifactDragStart = useCallback((info: { artifactId: string; waypointId?: string }, projCoords: [number, number]) => {
     if (isAppendingWaypoints) return;
     const artifact = artifacts.find(a => a.id === info.artifactId);
     if (!artifact || !proj) return;
-    
+
     if (info.waypointId) {
-        setDraggedInfo({
-            artifactId: info.artifactId,
-            waypointId: info.waypointId,
-            initialMousePos: projCoords,
-        });
+      setDraggedInfo({
+        artifactId: info.artifactId,
+        waypointId: info.waypointId,
+        initialMousePos: projCoords,
+      });
     } else {
-        if (artifact.type === 'circle' || artifact.type === 'rectangle') {
-            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialCenter: artifact.center });
-        } else if (artifact.type === 'path') {
-            // Validate and project waypoints for drag operation
-            const initialWaypointProjPositions = artifact.waypoints.map(wp => {
-                if (!wp.geoPosition ||
-                    !Array.isArray(wp.geoPosition) ||
-                    wp.geoPosition.length !== 2 ||
-                    !isFinite(wp.geoPosition[0]) ||
-                    !isFinite(wp.geoPosition[1])) {
-                    logger.warn('DataCanvas: Invalid waypoint geoPosition during drag initialization', wp);
-                    return [0, 0] as [number, number];
-                }
-                try {
-                    return proj.forward(wp.geoPosition) as [number, number];
-                } catch (e) {
-                    logger.warn('DataCanvas: Failed to project waypoint during drag initialization', wp, e);
-                    return [0, 0] as [number, number];
-                }
-            });
-            setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
-        }
+      if (artifact.type === 'circle' || artifact.type === 'rectangle') {
+        // For free rectangles, also store initial corners
+        const initialCorners = (artifact.type === 'rectangle' && artifact.isFreeForm && artifact.corners)
+          ? artifact.corners
+          : undefined;
+
+        setDraggedInfo({
+          artifactId: info.artifactId,
+          initialMousePos: projCoords,
+          initialCenter: artifact.center,
+          initialCorners
+        });
+      } else if (artifact.type === 'path') {
+        // Validate and project waypoints for drag operation
+        const initialWaypointProjPositions = artifact.waypoints.map(wp => {
+          if (!wp.geoPosition ||
+            !Array.isArray(wp.geoPosition) ||
+            wp.geoPosition.length !== 2 ||
+            !isFinite(wp.geoPosition[0]) ||
+            !isFinite(wp.geoPosition[1])) {
+            logger.warn('DataCanvas: Invalid waypoint geoPosition during drag initialization', wp);
+            return [0, 0] as [number, number];
+          }
+          try {
+            return proj.forward(wp.geoPosition) as [number, number];
+          } catch (e) {
+            logger.warn('DataCanvas: Failed to project waypoint during drag initialization', wp, e);
+            return [0, 0] as [number, number];
+          }
+        });
+        setDraggedInfo({ artifactId: info.artifactId, initialMousePos: projCoords, initialWaypointProjPositions });
+      }
     }
     setActiveArtifactId(info.artifactId);
   }, [artifacts, proj, isAppendingWaypoints, setDraggedInfo, setActiveArtifactId]);
@@ -1860,91 +2240,102 @@ export const DataCanvas: React.FC = () => {
     if (!draggedInfo || !proj) return;
 
     if (draggedInfo.waypointId) {
-        setArtifacts(prev => prev.map(a => {
-            if (a.id === draggedInfo.artifactId && a.type === 'path') {
-                try {
-                    const newGeoPos = proj.inverse(projCoords);
-                    const newWaypoints = a.waypoints.map(wp =>
-                        wp.id === draggedInfo.waypointId ? { ...wp, geoPosition: newGeoPos as [number, number] } : wp
-                    );
-                    return { ...a, waypoints: newWaypoints };
-                } catch (e) {
-                    return a;
-                }
-            }
+      setArtifacts(prev => prev.map(a => {
+        if (a.id === draggedInfo.artifactId && a.type === 'path') {
+          try {
+            const newGeoPos = proj.inverse(projCoords);
+            const newWaypoints = a.waypoints.map(wp =>
+              wp.id === draggedInfo.waypointId ? { ...wp, geoPosition: newGeoPos as [number, number] } : wp
+            );
+            return { ...a, waypoints: newWaypoints };
+          } catch (e) {
             return a;
-        }));
+          }
+        }
+        return a;
+      }));
     } else {
-        const dx = projCoords[0] - draggedInfo.initialMousePos[0];
-        const dy = projCoords[1] - draggedInfo.initialMousePos[1];
+      const dx = projCoords[0] - draggedInfo.initialMousePos[0];
+      const dy = projCoords[1] - draggedInfo.initialMousePos[1];
 
-        setArtifacts(prev => prev.map(a => {
-            if (a.id === draggedInfo.artifactId) {
-                if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
-                    const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
+      setArtifacts(prev => prev.map(a => {
+        if (a.id === draggedInfo.artifactId) {
+          if ((a.type === 'circle' || a.type === 'rectangle') && draggedInfo.initialCenter) {
+            const newCenter: [number, number] = [draggedInfo.initialCenter[0] + dx, draggedInfo.initialCenter[1] + dy];
 
-                    // Apply snapping for rectangles to maintain cell grid alignment
-                    if (a.type === 'rectangle' && snapToCellCorner && calculateRectangleFromCellCorners) {
-                        // Calculate the corners based on current center, width, height, and rotation
-                        const rotRad = a.rotation * Math.PI / 180;
-                        const cosR = Math.cos(rotRad);
-                        const sinR = Math.sin(rotRad);
-
-                        // Top-left corner in local coordinates
-                        const localTL = [-a.width / 2, -a.height / 2];
-                        // Rotate and translate to get projected coordinates
-                        const topLeftProj: [number, number] = [
-                            newCenter[0] + localTL[0] * cosR - localTL[1] * sinR,
-                            newCenter[1] + localTL[0] * sinR + localTL[1] * cosR
-                        ];
-
-                        // Snap top-left corner
-                        const snappedTopLeft = snapToCellCorner(topLeftProj);
-
-                        if (snappedTopLeft) {
-                            // Calculate bottom-right corner from the dimensions
-                            const localBR = [a.width / 2, a.height / 2];
-                            const bottomRightProj: [number, number] = [
-                                newCenter[0] + localBR[0] * cosR - localBR[1] * sinR,
-                                newCenter[1] + localBR[0] * sinR + localBR[1] * cosR
-                            ];
-
-                            // Snap bottom-right corner
-                            const snappedBottomRight = snapToCellCorner(bottomRightProj);
-
-                            if (snappedBottomRight) {
-                                // Recalculate rectangle with both corners snapped
-                                const rectParams = calculateRectangleFromCellCorners(snappedTopLeft, snappedBottomRight);
-                                if (rectParams) {
-                                    return {
-                                        ...a,
-                                        center: rectParams.center,
-                                        width: rectParams.width,
-                                        height: rectParams.height,
-                                        rotation: rectParams.rotation
-                                    };
-                                }
-                            }
-                        }
-                    }
-
-                    return { ...a, center: newCenter };
-                } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
-                    const newWaypoints = a.waypoints.map((wp, i) => {
-                        const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
-                        const newProjPos: [number, number] = [initialProjPos[0] + dx, initialProjPos[1] + dy];
-                        try {
-                            const newGeoPos = proj.inverse(newProjPos);
-                            return { ...wp, geoPosition: newGeoPos };
-                        } catch (e) {
-                            return wp;
-                        }
-                    });
-                    return { ...a, waypoints: newWaypoints };
-                }
+            // For free rectangles, move all corners from their initial positions
+            if (a.type === 'rectangle' && a.isFreeForm && draggedInfo.initialCorners) {
+              const newCorners = {
+                topLeft: [draggedInfo.initialCorners.topLeft[0] + dx, draggedInfo.initialCorners.topLeft[1] + dy] as [number, number],
+                topRight: [draggedInfo.initialCorners.topRight[0] + dx, draggedInfo.initialCorners.topRight[1] + dy] as [number, number],
+                bottomRight: [draggedInfo.initialCorners.bottomRight[0] + dx, draggedInfo.initialCorners.bottomRight[1] + dy] as [number, number],
+                bottomLeft: [draggedInfo.initialCorners.bottomLeft[0] + dx, draggedInfo.initialCorners.bottomLeft[1] + dy] as [number, number],
+              };
+              return { ...a, center: newCenter, corners: newCorners };
             }
-            return a;
-        }));
+
+            // Apply snapping for grid-aligned rectangles to maintain cell grid alignment
+            if (a.type === 'rectangle' && !a.isFreeForm && snapToCellCorner && calculateRectangleFromCellCorners) {
+              // Calculate the corners based on current center, width, height, and rotation
+              const rotRad = a.rotation * Math.PI / 180;
+              const cosR = Math.cos(rotRad);
+              const sinR = Math.sin(rotRad);
+
+              // Top-left corner in local coordinates
+              const localTL = [-a.width / 2, -a.height / 2];
+              // Rotate and translate to get projected coordinates
+              const topLeftProj: [number, number] = [
+                newCenter[0] + localTL[0] * cosR - localTL[1] * sinR,
+                newCenter[1] + localTL[0] * sinR + localTL[1] * cosR
+              ];
+
+              // Snap top-left corner
+              const snappedTopLeft = snapToCellCorner(topLeftProj);
+
+              if (snappedTopLeft) {
+                // Calculate bottom-right corner from the dimensions
+                const localBR = [a.width / 2, a.height / 2];
+                const bottomRightProj: [number, number] = [
+                  newCenter[0] + localBR[0] * cosR - localBR[1] * sinR,
+                  newCenter[1] + localBR[0] * sinR + localBR[1] * cosR
+                ];
+
+                // Snap bottom-right corner
+                const snappedBottomRight = snapToCellCorner(bottomRightProj);
+
+                if (snappedBottomRight) {
+                  // Recalculate rectangle with both corners snapped
+                  const rectParams = calculateRectangleFromCellCorners(snappedTopLeft, snappedBottomRight);
+                  if (rectParams) {
+                    return {
+                      ...a,
+                      center: rectParams.center,
+                      width: rectParams.width,
+                      height: rectParams.height,
+                      rotation: rectParams.rotation
+                    };
+                  }
+                }
+              }
+            }
+
+            return { ...a, center: newCenter };
+          } else if (a.type === 'path' && draggedInfo.initialWaypointProjPositions) {
+            const newWaypoints = a.waypoints.map((wp, i) => {
+              const initialProjPos = draggedInfo.initialWaypointProjPositions![i];
+              const newProjPos: [number, number] = [initialProjPos[0] + dx, initialProjPos[1] + dy];
+              try {
+                const newGeoPos = proj.inverse(newProjPos);
+                return { ...wp, geoPosition: newGeoPos };
+              } catch (e) {
+                return wp;
+              }
+            });
+            return { ...a, waypoints: newWaypoints };
+          }
+        }
+        return a;
+      }));
     }
   }, [draggedInfo, proj, setArtifacts, snapToCellCorner, calculateRectangleFromCellCorners]);
 
@@ -1960,74 +2351,74 @@ export const DataCanvas: React.FC = () => {
     // Handle image layer transformation
     try {
       if (imageLayerDragInfo && projCoords) {
-          const dragInfo = imageLayerDragInfo;
-          const layer = layers.find(l => l.id === dragInfo.layerId && l.type === 'image');
-          if (layer && layer.type === 'image') {
-              if (dragInfo.handleType === 'center') {
-                  // Move the image
-                  const dx = projCoords[0] - dragInfo.initialMouseProj[0];
-                  const dy = projCoords[1] - dragInfo.initialMouseProj[1];
-                  onUpdateLayer(dragInfo.layerId, {
-                      position: [dragInfo.initialPosition[0] + dx, dragInfo.initialPosition[1] + dy]
-                  });
-              } else if (dragInfo.handleType === 'corner' && dragInfo.handleIndex !== undefined) {
-                // Scale the image
-                const rotationRad = (dragInfo.initialRotation * Math.PI) / 180;
-                const cosR = Math.cos(-rotationRad);
-                const sinR = Math.sin(-rotationRad);
+        const dragInfo = imageLayerDragInfo;
+        const layer = layers.find(l => l.id === dragInfo.layerId && l.type === 'image');
+        if (layer && layer.type === 'image') {
+          if (dragInfo.handleType === 'center') {
+            // Move the image
+            const dx = projCoords[0] - dragInfo.initialMouseProj[0];
+            const dy = projCoords[1] - dragInfo.initialMouseProj[1];
+            onUpdateLayer(dragInfo.layerId, {
+              position: [dragInfo.initialPosition[0] + dx, dragInfo.initialPosition[1] + dy]
+            });
+          } else if (dragInfo.handleType === 'corner' && dragInfo.handleIndex !== undefined) {
+            // Scale the image
+            const rotationRad = (dragInfo.initialRotation * Math.PI) / 180;
+            const cosR = Math.cos(-rotationRad);
+            const sinR = Math.sin(-rotationRad);
 
-                // Transform current and initial mouse positions to local coordinates
-                const dx0 = dragInfo.initialMouseProj[0] - dragInfo.initialPosition[0];
-                const dy0 = dragInfo.initialMouseProj[1] - dragInfo.initialPosition[1];
-                const initialLocal = [dx0 * cosR - dy0 * sinR, dx0 * sinR + dy0 * cosR];
+            // Transform current and initial mouse positions to local coordinates
+            const dx0 = dragInfo.initialMouseProj[0] - dragInfo.initialPosition[0];
+            const dy0 = dragInfo.initialMouseProj[1] - dragInfo.initialPosition[1];
+            const initialLocal = [dx0 * cosR - dy0 * sinR, dx0 * sinR + dy0 * cosR];
 
-                const dx1 = projCoords[0] - dragInfo.initialPosition[0];
-                const dy1 = projCoords[1] - dragInfo.initialPosition[1];
-                const currentLocal = [dx1 * cosR - dy1 * sinR, dx1 * sinR + dy1 * cosR];
+            const dx1 = projCoords[0] - dragInfo.initialPosition[0];
+            const dy1 = projCoords[1] - dragInfo.initialPosition[1];
+            const currentLocal = [dx1 * cosR - dy1 * sinR, dx1 * sinR + dy1 * cosR];
 
-                // Calculate scale change
-                const cornerIndex = dragInfo.handleIndex;
-                const initialDisplayWidth = layer.originalWidth * dragInfo.initialScaleX;
-                const initialDisplayHeight = layer.originalHeight * dragInfo.initialScaleY;
+            // Calculate scale change
+            const cornerIndex = dragInfo.handleIndex;
+            const initialDisplayWidth = layer.originalWidth * dragInfo.initialScaleX;
+            const initialDisplayHeight = layer.originalHeight * dragInfo.initialScaleY;
 
-                // Determine which dimension(s) to scale based on corner
-                let newScaleX = dragInfo.initialScaleX;
-                let newScaleY = dragInfo.initialScaleY;
+            // Determine which dimension(s) to scale based on corner
+            let newScaleX = dragInfo.initialScaleX;
+            let newScaleY = dragInfo.initialScaleY;
 
-                if (cornerIndex === 0 || cornerIndex === 3) { // Left corners
-                    newScaleX = dragInfo.initialScaleX * (1 - 2 * (currentLocal[0] - initialLocal[0]) / initialDisplayWidth);
-                } else { // Right corners
-                    newScaleX = dragInfo.initialScaleX * (1 + 2 * (currentLocal[0] - initialLocal[0]) / initialDisplayWidth);
-                }
-
-                if (cornerIndex === 0 || cornerIndex === 1) { // Top corners
-                    newScaleY = dragInfo.initialScaleY * (1 - 2 * (currentLocal[1] - initialLocal[1]) / initialDisplayHeight);
-                } else { // Bottom corners
-                    newScaleY = dragInfo.initialScaleY * (1 + 2 * (currentLocal[1] - initialLocal[1]) / initialDisplayHeight);
-                }
-
-                // Clamp scales to reasonable values
-                newScaleX = Math.max(0.1, Math.min(10, newScaleX));
-                newScaleY = Math.max(0.1, Math.min(10, newScaleY));
-
-                onUpdateLayer(dragInfo.layerId, { scaleX: newScaleX, scaleY: newScaleY });
-            } else if (dragInfo.handleType === 'edge' && dragInfo.handleIndex !== undefined) {
-                // Rotate the image
-                const dx = projCoords[0] - dragInfo.initialPosition[0];
-                const dy = projCoords[1] - dragInfo.initialPosition[1];
-                const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-
-                const dx0 = dragInfo.initialMouseProj[0] - dragInfo.initialPosition[0];
-                const dy0 = dragInfo.initialMouseProj[1] - dragInfo.initialPosition[1];
-                const initialAngle = Math.atan2(dy0, dx0) * 180 / Math.PI;
-
-                let newRotation = dragInfo.initialRotation + (currentAngle - initialAngle);
-                // Normalize to [-180, 180]
-                while (newRotation > 180) newRotation -= 360;
-                while (newRotation < -180) newRotation += 360;
-
-                onUpdateLayer(dragInfo.layerId, { rotation: newRotation });
+            if (cornerIndex === 0 || cornerIndex === 3) { // Left corners
+              newScaleX = dragInfo.initialScaleX * (1 - 2 * (currentLocal[0] - initialLocal[0]) / initialDisplayWidth);
+            } else { // Right corners
+              newScaleX = dragInfo.initialScaleX * (1 + 2 * (currentLocal[0] - initialLocal[0]) / initialDisplayWidth);
             }
+
+            if (cornerIndex === 0 || cornerIndex === 1) { // Top corners
+              newScaleY = dragInfo.initialScaleY * (1 - 2 * (currentLocal[1] - initialLocal[1]) / initialDisplayHeight);
+            } else { // Bottom corners
+              newScaleY = dragInfo.initialScaleY * (1 + 2 * (currentLocal[1] - initialLocal[1]) / initialDisplayHeight);
+            }
+
+            // Clamp scales to reasonable values
+            newScaleX = Math.max(0.1, Math.min(10, newScaleX));
+            newScaleY = Math.max(0.1, Math.min(10, newScaleY));
+
+            onUpdateLayer(dragInfo.layerId, { scaleX: newScaleX, scaleY: newScaleY });
+          } else if (dragInfo.handleType === 'edge' && dragInfo.handleIndex !== undefined) {
+            // Rotate the image
+            const dx = projCoords[0] - dragInfo.initialPosition[0];
+            const dy = projCoords[1] - dragInfo.initialPosition[1];
+            const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+            const dx0 = dragInfo.initialMouseProj[0] - dragInfo.initialPosition[0];
+            const dy0 = dragInfo.initialMouseProj[1] - dragInfo.initialPosition[1];
+            const initialAngle = Math.atan2(dy0, dx0) * 180 / Math.PI;
+
+            let newRotation = dragInfo.initialRotation + (currentAngle - initialAngle);
+            // Normalize to [-180, 180]
+            while (newRotation > 180) newRotation -= 360;
+            while (newRotation < -180) newRotation += 360;
+
+            onUpdateLayer(dragInfo.layerId, { rotation: newRotation });
+          }
         }
         return;
       }
@@ -2037,89 +2428,110 @@ export const DataCanvas: React.FC = () => {
     }
 
     if (!!draggedInfo && projCoords) {
-        onArtifactDrag(projCoords);
-        return;
+      onArtifactDrag(projCoords);
+      return;
     }
 
     if (isPanning.current && viewState) {
-        const dx = e.clientX - lastMousePos.current.x; const dy = e.clientY - lastMousePos.current.y;
-        const dpr = window.devicePixelRatio || 1;
-        const newCenter: [number, number] = [ viewState.center[0] - dx / (viewState.scale * dpr), viewState.center[1] + dy / (viewState.scale * dpr) ];
-        setViewState({ ...viewState, center: newCenter });
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
+      const dx = e.clientX - lastMousePos.current.x; const dy = e.clientY - lastMousePos.current.y;
+      const dpr = window.devicePixelRatio || 1;
+      const newCenter: [number, number] = [viewState.center[0] - dx / (viewState.scale * dpr), viewState.center[1] + dy / (viewState.scale * dpr)];
+      setViewState({ ...viewState, center: newCenter });
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
     }
-    
+
     if (projCoords && proj && viewState) {
-        let newHoveredWaypointInfo = null;
-        let newHoveredArtifactId = null;
+      let newHoveredWaypointInfo = null;
+      let newHoveredArtifactId = null;
 
-        if (artifactCreationMode === null && !isAppendingWaypoints) {
-            const dpr = window.devicePixelRatio || 1;
-            const effectiveScale = viewState.scale * dpr;
-            const hitRadiusPx = artifactDisplayOptions.waypointDotSize * 0.75;
-            const hitRadiusProj = hitRadiusPx / effectiveScale;
+      if (artifactCreationMode === null && !isAppendingWaypoints) {
+        const dpr = window.devicePixelRatio || 1;
+        const effectiveScale = viewState.scale * dpr;
+        const hitRadiusPx = artifactDisplayOptions.waypointDotSize * 0.75;
+        const hitRadiusProj = hitRadiusPx / effectiveScale;
 
-            for (let i = artifacts.length - 1; i >= 0; i--) {
-                const artifact = artifacts[i];
-                if (!artifact.visible) continue;
-                
-                let waypointHit = false;
-                if (artifact.type === 'path') {
-                    for (const waypoint of artifact.waypoints) {
-                        // Validate geoPosition before projection
-                        if (!waypoint.geoPosition ||
-                            !Array.isArray(waypoint.geoPosition) ||
-                            waypoint.geoPosition.length !== 2 ||
-                            !isFinite(waypoint.geoPosition[0]) ||
-                            !isFinite(waypoint.geoPosition[1])) {
-                            continue; // Skip invalid waypoints
-                        }
-                        try {
-                            const wpProjPos = proj.forward(waypoint.geoPosition);
-                            if (!wpProjPos || !Array.isArray(wpProjPos) || wpProjPos.length !== 2 ||
-                                !isFinite(wpProjPos[0]) || !isFinite(wpProjPos[1])) {
-                                continue; // Skip invalid projections
-                            }
-                            const dist = Math.sqrt(Math.pow(projCoords[0] - wpProjPos[0], 2) + Math.pow(projCoords[1] - wpProjPos[1], 2));
-                            if (dist < hitRadiusProj) {
-                                newHoveredWaypointInfo = { artifactId: artifact.id, waypointId: waypoint.id };
-                                waypointHit = true;
-                                break;
-                            }
-                        } catch (err) {
-                            // Skip waypoints that fail to project
-                            continue;
-                        }
-                    }
+        for (let i = artifacts.length - 1; i >= 0; i--) {
+          const artifact = artifacts[i];
+          if (!artifact.visible) continue;
+
+          let waypointHit = false;
+          if (artifact.type === 'path') {
+            for (const waypoint of artifact.waypoints) {
+              // Validate geoPosition before projection
+              if (!waypoint.geoPosition ||
+                !Array.isArray(waypoint.geoPosition) ||
+                waypoint.geoPosition.length !== 2 ||
+                !isFinite(waypoint.geoPosition[0]) ||
+                !isFinite(waypoint.geoPosition[1])) {
+                continue; // Skip invalid waypoints
+              }
+              try {
+                const wpProjPos = proj.forward(waypoint.geoPosition);
+                if (!wpProjPos || !Array.isArray(wpProjPos) || wpProjPos.length !== 2 ||
+                  !isFinite(wpProjPos[0]) || !isFinite(wpProjPos[1])) {
+                  continue; // Skip invalid projections
                 }
-                if (waypointHit) break;
-
-                let artifactHit = false;
-                if (artifact.type === 'circle') {
-                    const dist = Math.sqrt(Math.pow(projCoords[0] - artifact.center[0], 2) + Math.pow(projCoords[1] - artifact.center[1], 2));
-                    if (dist <= artifact.radius) artifactHit = true;
-                } else if (artifact.type === 'rectangle') {
-                    const w = artifact.width; const h = artifact.height;
-                    const angle = -artifact.rotation * Math.PI / 180;
-                    const dx = projCoords[0] - artifact.center[0]; const dy = projCoords[1] - artifact.center[1];
-                    const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
-                    const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
-                    if (Math.abs(rotatedX) <= w / 2 && Math.abs(rotatedY) <= h / 2) artifactHit = true;
-                } else if (artifact.type === 'path') {}
-                if (artifactHit) {
-                    newHoveredArtifactId = artifact.id;
-                    break;
+                const dist = Math.sqrt(Math.pow(projCoords[0] - wpProjPos[0], 2) + Math.pow(projCoords[1] - wpProjPos[1], 2));
+                if (dist < hitRadiusProj) {
+                  newHoveredWaypointInfo = { artifactId: artifact.id, waypointId: waypoint.id };
+                  waypointHit = true;
+                  break;
                 }
+              } catch (err) {
+                // Skip waypoints that fail to project
+                continue;
+              }
             }
+          }
+          if (waypointHit) break;
+
+          let artifactHit = false;
+          if (artifact.type === 'circle') {
+            const dist = Math.sqrt(Math.pow(projCoords[0] - artifact.center[0], 2) + Math.pow(projCoords[1] - artifact.center[1], 2));
+            if (dist <= artifact.radius) artifactHit = true;
+          } else if (artifact.type === 'rectangle') {
+            if (artifact.isFreeForm && artifact.corners) {
+              // Point-in-polygon test for free rectangles
+              const corners = [
+                artifact.corners.topLeft,
+                artifact.corners.topRight,
+                artifact.corners.bottomRight,
+                artifact.corners.bottomLeft
+              ];
+              const [px, py] = projCoords;
+              let inside = false;
+              for (let i = 0, j = corners.length - 1; i < corners.length; j = i++) {
+                const [xi, yi] = corners[i];
+                const [xj, yj] = corners[j];
+                const intersect = ((yi > py) !== (yj > py)) &&
+                  (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+              }
+              if (inside) artifactHit = true;
+            } else {
+              // Rotated rectangle hit test for grid-aligned rectangles
+              const w = artifact.width; const h = artifact.height;
+              const angle = -artifact.rotation * Math.PI / 180;
+              const dx = projCoords[0] - artifact.center[0]; const dy = projCoords[1] - artifact.center[1];
+              const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
+              const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
+              if (Math.abs(rotatedX) <= w / 2 && Math.abs(rotatedY) <= h / 2) artifactHit = true;
+            }
+          } else if (artifact.type === 'path') { }
+          if (artifactHit) {
+            newHoveredArtifactId = artifact.id;
+            break;
+          }
         }
-        
-        setHoveredWaypointInfo(newHoveredWaypointInfo);
-        setHoveredArtifactId(newHoveredWaypointInfo ? null : newHoveredArtifactId);
-        
-        try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch(e) { clearHoverState(); }
+      }
+
+      setHoveredWaypointInfo(newHoveredWaypointInfo);
+      setHoveredArtifactId(newHoveredWaypointInfo ? null : newHoveredArtifactId);
+
+      try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); onCellHover({ lat, lon }); } catch (e) { clearHoverState(); }
     } else { clearHoverState(); setHoveredArtifactId(null); setHoveredWaypointInfo(null); }
   }, [viewState, setViewState, canvasToProjCoords, proj, onCellHover, clearHoverState, draggedInfo, onArtifactDrag, artifacts, artifactCreationMode, artifactDisplayOptions, isAppendingWaypoints, imageLayerDragInfo, layers, onUpdateLayer]);
-  
+
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     lastMousePos.current = { x: e.clientX, y: e.clientY };
     const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
@@ -2127,45 +2539,45 @@ export const DataCanvas: React.FC = () => {
     if (!projCoords) return;
 
     if (e.button === 0) { // Left mouse button
-        // Check for image layer handle click
-        try {
-          const handleInfo = getImageLayerHandle(projCoords);
-          if (handleInfo) {
-              const layer = layers.find(l => l.id === handleInfo.layerId && l.type === 'image');
-              if (layer && layer.type === 'image') {
-                  setImageLayerDragInfo({
-                      layerId: handleInfo.layerId,
-                      handleType: handleInfo.handleType,
-                      handleIndex: handleInfo.handleIndex,
-                      initialMouseProj: projCoords,
-                      initialPosition: layer.position,
-                      initialScaleX: layer.scaleX,
-                      initialScaleY: layer.scaleY,
-                      initialRotation: layer.rotation
-                  });
-                  return;
-              }
+      // Check for image layer handle click
+      try {
+        const handleInfo = getImageLayerHandle(projCoords);
+        if (handleInfo) {
+          const layer = layers.find(l => l.id === handleInfo.layerId && l.type === 'image');
+          if (layer && layer.type === 'image') {
+            setImageLayerDragInfo({
+              layerId: handleInfo.layerId,
+              handleType: handleInfo.handleType,
+              handleIndex: handleInfo.handleIndex,
+              initialMouseProj: projCoords,
+              initialPosition: layer.position,
+              initialScaleX: layer.scaleX,
+              initialScaleY: layer.scaleY,
+              initialRotation: layer.rotation
+            });
+            return;
           }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          showError(`Failed to check image layer handle: ${errorMessage}`, 'Image Layer Error');
         }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        showError(`Failed to check image layer handle: ${errorMessage}`, 'Image Layer Error');
+      }
 
-        // Only allow artifact dragging when in artifact mode
-        if (activeTool === 'artifacts') {
-            if (hoveredWaypointInfo) {
-                onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
-            } else if (hoveredArtifactId) {
-                onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
-            } else {
-                isPanning.current = true;
-            }
+      // Only allow artifact dragging when in artifact mode
+      if (activeTool === 'artifacts') {
+        if (hoveredWaypointInfo) {
+          onArtifactDragStart({ artifactId: hoveredWaypointInfo.artifactId, waypointId: hoveredWaypointInfo.waypointId }, projCoords);
+        } else if (hoveredArtifactId) {
+          onArtifactDragStart({ artifactId: hoveredArtifactId }, projCoords);
         } else {
-            isPanning.current = true;
+          isPanning.current = true;
         }
+      } else {
+        isPanning.current = true;
+      }
     }
   };
-  
+
   const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
     const wasClick = isPanning.current && (Math.abs(e.clientX - lastMousePos.current.x) < 2) && (Math.abs(e.clientY - lastMousePos.current.y) < 2);
 
@@ -2184,12 +2596,12 @@ export const DataCanvas: React.FC = () => {
     }
 
     if (wasPanning && wasClick) {
-        const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-        const geoCoords = proj && projCoords ? (() => { try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); return { lat, lon }; } catch(e) { return null; } })() : null;
+      const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+      const geoCoords = proj && projCoords ? (() => { try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); return { lat, lon }; } catch (e) { return null; } })() : null;
 
-        if (projCoords && geoCoords) {
-            onMapClick(geoCoords, projCoords);
-        }
+      if (projCoords && geoCoords) {
+        onMapClick(geoCoords, projCoords);
+      }
     }
   };
   const handleMouseLeave = () => {
@@ -2201,7 +2613,7 @@ export const DataCanvas: React.FC = () => {
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const projCoords = canvasToProjCoords(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-    const geoCoords = proj && projCoords ? (() => { try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); return { lat, lon }; } catch(e) { return null; } })() : null;
+    const geoCoords = proj && projCoords ? (() => { try { const [lon, lat] = proj4('EPSG:4326', proj).inverse(projCoords); return { lat, lon }; } catch (e) { return null; } })() : null;
 
     // Handle layer management mode - double-click to select cell
     if (activeTool === 'layers' && geoCoords) {
@@ -2230,10 +2642,10 @@ export const DataCanvas: React.FC = () => {
 
     // Validate waypoint has valid geoPosition [lon, lat] before opening modal
     if (!waypoint.geoPosition ||
-        !Array.isArray(waypoint.geoPosition) ||
-        waypoint.geoPosition.length !== 2 ||
-        !isFinite(waypoint.geoPosition[0]) ||
-        !isFinite(waypoint.geoPosition[1])) {
+      !Array.isArray(waypoint.geoPosition) ||
+      waypoint.geoPosition.length !== 2 ||
+      !isFinite(waypoint.geoPosition[0]) ||
+      !isFinite(waypoint.geoPosition[1])) {
       logger.error('DataCanvas: Cannot edit waypoint with invalid geoPosition', waypoint);
       return;
     }
@@ -2270,7 +2682,7 @@ export const DataCanvas: React.FC = () => {
   };
 
   const handleZoomAction = useCallback((factor: number) => { if (!viewState) return; setViewState({ ...viewState, scale: viewState.scale * factor }); }, [viewState, setViewState]);
-  const handleResetView = useCallback(() => { if(initialViewState) { setViewState(initialViewState); } }, [initialViewState, setViewState]);
+  const handleResetView = useCallback(() => { if (initialViewState) { setViewState(initialViewState); } }, [initialViewState, setViewState]);
 
   const handleExportMap = useCallback(() => {
     if (!viewState || !proj || !containerRef.current) return;
@@ -2322,6 +2734,7 @@ export const DataCanvas: React.FC = () => {
       {isRendering && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 z-50"><LoadingSpinner /></div>}
       <canvas ref={baseCanvasRef} className="pixelated absolute inset-0 w-full h-full z-0" />
       <canvas ref={dataCanvasRef} className="pixelated absolute inset-0 w-full h-full z-10" />
+      {USE_WEBGL_RENDERER && <canvas ref={webglCanvasRef} className="absolute inset-0 w-full h-full z-15 pointer-events-none" />}
       <canvas ref={artifactCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
       <canvas ref={graticuleCanvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />
       <canvas ref={selectionCanvasRef} className="absolute inset-0 w-full h-full z-40 pointer-events-none" />

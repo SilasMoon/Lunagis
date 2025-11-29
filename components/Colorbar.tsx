@@ -1,6 +1,6 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 import React, { useRef, useEffect, useMemo } from 'react';
-import type { ColorMapName, ColorStop } from '../types';
+import type { ColorMapName, ColorStop, DivergingThresholdConfig } from '../types';
 import { getColorScale } from '../services/colormap';
 
 interface ColorbarProps {
@@ -10,12 +10,13 @@ interface ColorbarProps {
   inverted?: boolean;
   customColormap?: ColorStop[];
   isThreshold?: boolean;
+  divergingThresholdConfig?: DivergingThresholdConfig;
 }
 
 const BAR_WIDTH = 20;
 const BAR_HEIGHT = 200;
 
-export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units, inverted, customColormap, isThreshold }) => {
+export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units, inverted, customColormap, isThreshold, divergingThresholdConfig }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units, 
     if (!ctx) return;
 
     const domainForScale: [number, number] = [dataRange.min, dataRange.max];
-    const colorScale = getColorScale(colorMap, domainForScale, inverted, customColormap, isThreshold); 
+    const colorScale = getColorScale(colorMap, domainForScale, inverted, customColormap, isThreshold, divergingThresholdConfig); 
 
     ctx.clearRect(0, 0, BAR_WIDTH, BAR_HEIGHT);
     
@@ -36,7 +37,7 @@ export const Colorbar: React.FC<ColorbarProps> = ({ colorMap, dataRange, units, 
         ctx.fillStyle = colorScale(value);
         ctx.fillRect(0, i, BAR_WIDTH, 1);
     }
-  }, [colorMap, dataRange, inverted, customColormap, isThreshold]);
+  }, [colorMap, dataRange, inverted, customColormap, isThreshold, divergingThresholdConfig]);
 
   const formatLabel = (value: number) => {
     if (units === 'days') {

@@ -11,7 +11,7 @@ interface ExportMapOptions {
     center: [number, number];
     scale: number;
   };
-  proj: any; // proj4 projection
+  proj: proj4.ProjectionDefinition; // proj4 projection
   containerWidth: number;
   containerHeight: number;
 }
@@ -23,7 +23,7 @@ function getVisibleBounds(
   viewState: { center: [number, number]; scale: number },
   containerWidth: number,
   containerHeight: number,
-  proj: any
+  proj: proj4.ProjectionDefinition
 ): { minLon: number; maxLon: number; minLat: number; maxLat: number } {
   const dpr = window.devicePixelRatio || 1;
   const halfWidth = containerWidth / 2;

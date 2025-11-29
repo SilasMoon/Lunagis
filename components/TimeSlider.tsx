@@ -2,8 +2,9 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { MARGIN } from './TimeSeriesPlot';
 import { useAppContext } from '../context/AppContext';
-
-declare const d3: any;
+import { scaleUtc } from 'd3-scale';
+import { utcHour, utcDay, utcMonth, utcFormat } from 'd3-time-format';
+import { utcHour as d3utcHour, utcDay as d3utcDay, utcMonth as d3utcMonth } from 'd3-time';
 
 export const TimeSlider: React.FC = () => {
   const {
@@ -40,8 +41,8 @@ export const TimeSlider: React.FC = () => {
   }, []);
 
   const xScale = useMemo(() => {
-    if (width === 0 || !timeZoomDomain) return d3.scaleUtc();
-    return d3.scaleUtc().domain(timeZoomDomain).range([MARGIN.left, width - MARGIN.right]);
+    if (width === 0 || !timeZoomDomain) return scaleUtc();
+    return scaleUtc().domain(timeZoomDomain).range([MARGIN.left, width - MARGIN.right]);
   }, [timeZoomDomain, width]);
 
   const ticks = useMemo(() => {
@@ -54,14 +55,14 @@ export const TimeSlider: React.FC = () => {
     let tickFormat;
 
     if (durationHours <= 48) { // Show hours
-        tickValues = xScale.ticks(d3.utcHour.every(3));
-        tickFormat = d3.utcFormat("%H:%M");
+        tickValues = xScale.ticks(d3utcHour.every(3));
+        tickFormat = utcFormat("%H:%M");
     } else if (durationHours <= 24 * 30) { // Show days
-        tickValues = xScale.ticks(d3.utcDay.every(1));
-        tickFormat = d3.utcFormat("%d");
+        tickValues = xScale.ticks(d3utcDay.every(1));
+        tickFormat = utcFormat("%d");
     } else { // Show months
-        tickValues = xScale.ticks(d3.utcMonth.every(1));
-        tickFormat = d3.utcFormat("%b");
+        tickValues = xScale.ticks(d3utcMonth.every(1));
+        tickFormat = utcFormat("%b");
     }
 
     return tickValues.map(date => ({

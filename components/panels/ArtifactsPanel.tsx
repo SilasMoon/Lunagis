@@ -7,7 +7,7 @@ import { exportPathToYAML } from '../../utils/pathExport';
 const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelect: () => void; }>(({ artifact, isActive, onSelect }) => {
     const { onUpdateArtifact, onRemoveArtifact, onStartAppendWaypoints, proj, activityDefinitions } = useAppContext();
 
-    const handleCommonUpdate = (prop: keyof ArtifactBase, value: any) => {
+    const handleCommonUpdate = (prop: keyof ArtifactBase, value: string | boolean | [number, number] | number) => {
         onUpdateArtifact(artifact.id, { [prop]: value });
     };
 
@@ -91,6 +91,27 @@ const ArtifactItem = React.memo<{ artifact: Artifact; isActive: boolean; onSelec
                                 <label className="block font-medium text-gray-300 mb-1">Rotation: {(artifact as RectangleArtifact).rotation}°</label>
                                 <input type="range" min="0" max="360" step="1" value={(artifact as RectangleArtifact).rotation} onChange={e => onUpdateArtifact(artifact.id, { rotation: Number(e.target.value) })} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                             </div>
+                            {(artifact as RectangleArtifact).isFreeForm && (artifact as RectangleArtifact).corners && proj && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                    <h5 className="text-xs font-medium text-gray-300 mb-2">Corner Coordinates</h5>
+                                    {(() => {
+                                        const rect = artifact as RectangleArtifact;
+                                        const corners = rect.corners!;
+                                        const cornerNames = ['Top Left', 'Top Right', 'Bottom Right', 'Bottom Left'];
+                                        const cornerCoords = [corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft];
+
+                                        return cornerCoords.map((corner, idx) => {
+                                            const [lon, lat] = proj.inverse(corner);
+                                            return (
+                                                <div key={idx} className="text-xs text-gray-400 mb-1">
+                                                    <span className="font-medium text-gray-300">{cornerNames[idx]}:</span>{' '}
+                                                    <span className="font-mono">{lat.toFixed(6)}°, {lon.toFixed(6)}°</span>
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            )}
                         </Section>
                     )}
 
@@ -282,9 +303,10 @@ export const ArtifactsPanel: React.FC = () => {
                     </div>
                 </Section>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => setArtifactCreationMode('circle')} className="bg-teal-700 hover:bg-teal-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Circle</button>
-                    <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Rect</button>
+                    <button onClick={() => setArtifactCreationMode('rectangle')} className="bg-indigo-700 hover:bg-indigo-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Grid Rect</button>
+                    <button onClick={() => setArtifactCreationMode('free_rectangle')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Free Rect</button>
                     <button onClick={() => setArtifactCreationMode('path')} className="bg-purple-700 hover:bg-purple-600 text-white font-semibold py-2 px-2 rounded-md text-xs transition-all text-center">Add Path</button>
                 </div>
             </>

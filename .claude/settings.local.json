@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npx ssri:*)",
+      "Bash(ssri:*)",
+      "Bash(curl:*)",
+      "Bash(openssl dgst:*)",
+      "Bash(openssl base64:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

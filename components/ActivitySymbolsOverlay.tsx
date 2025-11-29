@@ -36,7 +36,7 @@ const SYMBOL_COMPONENTS: Record<string, LucideIcon> = {
 
 interface ActivitySymbolsOverlayProps {
   artifacts: PathArtifact[];
-  proj: any;
+  proj: proj4.ProjectionDefinition | null;
   viewState: { center: [number, number]; scale: number };
   containerWidth: number;
   containerHeight: number;

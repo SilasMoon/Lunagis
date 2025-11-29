@@ -1,5 +1,8 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 // Fix: Define VrtData interface here to break the circular dependency with vrtParser.ts.
+
+import type { LazyDataset } from './services/LazyDataset';
+
 export interface VrtData {
   geoTransform: number[];
   srs: string;
@@ -7,8 +10,23 @@ export interface VrtData {
   height: number;
 }
 
-export const COLOR_MAPS = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Cividis', 'Turbo', 'Grayscale', 'Custom'] as const;
+export const COLOR_MAPS = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Cividis', 'Turbo', 'Grayscale', 'Custom', 'DivergingThreshold'] as const;
 export type ColorMapName = typeof COLOR_MAPS[number];
+
+export interface DivergingThresholdConfig {
+  centerValue: number;          // Value at the center of the diverging scale (e.g., 0)
+  centerColor: string;          // Color at center (e.g., 'white', 'rgba(255,255,255,1)')
+
+  // Upper gradient (center to upperThreshold)
+  upperThreshold: number;       // Upper threshold value (e.g., 200)
+  upperColor: string;           // Color at upper threshold (e.g., 'orange')
+  upperOverflowColor: string;   // Color for values > upperThreshold (e.g., 'red')
+
+  // Lower gradient (lowerThreshold to center)
+  lowerThreshold: number;       // Lower threshold value (e.g., -200)
+  lowerColor: string;           // Color at lower threshold (e.g., 'darkblue')
+  lowerOverflowColor: string;   // Color for values < lowerThreshold (e.g., 'black')
+}
 
 export type DataPoint = number;
 export type DataRow = DataPoint[];
@@ -68,11 +86,13 @@ export interface BaseMapLayer extends LayerBase {
 export interface DataLayer extends LayerBase {
   type: 'data';
   dataset: DataSet;
+  lazyDataset?: LazyDataset; // Optional lazy loading for large files
   fileName: string; // Original file name for session saving
   range: { min: number; max: number };
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  divergingThresholdConfig?: DivergingThresholdConfig;
   transparencyLowerThreshold?: number; // Values <= this become transparent
   transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
@@ -81,11 +101,13 @@ export interface DataLayer extends LayerBase {
 export interface DteCommsLayer extends LayerBase {
   type: 'dte_comms';
   dataset: DataSet;
+  lazyDataset?: LazyDataset; // Optional lazy loading for large files
   fileName: string;
   range: { min: number; max: number };
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  divergingThresholdConfig?: DivergingThresholdConfig;
   transparencyLowerThreshold?: number; // Values <= this become transparent
   transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
@@ -94,11 +116,13 @@ export interface DteCommsLayer extends LayerBase {
 export interface LpfCommsLayer extends LayerBase {
   type: 'lpf_comms';
   dataset: DataSet;
+  lazyDataset?: LazyDataset; // Optional lazy loading for large files
   fileName: string;
   range: { min: number; max: number };
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  divergingThresholdConfig?: DivergingThresholdConfig;
   transparencyLowerThreshold?: number; // Values <= this become transparent
   transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
@@ -107,11 +131,13 @@ export interface LpfCommsLayer extends LayerBase {
 export interface IlluminationLayer extends LayerBase {
   type: 'illumination';
   dataset: DataSet;
+  lazyDataset?: LazyDataset; // Optional lazy loading for large files
   fileName: string;
   range: { min: number; max: number };
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  divergingThresholdConfig?: DivergingThresholdConfig;
   transparencyLowerThreshold?: number; // Values <= this become transparent
   transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
@@ -192,6 +218,7 @@ export interface AnalysisLayer extends LayerBase {
   colormap: ColorMapName;
   colormapInverted?: boolean;
   customColormap?: ColorStop[];
+  divergingThresholdConfig?: DivergingThresholdConfig;
   transparencyLowerThreshold?: number; // Values <= this become transparent
   transparencyUpperThreshold?: number; // Values >= this become transparent
   dimensions: { time: number; height: number; width: number };
@@ -286,6 +313,13 @@ export interface RectangleArtifact extends ArtifactBase {
   width: number; // in meters
   height: number; // in meters
   rotation: number; // in degrees
+  isFreeForm?: boolean; // If true, not constrained to grid
+  corners?: {
+    topLeft: [number, number];     // Projected coordinates
+    topRight: [number, number];
+    bottomLeft: [number, number];
+    bottomRight: [number, number];
+  };
 }
 
 export interface PathArtifact extends ArtifactBase {
@@ -424,4 +458,37 @@ export interface AppStateConfig {
   activityDefinitions: ActivityDefinition[];
   nightfallPlotYAxisRange: { min: number; max: number; };
   events: SerializableEvent[];
+}
+
+// --- WebGL Renderer Types ---
+
+export interface WebGLLayerHandle {
+  id: string;
+  texture: WebGLTexture;
+  width: number;
+  height: number;
+  currentTimeIndex: number;
+  valueRange: [number, number];
+  colormapTexture: WebGLTexture;
+  opacity: number;
+  transparencyLower?: number;
+  transparencyUpper?: number;
+
+  // For illumination layers with geospatial transforms
+  transform?: {
+    projectedBounds: {
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+    };
+    debugFlipX?: boolean;
+    debugFlipY?: boolean;
+  };
+}
+
+export interface WebGLMemoryStats {
+  textureMemoryMB: number;
+  layerCount: number;
+  totalPixels: number;
 }

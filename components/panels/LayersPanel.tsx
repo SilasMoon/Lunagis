@@ -1,32 +1,53 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, IlluminationLayer, Event } from '../../types';
+import type { ColorMapName, GeoCoordinates, PixelCoords, TimeRange, Tool, Layer, DataLayer, AnalysisLayer, ImageLayer, ColorStop, DaylightFractionHoverData, Artifact, ArtifactBase, CircleArtifact, RectangleArtifact, PathArtifact, Waypoint, DteCommsLayer, LpfCommsLayer, IlluminationLayer, Event, DivergingThresholdConfig } from '../../types';
 import { COLOR_MAPS } from '../../types';
 import { Colorbar } from '../Colorbar';
+import { DivergingThresholdEditor } from '../DivergingThresholdEditor';
 import { sanitizeLayerNameForExpression } from '../../services/analysisService';
 import { useAppContext } from '../../context/AppContext';
 import { Section, formatDuration } from './panelUtils';
 import { hasColormap, isNightfallLayer, isExpressionLayer, isAnalysisLayer, isImageLayer, isDaylightFractionLayer, isDataLayer, isIlluminationLayer } from '../../utils/layerHelpers';
-
-declare const d3: any;
+import { color as d3Color } from 'd3-color';
 
 const rgbaToHexAlpha = (colorStr: string): { hex: string; alpha: number } => {
-    const d3Color = d3.color(colorStr);
-    if (!d3Color) return { hex: '#000000', alpha: 1 };
+    const colorObj = d3Color(colorStr);
+    if (!colorObj) return { hex: '#000000', alpha: 1 };
 
-    const { r, g, b, opacity } = d3Color.rgb();
+    const rgb = colorObj.rgb();
     const toHex = (c: number) => ('0' + Math.round(c).toString(16)).slice(-2);
-    const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    const hex = `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
 
-    return { hex, alpha: opacity };
+    return { hex, alpha: rgb.opacity };
 };
 
 const hexAlphaToRgba = (hex: string, alpha: number): string => {
-    const d3Color = d3.color(hex);
-    if (!d3Color) return `rgba(0, 0, 0, ${alpha})`;
-    const { r, g, b } = d3Color.rgb();
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    const colorObj = d3Color(hex);
+    if (!colorObj) return `rgba(0, 0, 0, ${alpha})`;
+    const rgb = colorObj.rgb();
+    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 };
 
+/**
+ * Generate default diverging threshold configuration based on layer's data range
+ */
+const getDefaultDivergingConfig = (layerRange: { min: number; max: number }): DivergingThresholdConfig => {
+    const { min, max } = layerRange;
+    const absMax = Math.max(Math.abs(min), Math.abs(max));
+
+    // Use 80% of the range for thresholds
+    const threshold = absMax * 0.8;
+
+    return {
+        centerValue: 0,
+        centerColor: 'rgba(255, 255, 255, 1)',
+        upperThreshold: threshold,
+        upperColor: 'rgba(255, 165, 0, 1)', // Orange
+        upperOverflowColor: 'rgba(255, 0, 0, 1)', // Red
+        lowerThreshold: -threshold,
+        lowerColor: 'rgba(0, 0, 139, 1)', // Dark blue
+        lowerOverflowColor: 'rgba(0, 0, 0, 1)' // Black
+    };
+};
 
 const CustomColormapEditor: React.FC<{
     stops: ColorStop[];
@@ -630,6 +651,13 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                 </label>
                             </div>
                           </div>
+                           {layer.colormap === 'DivergingThreshold' && (
+                               <DivergingThresholdEditor
+                                   config={layer.divergingThresholdConfig || getDefaultDivergingConfig(layer.range)}
+                                   onChange={(config) => onUpdateLayer(layer.id, { divergingThresholdConfig: config })}
+                                   layerRange={layer.range}
+                               />
+                           )}
                            {layer.colormap === 'Custom' && (
                                <CustomColormapEditor
                                    layerRange={layer.range}
@@ -729,6 +757,7 @@ const LayerItem = React.memo<{ layer: Layer; isActive: boolean; onSelect: () => 
                                 }
                                 inverted={layer.colormapInverted}
                                 isThreshold={layer.colormap === 'Custom'}
+                                divergingThresholdConfig={layer.divergingThresholdConfig}
                             />
                           </div>
                         </>

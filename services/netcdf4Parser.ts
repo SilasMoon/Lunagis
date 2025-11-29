@@ -11,6 +11,7 @@
  */
 
 import * as h5wasm from 'h5wasm';
+import type { File as H5File, Dataset as H5Dataset } from 'h5wasm';
 
 export interface NetCdf4ParseResult {
   data: Float32Array | Uint8Array | Uint16Array | Int16Array;
@@ -106,66 +107,76 @@ export async function parseNetCdf4(arrayBuffer: ArrayBuffer): Promise<NetCdf4Par
 
     // Create HDF5 file object from buffer
     const uint8Array = new Uint8Array(arrayBuffer);
+    const filename = `uploaded_file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.nc`;
 
-    // Try to open the file with h5wasm
-    let file;
     try {
-      // h5wasm.File constructor signature: File(buffer, filename)
-      // We need to create a filename in the virtual filesystem
-      const filename = 'uploaded_file.nc';
-
       // Write file to virtual filesystem
       h5wasm.FS.writeFile(filename, uint8Array);
 
-      // Open from virtual filesystem
-      file = new h5wasm.File(filename, 'r');
-    } catch (openError) {
-      const errorMsg = openError instanceof Error ? openError.message : String(openError);
+      // Try to open the file with h5wasm
+      let file;
+      try {
+        // h5wasm.File constructor signature: File(buffer, filename)
+        // Open from virtual filesystem
+        file = new h5wasm.File(filename, 'r');
+      } catch (openError) {
+        const errorMsg = openError instanceof Error ? openError.message : String(openError);
 
-      // Provide helpful error message with workaround
-      throw new Error(
-        `Failed to open NetCDF-4 file. ${errorMsg}\n\n` +
-        `This file appears to use HDF5 features (likely compression) that cannot be read in the browser. ` +
-        `\n\nWORKAROUND: Convert the file using this Python command:\n` +
-        `nccopy -d0 input.nc output.nc\n\n` +
-        `This will create an uncompressed version that can be loaded in the browser.`
-      );
+        // Provide helpful error message with workaround
+        throw new Error(
+          `Failed to open NetCDF-4 file. ${errorMsg}\n\n` +
+          `This file appears to use HDF5 features (likely compression) that cannot be read in the browser. ` +
+          `\n\nWORKAROUND: Convert the file using this Python command:\n` +
+          `nccopy -d0 input.nc output.nc\n\n` +
+          `This will create an uncompressed version that can be loaded in the browser.`
+        );
+      }
+
+      console.log('File opened successfully');
+      console.log('File keys:', file.keys());
+
+      try {
+        // Extract dimensions from the file
+        const dimensions = extractDimensions(file);
+        console.log('Dimensions extracted:', dimensions);
+
+        // Find and extract the main data variable (illumination)
+        const dataVariable = findDataVariable(file);
+        console.log('Data variable found:', dataVariable);
+
+        const { data, dtype } = extractDataVariable(file, dataVariable, dimensions);
+        console.log(`Data extracted: ${data.length} values (type: ${dtype})`);
+
+        // Extract metadata
+        const metadata = extractMetadata(file, dataVariable, dimensions, dtype);
+        console.log('Metadata extracted');
+
+        // Extract coordinate arrays
+        const coordinates = extractCoordinates(file, dimensions);
+        if (coordinates) {
+          console.log('Coordinate arrays extracted');
+        }
+
+        return {
+          data,
+          shape: [dimensions.time, dimensions.height, dimensions.width],
+          dimensions,
+          metadata,
+          coordinates,
+        };
+      } finally {
+        // Close the file handle
+        file.close();
+      }
+    } finally {
+      // Clean up virtual file from filesystem
+      try {
+        h5wasm.FS.unlink(filename);
+        console.log(`Virtual file ${filename} deleted`);
+      } catch (e) {
+        console.warn(`Failed to delete virtual file ${filename}:`, e);
+      }
     }
-
-    console.log('File opened successfully');
-    console.log('File keys:', file.keys());
-
-    // Extract dimensions from the file
-    const dimensions = extractDimensions(file);
-    console.log('Dimensions extracted:', dimensions);
-
-    // Find and extract the main data variable (illumination)
-    const dataVariable = findDataVariable(file);
-    console.log('Data variable found:', dataVariable);
-
-    const { data, dtype } = extractDataVariable(file, dataVariable, dimensions);
-    console.log(`Data extracted: ${data.length} values (type: ${dtype})`);
-
-    // Extract metadata
-    const metadata = extractMetadata(file, dataVariable, dimensions, dtype);
-    console.log('Metadata extracted');
-
-    // Extract coordinate arrays
-    const coordinates = extractCoordinates(file, dimensions);
-    if (coordinates) {
-      console.log('Coordinate arrays extracted');
-    }
-
-    // Close the file
-    file.close();
-
-    return {
-      data,
-      shape: [dimensions.time, dimensions.height, dimensions.width],
-      dimensions,
-      metadata,
-      coordinates,
-    };
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Failed to parse NetCDF4 file: ${error.message}`);
@@ -177,7 +188,7 @@ export async function parseNetCdf4(arrayBuffer: ArrayBuffer): Promise<NetCdf4Par
 /**
  * Extract dimension information from the NetCDF4 file
  */
-function extractDimensions(file: any): {
+function extractDimensions(file: H5File): {
   time: number;
   height: number;
   width: number;
@@ -204,7 +215,7 @@ function extractDimensions(file: any): {
   if (!dataVarName) {
     for (const key of keys) {
       try {
-        const dataset = file.get(key);
+        const dataset = file.get(key) as any;
         if (dataset && dataset.shape && dataset.shape.length === 3) {
           dataVarName = key;
           break;
@@ -223,7 +234,7 @@ function extractDimensions(file: any): {
   }
 
   // Get the shape from the data variable
-  const dataset = file.get(dataVarName);
+  const dataset = file.get(dataVarName) as any;
   if (!dataset || !dataset.shape || dataset.shape.length !== 3) {
     throw new Error(`Variable "${dataVarName}" is not a 3D array`);
   }
@@ -242,7 +253,7 @@ function extractDimensions(file: any): {
 /**
  * Find the main data variable (usually 'illumination')
  */
-function findDataVariable(file: any): string {
+function findDataVariable(file: H5File): string {
   const keys = file.keys();
 
   // Priority order for finding the data variable
@@ -262,7 +273,7 @@ function findDataVariable(file: any): string {
   // If not found, look for any variable with 3 dimensions
   for (const key of keys) {
     try {
-      const dataset = file.get(key);
+      const dataset = file.get(key) as any;
       if (dataset && dataset.shape && dataset.shape.length === 3) {
         console.warn(
           `Could not find standard illumination variable. Using '${key}' as data variable.`
@@ -284,11 +295,11 @@ function findDataVariable(file: any): string {
  * Extract the data variable, preserving its original data type for memory efficiency
  */
 function extractDataVariable(
-  file: any,
+  file: H5File,
   variableName: string,
   dimensions: { time: number; height: number; width: number }
 ): { data: Float32Array | Uint8Array | Uint16Array | Int16Array; dtype: string } {
-  const dataset = file.get(variableName);
+  const dataset = file.get(variableName) as H5Dataset;
 
   if (!dataset) {
     throw new Error(`Variable "${variableName}" not found in file`);
@@ -312,7 +323,7 @@ function extractDataVariable(
     console.log('Reading dataset value...');
 
     // Determine bytes per value based on dtype
-    const dtype = dataset.dtype;
+    const dtype = dataset.dtype as unknown as string;
     let bytesPerValue = 4; // Default to float32
     if (dtype === '<B' || dtype === '|u1' || dtype === '|i1') {
       bytesPerValue = 1; // uint8 or int8
@@ -340,15 +351,22 @@ function extractDataVariable(
 
     // For h5wasm, we need to read the dataset differently for large files
     // The library may require chunked reading for very large datasets
-    let rawData: any;
+    let rawData: Float32Array | Float64Array | Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | number[];
 
     try {
       // Try to access the value directly
       // h5wasm should handle buffer allocation internally
-      rawData = dataset.value;
-    } catch (readError: any) {
+      const value = dataset.value;
+      if (value === null) {
+        throw new Error('Dataset value is null');
+      }
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        throw new Error('Expected array data, got scalar value');
+      }
+      rawData = value as Float32Array | Float64Array | Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | number[];
+    } catch (readError) {
       // If direct read fails, try alternative approaches
-      const errorMsg = readError.message || String(readError);
+      const errorMsg = readError instanceof Error ? readError.message : String(readError);
 
       if (errorMsg.includes('no output buffer') || errorMsg.includes('synchronously read')) {
         // This dataset is too large or requires chunked reading
@@ -366,7 +384,7 @@ function extractDataVariable(
       throw readError;
     }
 
-    console.log('Raw data type:', rawData.constructor.name);
+    console.log('Raw data type:', (rawData as any).constructor.name);
     console.log('Raw data length:', rawData.length);
 
     // Preserve original data type for memory efficiency
@@ -395,10 +413,37 @@ function extractDataVariable(
       flatData = new Float32Array(rawData);
     } else if (Array.isArray(rawData)) {
       console.log('Converting array to Float32Array...');
-      flatData = new Float32Array(rawData.flat(Infinity) as number[]);
-    } else {
+      // Flatten nested arrays efficiently without stack overflow or massive memory spikes
+      const flatten = (arr: any[]): number[] => {
+        const result: number[] = [];
+        const stack = [...arr];
+        while (stack.length) {
+          const next = stack.pop();
+          if (Array.isArray(next)) {
+            stack.push(...next);
+          } else {
+            result.push(Number(next));
+          }
+        }
+        return result.reverse(); // Stack traversal reverses order
+      };
+      // Note: For very large deep arrays, a generator or iterative push might be better,
+      // but for NetCDF data which is usually just 1 level of nesting (if any), this is safer than flat(Infinity).
+      // However, h5wasm usually returns TypedArrays. If we get here, it's an edge case.
+      // A safer simple flatten for data arrays:
+      const flatValues: number[] = [];
+      const stack: any[] = [rawData];
+      while (stack.length > 0) {
+        const item = stack.shift();
+        if (Array.isArray(item)) {
+          stack.unshift(...item);
+        } else {
+          flatValues.push(Number(item));
+        }
+      }
+      flatData = new Float32Array(flatValues);
       throw new Error(
-        `Unsupported data type: ${rawData.constructor.name}`
+        `Unsupported data type: ${(rawData as any).constructor.name}`
       );
     }
 
@@ -421,7 +466,7 @@ function extractDataVariable(
  * Extract metadata from the NetCDF4 file
  */
 function extractMetadata(
-  file: any,
+  file: H5File,
   dataVariableName: string,
   dimensions: { time: number; height: number; width: number },
   dataType?: string
@@ -433,7 +478,7 @@ function extractMetadata(
 
   // Extract global attributes from root group
   try {
-    const attrs = file.attrs;
+    const attrs = file.attrs as any;
     if (attrs) {
       metadata.title = attrs.title?.value || undefined;
       metadata.institution = attrs.institution?.value || undefined;
@@ -447,7 +492,7 @@ function extractMetadata(
 
   // Extract variable attributes
   try {
-    const dataVar = file.get(dataVariableName);
+    const dataVar = file.get(dataVariableName) as any;
     if (dataVar && dataVar.attrs) {
       metadata.variableUnit = dataVar.attrs.units?.value || undefined;
       metadata.variableLongName = dataVar.attrs.long_name?.value || undefined;
@@ -462,7 +507,7 @@ function extractMetadata(
     const timeVarNames = ['time', 't', 'Time'];
     for (const name of timeVarNames) {
       if (keys.includes(name)) {
-        const timeVar = file.get(name);
+        const timeVar = file.get(name) as any;
         if (timeVar) {
           if (timeVar.attrs) {
             metadata.timeUnit = timeVar.attrs.units?.value || undefined;
@@ -492,15 +537,15 @@ function extractMetadata(
     const crsVarNames = ['polar_stereographic', 'crs', 'spatial_ref'];
     for (const name of crsVarNames) {
       if (keys.includes(name)) {
-        const crsVar = file.get(name);
+        const crsVar = file.get(name) as any;
         if (crsVar && crsVar.attrs) {
           const attrs = crsVar.attrs;
           metadata.crs = {
             projection: 'Polar Stereographic',
             latitudeOfOrigin: attrs.latitude_of_origin?.value ||
-                             attrs.latitude_of_projection_origin?.value || undefined,
+              attrs.latitude_of_projection_origin?.value || undefined,
             centralMeridian: attrs.straight_vertical_longitude_from_pole?.value ||
-                            attrs.central_meridian?.value || undefined,
+              attrs.central_meridian?.value || undefined,
             semiMajorAxis: attrs.semi_major_axis?.value || undefined,
             inverseFlattening: attrs.inverse_flattening?.value || undefined,
             spatialRef: attrs.spatial_ref?.value || undefined,  // Proj4 string
@@ -520,7 +565,7 @@ function extractMetadata(
     const latVarNames = ['latitude', 'lat'];
     for (const name of latVarNames) {
       if (keys.includes(name)) {
-        const latVar = file.get(name);
+        const latVar = file.get(name) as any;
         if (latVar && latVar.attrs) {
           const attrs = latVar.attrs;
           const validMin = attrs.valid_min?.value || attrs.actual_min?.value;
@@ -540,7 +585,7 @@ function extractMetadata(
     const lonVarNames = ['longitude', 'lon'];
     for (const name of lonVarNames) {
       if (keys.includes(name)) {
-        const lonVar = file.get(name);
+        const lonVar = file.get(name) as any;
         if (lonVar && lonVar.attrs) {
           const attrs = lonVar.attrs;
           const validMin = attrs.valid_min?.value || attrs.actual_min?.value;
@@ -611,7 +656,7 @@ export function parseTimeValues(
  * Secondary: lat/lon auxiliary coordinates (optional, for reference only)
  */
 function extractCoordinates(
-  file: any,
+  file: H5File,
   dimensions: { time: number; height: number; width: number }
 ): {
   x: Float32Array;        // Required: projected x coordinates (meters)
@@ -631,7 +676,7 @@ function extractCoordinates(
     // Extract x coordinate (1D projected) - REQUIRED for geospatial alignment
     if (keys.includes('x')) {
       try {
-        const xVar = file.get('x');
+        const xVar = file.get('x') as any;
         if (xVar && xVar.value && xVar.shape && xVar.shape.length === 1) {
           const [w] = xVar.shape;
           if (w === width) {
@@ -654,7 +699,7 @@ function extractCoordinates(
     // Extract y coordinate (1D projected)
     if (keys.includes('y')) {
       try {
-        const yVar = file.get('y');
+        const yVar = file.get('y') as any;
         if (yVar && yVar.value && yVar.shape && yVar.shape.length === 1) {
           const [h] = yVar.shape;
           if (h === height) {

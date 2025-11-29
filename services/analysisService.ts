@@ -1,4 +1,4 @@
-import type { DataSet, DataSlice, Layer, DataLayer, AnalysisLayer, DteCommsLayer, LpfCommsLayer, TimeRange } from '../types';
+import type { DataSet, DataSlice, Layer, DataLayer, AnalysisLayer, DteCommsLayer, LpfCommsLayer, IlluminationLayer, TimeRange } from '../types';
 import { evaluate as evaluateExpression, getVariables as getExpressionVariables, compileExpression, evaluateCompiled } from './expressionEvaluator';
 import { analysisCache, AnalysisCacheKey } from './analysisCache';
 
@@ -19,7 +19,7 @@ export const calculateExpressionLayer = async (
         if (!layer || !('dataset' in layer)) {
             throw new Error(`Variable "${v}" does not correspond to a valid data layer.`);
         }
-        sourceLayers.push(layer as any);
+        sourceLayers.push(layer as DataLayer | AnalysisLayer | DteCommsLayer | LpfCommsLayer);
     }
 
     // Check cache before computing
@@ -201,9 +201,14 @@ export const calculateDaylightFraction = (
     return result;
 };
 
-export const calculateNightfallDataset = async (sourceLayer: DataLayer): Promise<{dataset: DataSet, range: {min: number, max: number}, maxDuration: number}> => {
+export const calculateNightfallDataset = async (sourceLayer: DataLayer | IlluminationLayer, threshold?: number): Promise<{dataset: DataSet, range: {min: number, max: number}, maxDuration: number}> => {
     const { dataset, dimensions } = sourceLayer;
     const { time, height, width } = dimensions;
+
+    // For illumination layers, use threshold to determine day/night (default: 0)
+    // For data layers, values are already binary (0=night, 1=day)
+    const isIlluminationLayer = sourceLayer.type === 'illumination';
+    const effectiveThreshold = isIlluminationLayer ? (threshold ?? sourceLayer.illuminationThreshold ?? 0) : undefined;
 
     // Check cache before computing
     const datasetHash = AnalysisCacheKey.hashDataset(dataset, dimensions);
@@ -220,7 +225,14 @@ export const calculateNightfallDataset = async (sourceLayer: DataLayer): Promise
 
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-            const pixelTimeSeries = dataset.map(slice => slice[y][x]);
+            // Convert to binary day/night: for illumination layers, apply threshold
+            const pixelTimeSeries = dataset.map(slice => {
+                const value = slice[y][x];
+                if (isIlluminationLayer && effectiveThreshold !== undefined) {
+                    return value < effectiveThreshold ? 0 : 1; // Below threshold = night (0), above = day (1)
+                }
+                return value; // Already binary for data layers
+            });
 
             // --- Pass 1: Pre-compute all night periods for this pixel ---
             const nightPeriods: { start: number; end: number; duration: number }[] = [];
