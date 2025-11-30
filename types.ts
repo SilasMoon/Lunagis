@@ -1,7 +1,7 @@
 // Fix: Removed invalid file header which was causing parsing errors.
 // Fix: Define VrtData interface here to break the circular dependency with vrtParser.ts.
 
-import type { LazyDataset } from './services/LazyDataset';
+import type { ILazyDataset } from './services/LazyDataset';
 
 export interface VrtData {
   geoTransform: number[];
@@ -43,8 +43,8 @@ export type GeoCoordinates = { lat: number; lon: number } | null;
 export type PixelCoords = { x: number; y: number } | null;
 
 export interface ViewState {
-    center: [number, number]; // Projected coordinates [x, y]
-    scale: number; // Pixels per projected unit
+  center: [number, number]; // Projected coordinates [x, y]
+  scale: number; // Pixels per projected unit
 }
 
 export type TimeRange = { start: number; end: number };
@@ -86,7 +86,7 @@ export interface BaseMapLayer extends LayerBase {
 export interface DataLayer extends LayerBase {
   type: 'data';
   dataset: DataSet;
-  lazyDataset?: LazyDataset; // Optional lazy loading for large files
+  lazyDataset?: ILazyDataset; // Optional lazy loading for large files
   fileName: string; // Original file name for session saving
   range: { min: number; max: number };
   colormap: ColorMapName;
@@ -101,7 +101,7 @@ export interface DataLayer extends LayerBase {
 export interface DteCommsLayer extends LayerBase {
   type: 'dte_comms';
   dataset: DataSet;
-  lazyDataset?: LazyDataset; // Optional lazy loading for large files
+  lazyDataset?: ILazyDataset; // Optional lazy loading for large files
   fileName: string;
   range: { min: number; max: number };
   colormap: ColorMapName;
@@ -116,7 +116,7 @@ export interface DteCommsLayer extends LayerBase {
 export interface LpfCommsLayer extends LayerBase {
   type: 'lpf_comms';
   dataset: DataSet;
-  lazyDataset?: LazyDataset; // Optional lazy loading for large files
+  lazyDataset?: ILazyDataset; // Optional lazy loading for large files
   fileName: string;
   range: { min: number; max: number };
   colormap: ColorMapName;
@@ -131,7 +131,7 @@ export interface LpfCommsLayer extends LayerBase {
 export interface IlluminationLayer extends LayerBase {
   type: 'illumination';
   dataset: DataSet;
-  lazyDataset?: LazyDataset; // Optional lazy loading for large files
+  lazyDataset?: ILazyDataset; // Optional lazy loading for large files
   fileName: string;
   range: { min: number; max: number };
   colormap: ColorMapName;
@@ -442,7 +442,7 @@ export interface AppStateConfig {
   showGrid: boolean;
   gridSpacing: number;
   gridColor: string;
-  selectedCells: {x: number, y: number}[];
+  selectedCells: { x: number, y: number }[];
   selectionColor: string;
   activeTool: Tool;
   artifacts: SerializableArtifact[];

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { parseNpy } from '../services/npyParser';
 import { parseNpyHeader } from '../services/streamingNpyParser';
 import { parseNetCdfHeader, closeNetCdfFile } from '../services/streamingNetCdfParser';
-import { LazyDataset } from '../services/LazyDataset';
+import { LazyDataset, NetCDFReader } from '../services/LazyDataset';
 import { parseVrt } from '../services/vrtParser';
 import { parseNetCdf4, parseTimeValues } from '../services/netcdf4Parser';
 // Note: NetCDF streaming is limited - h5wasm requires full file in memory, but we defer processing
@@ -953,293 +953,151 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsLoading(`Parsing NetCDF4 file "${file.name}"...`);
 
     try {
-      // Use streaming parser for large files (>50 MB)
-      // Note: h5wasm still loads full file, but we defer data processing
-      const useStreaming = file.size > 50 * 1024 * 1024;
+      // Always use lazy loading for NetCDF files to prevent OOM
+      const arrayBuffer = await file.arrayBuffer();
+      const { reader, shape, dimensions, metadata, coordinates } = await parseNetCdf4(arrayBuffer);
+      const { time, height, width } = dimensions;
 
-      if (useStreaming) {
-        // STREAMING PATH: Parse header, defer data restructuring
-        const { metadata: streamMetadata, h5file } = await parseNetCdfHeader(file, (progress) => {
-          setIsLoading(progress.message);
-        });
-
-        const { time, height, width } = streamMetadata.dimensions;
-
-        setIsLoading(`Creating lazy dataset for NetCDF (${(file.size / 1024 / 1024).toFixed(0)} MB)...`);
-
-        // Create lazy dataset with h5wasm file handle
-        const lazyDataset = new LazyDataset(
-          file,
-          streamMetadata,
-          {
-            cacheSize: 20,
-            preloadAdjacent: true,
-            preloadDistance: 2
-          },
-          h5file  // Pass h5wasm file handle
-        );
-
-        lazyDataset.setProgressCallback((progress) => {
-          setIsLoading(progress.message);
-        });
-
-        setIsLoading('Loading first slice to determine range...');
-
-        // Load first slice to determine data range
-        const firstSlice = await lazyDataset.getSlice(0);
-        let min = Infinity, max = -Infinity;
-        for (const value of firstSlice) {
-          if (value < min) min = value;
-          if (value > max) max = value;
+      // Calculate min/max from the first slice as an approximation
+      let min = 0, max = 1;
+      try {
+        const firstSlice = await reader.getSlice(0);
+        min = Infinity;
+        max = -Infinity;
+        // Sample the slice to avoid iterating everything if it's huge
+        const step = Math.ceil(firstSlice.length / 10000);
+        for (let i = 0; i < firstSlice.length; i += step) {
+          const val = firstSlice[i];
+          if (val < min) min = val;
+          if (val > max) max = val;
         }
-
-        console.log(`📊 Lazy NetCDF dataset created: ${time} time slices`);
-
-        // Parse temporal metadata
-        let temporalInfo: IlluminationLayer['temporalInfo'] = undefined;
-        if (streamMetadata.netcdfMetadata.timeValues && streamMetadata.netcdfMetadata.timeUnit) {
-          try {
-            const dates = parseTimeValues(
-              streamMetadata.netcdfMetadata.timeValues,
-              streamMetadata.netcdfMetadata.timeUnit
-            );
-            temporalInfo = {
-              dates,
-              startDate: dates[0],
-              endDate: dates[dates.length - 1]
-            };
-          } catch (error) {
-            console.warn('Failed to parse temporal metadata:', error);
-          }
+        // Ensure valid range
+        if (!isFinite(min) || !isFinite(max) || min === max) {
+          min = 0; max = 1;
         }
+      } catch (e) {
+        console.warn('Failed to calculate min/max from first slice:', e);
+      }
 
-        // Create layer with lazy dataset
-        const newLayer: IlluminationLayer = {
-          id: generateSecureId('illumination'),
-          name: file.name,
-          type: 'illumination',
-          visible: true,
-          opacity: 1.0,
-          fileName: file.name,
-          dataset: [], // Empty - using lazy loading
-          lazyDataset: lazyDataset,
-          range: { min, max },
-          colormap: 'Grayscale',
-          colormapInverted: false,
-          customColormap: [
-            { value: min, color: '#000000' },
-            { value: max, color: '#ffffff' }
-          ],
-          dimensions: { time, height, width },
-          metadata: {
-            title: streamMetadata.netcdfMetadata.title,
-            institution: streamMetadata.netcdfMetadata.institution,
-            source: streamMetadata.netcdfMetadata.source,
-            conventions: streamMetadata.netcdfMetadata.conventions,
-            timeUnit: streamMetadata.netcdfMetadata.timeUnit,
-            timeValues: streamMetadata.netcdfMetadata.timeValues,
-            crs: streamMetadata.netcdfMetadata.crs,
-          },
-          temporalInfo,
-          // Note: Geospatial bounds skipped for lazy-loaded files (can be added if needed)
-        };
-
-        setLayers(prev => [...prev, newLayer]);
-        setActiveLayerId(newLayer.id);
-
-        if (!primaryDataLayer) {
-          const initialTimeRange = { start: 0, end: time - 1 };
-          setTimeRange(initialTimeRange);
-          setCurrentDateIndex(0);
-          setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
-          if (!viewState) {
-            setViewState(null);
-          }
-        }
-
-        console.log(`✅ NetCDF file loaded successfully (lazy mode)`);
-      } else {
-        // TRADITIONAL PATH: Full load and restructure (for smaller files < 50 MB)
-        const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
-        const arrayBuffer = await file.arrayBuffer();
-        const { data: float32Array, shape, dimensions, metadata, coordinates } = await parseNetCdf4(arrayBuffer);
-
-        const { time, height, width } = dimensions;
-        let min = Infinity, max = -Infinity;
-        for (const value of float32Array) {
-          if (value < min) min = value;
-          if (value > max) max = value;
-        }
-
-        // Create the 3D dataset array [time][height][width]
-        const dataset: DataSet = Array.from({ length: time }, () =>
-          Array.from({ length: height }, () => new Array(width))
-        );
-
-        // NetCDF4 data is typically in [time, y, x] order (C-order)
-        let flatIndex = 0;
-        for (let t = 0; t < time; t++) {
-          for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-              dataset[t][y][x] = float32Array[flatIndex++];
-            }
-          }
-          if (t % 100 === 0) await yieldToMain();
-        }
-
-        // Calculate bounds from projected coordinates if available
-        let geospatial: IlluminationLayer['geospatial'] = undefined;
-        if (coordinates && metadata.crs) {
-          const { x: xCoords, y: yCoords } = coordinates;
-
-          // Use NetCDF's own projection (from spatial_ref or construct from parameters)
-          let projDef: string;
-          if (metadata.crs.spatialRef) {
-            // Use Proj4 string from NetCDF if available
-            projDef = metadata.crs.spatialRef;
-            console.log('Using Proj4 from NetCDF spatial_ref:', projDef);
-          } else {
-            // Construct Proj4 string from CF parameters
-            const { latitudeOfOrigin, centralMeridian, semiMajorAxis } = metadata.crs;
-            projDef = `+proj=stere +lat_0=${latitudeOfOrigin || -90} +lon_0=${centralMeridian || 0} +k=1 +x_0=0 +y_0=0 +R=${semiMajorAxis || 1737400} +units=m +no_defs`;
-            console.log('Constructed Proj4 from NetCDF parameters:', projDef);
-          }
-
-          const proj = proj4(projDef);
-
-          // Get projected bounds
-          // According to DATA_FORMAT.md spec:
-          // - x is STRICTLY INCREASING (left to right): x[0] < x[N]
-          // - y is STRICTLY DECREASING (top to bottom): y[0] > y[N]
-          const projectedBounds = {
-            xMin: xCoords[0],                    // Left edge (west)
-            xMax: xCoords[xCoords.length - 1],   // Right edge (east)
-            yMin: yCoords[yCoords.length - 1],   // Bottom edge (south) - smallest value
-            yMax: yCoords[0],                    // Top edge (north) - largest value
+      // Parse temporal info
+      let temporalInfo: IlluminationLayer['temporalInfo'] = undefined;
+      if (metadata.timeValues && metadata.timeUnit) {
+        try {
+          const dates = parseTimeValues(metadata.timeValues, metadata.timeUnit);
+          temporalInfo = {
+            dates,
+            startDate: dates[0],
+            endDate: dates[dates.length - 1]
           };
+        } catch (error) {
+          console.warn('Failed to parse temporal metadata:', error);
+        }
+      }
 
-          console.log('Projected bounds:', {
-            xMin: projectedBounds.xMin,
-            xMax: projectedBounds.xMax,
-            yMin: projectedBounds.yMin,
-            yMax: projectedBounds.yMax,
-            xCoords_first: xCoords[0],
-            xCoords_last: xCoords[xCoords.length - 1],
-            yCoords_first: yCoords[0],
-            yCoords_last: yCoords[yCoords.length - 1],
-          });
+      // Calculate geospatial bounds
+      let geospatial: IlluminationLayer['geospatial'] = undefined;
+      if (coordinates && metadata.crs) {
+        const { x: xCoords, y: yCoords } = coordinates;
 
-          // Compute geographic bounds using proj.inverse on the corners
-          // Order: [bottomLeft, bottomRight, topRight, topLeft]
-          const cornersProj = [
-            [projectedBounds.xMin, projectedBounds.yMin], // Bottom-Left
-            [projectedBounds.xMax, projectedBounds.yMin], // Bottom-Right
-            [projectedBounds.xMax, projectedBounds.yMax], // Top-Right
-            [projectedBounds.xMin, projectedBounds.yMax], // Top-Left
-          ];
-          const corners = cornersProj.map(([x, y]) => proj.inverse([x, y]));
+        let projDef: string;
+        if (metadata.crs.spatialRef) {
+          projDef = metadata.crs.spatialRef;
+        } else {
+          projDef = '+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=1737400 +b=1737400 +units=m +no_defs';
+        }
 
-          const geographicBounds = {
-            lonMin: Math.min(...corners.map(c => c[0])),
-            lonMax: Math.max(...corners.map(c => c[0])),
-            latMin: Math.min(...corners.map(c => c[1])),
-            latMax: Math.max(...corners.map(c => c[1])),
-          };
+        try {
+          const unproject = proj4(projDef, 'EPSG:4326');
+          const xMin = xCoords[0];
+          const xMax = xCoords[xCoords.length - 1];
+          const yMin = yCoords[yCoords.length - 1];
+          const yMax = yCoords[0];
+
+          const tl = unproject.forward([xMin, yMax]);
+          const tr = unproject.forward([xMax, yMax]);
+          const bl = unproject.forward([xMin, yMin]);
+          const br = unproject.forward([xMax, yMin]);
+
+          const lons = [tl[0], tr[0], bl[0], br[0]];
+          const lats = [tl[1], tr[1], bl[1], br[1]];
 
           geospatial = {
-            projectedBounds,
-            geographicBounds,
-            corners: {
-              bottomLeft: { lon: corners[0][0], lat: corners[0][1] },
-              bottomRight: { lon: corners[1][0], lat: corners[1][1] },
-              topRight: { lon: corners[2][0], lat: corners[2][1] },
-              topLeft: { lon: corners[3][0], lat: corners[3][1] },
+            projectedBounds: { xMin, xMax, yMin, yMax },
+            geographicBounds: {
+              lonMin: Math.min(...lons),
+              lonMax: Math.max(...lons),
+              latMin: Math.min(...lats),
+              latMax: Math.max(...lats)
             },
+            corners: {
+              topLeft: { lon: tl[0], lat: tl[1] },
+              topRight: { lon: tr[0], lat: tr[1] },
+              bottomLeft: { lon: bl[0], lat: bl[1] },
+              bottomRight: { lon: br[0], lat: br[1] }
+            }
           };
-
-          console.log('Illumination layer geospatial metadata:', {
-            projected: projectedBounds,
-            geographic: geographicBounds,
-            corners: geospatial.corners,
-            proj: projDef,
-          });
-        } else if (coordinates && !metadata.crs) {
-          console.warn('NetCDF has coordinates but no CRS metadata - cannot compute geographic bounds');
+        } catch (e) {
+          console.warn('Failed to calculate geospatial bounds:', e);
         }
-
-        // Parse temporal metadata to get actual dates
-        let temporalInfo: IlluminationLayer['temporalInfo'] = undefined;
-        if (metadata.timeValues && metadata.timeUnit) {
-          try {
-            const dates = parseTimeValues(metadata.timeValues, metadata.timeUnit);
-            temporalInfo = {
-              dates,
-              startDate: dates[0],
-              endDate: dates[dates.length - 1],
-            };
-            console.log('Parsed temporal info:', {
-              startDate: temporalInfo.startDate.toISOString(),
-              endDate: temporalInfo.endDate.toISOString(),
-              numDates: dates.length,
-            });
-          } catch (error) {
-            console.warn('Failed to parse temporal metadata:', error);
-          }
-        }
-
-        const newLayer: IlluminationLayer = {
-          id: generateSecureId('illumination'),
-          name: file.name,
-          type: 'illumination',
-          visible: true,
-          opacity: 1.0,
-          fileName: file.name,
-          dataset,
-          range: { min, max },
-          colormap: 'Grayscale',
-          colormapInverted: false,
-          customColormap: [
-            { value: min, color: '#000000' },
-            { value: max, color: '#ffffff' }
-          ],
-          dimensions: { time, height, width },
-          metadata: {
-            title: metadata.title,
-            institution: metadata.institution,
-            source: metadata.source,
-            conventions: metadata.conventions,
-            timeUnit: metadata.timeUnit,
-            timeValues: metadata.timeValues,
-            crs: metadata.crs,
-          },
-          temporalInfo,
-          geospatial,
-        };
-
-        setLayers(prev => [...prev, newLayer]);
-        setActiveLayerId(newLayer.id);
-
-        // Set as primary layer if it's the first data layer
-        if (!primaryDataLayer) {
-          const initialTimeRange = { start: 0, end: time - 1 };
-          setTimeRange(initialTimeRange);
-          setCurrentDateIndex(0);
-
-          // Use temporal info if available, otherwise use index-based dates
-          if (temporalInfo) {
-            setTimeZoomDomain([temporalInfo.startDate, temporalInfo.endDate]);
-          } else {
-            setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
-          }
-
-          // Only reset viewState if not already set to preserve user's zoom level
-          if (!viewState) {
-            setViewState(null);
-          }
-        }
-
-        console.log(`✅ NetCDF file loaded successfully (traditional mode)`);
       }
+
+      const newLayer: IlluminationLayer = {
+        id: generateSecureId('illumination'),
+        name: file.name,
+        type: 'illumination',
+        visible: true,
+        opacity: 1.0,
+        fileName: file.name,
+        dataset: [], // Empty for lazy loading
+        lazyDataset: reader,
+        range: { min, max },
+        colormap: 'Grayscale',
+        colormapInverted: false,
+        customColormap: [
+          { value: min, color: '#000000' },
+          { value: max, color: '#ffffff' }
+        ],
+        dimensions: { time, height, width },
+        metadata: {
+          title: metadata.title,
+          institution: metadata.institution,
+          source: metadata.source,
+          conventions: metadata.conventions,
+          timeUnit: metadata.timeUnit,
+          timeValues: metadata.timeValues,
+          crs: metadata.crs,
+        },
+        temporalInfo,
+        geospatial,
+      };
+
+      setLayers(prev => [...prev, newLayer]);
+      setActiveLayerId(newLayer.id);
+
+      if (!primaryDataLayer) {
+        const initialTimeRange = { start: 0, end: time - 1 };
+        setTimeRange(initialTimeRange);
+        setCurrentDateIndex(0);
+
+        if (temporalInfo) {
+          setTimeZoomDomain([temporalInfo.startDate, temporalInfo.endDate]);
+        } else {
+          setTimeZoomDomain([indexToDate(0), indexToDate(time - 1)]);
+        }
+
+        if (!viewState && geospatial) {
+          const { xMin, xMax, yMin, yMax } = geospatial.projectedBounds;
+          const centerX = (xMin + xMax) / 2;
+          const centerY = (yMin + yMax) / 2;
+          const maxDim = Math.max(xMax - xMin, yMax - yMin);
+          const scale = 800 / maxDim;
+          setViewState({ center: [centerX, centerY], scale });
+        } else if (!viewState) {
+          setViewState(null);
+        }
+      }
+
+      console.log(`✅ NetCDF file loaded successfully (lazy mode)`);
     } catch (error) {
       showError(`Error loading NetCDF4 file: ${error instanceof Error ? error.message : String(error)}`);
     } finally {

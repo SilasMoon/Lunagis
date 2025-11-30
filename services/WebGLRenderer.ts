@@ -376,24 +376,34 @@ export class WebGLRenderer {
     handle.currentTimeIndex = timeIndex;
 
     // Get new data
+    // Get new data
     if ('lazyDataset' in layer && layer.lazyDataset) {
-      const result = layer.lazyDataset.getSlice(timeIndex);
+      // Try synchronous cache first
+      const cached = layer.lazyDataset.getCachedSlice(timeIndex);
 
-      if (result instanceof Promise) {
-        // Handle async loading with race condition check
-        result.then((data) => {
-          // Check if this is still the requested time index
-          if (this.layers.get(layerId)?.currentTimeIndex === timeIndex) {
-            const dataFloat = data instanceof Float32Array ? data : new Float32Array(data);
-            this.textureManager.updateTexture(handle.texture, handle.width, handle.height, dataFloat);
-          }
-        }).catch(err => {
-          console.error(`Failed to update layer ${layerId} time:`, err);
-        });
-      } else {
+      if (cached) {
         // Synchronous update
-        const dataFloat = (result as any) instanceof Float32Array ? result : new Float32Array(result);
-        this.textureManager.updateTexture(handle.texture, handle.width, handle.height, dataFloat);
+        this.textureManager.updateTexture(handle.texture, handle.width, handle.height, cached);
+      } else {
+        // Async load
+        const result = layer.lazyDataset.getSlice(timeIndex);
+
+        if (result instanceof Promise) {
+          // Handle async loading with race condition check
+          result.then((data) => {
+            // Check if this is still the requested time index
+            if (this.layers.get(layerId)?.currentTimeIndex === timeIndex) {
+              const dataFloat = data instanceof Float32Array ? data : new Float32Array(data);
+              this.textureManager.updateTexture(handle.texture, handle.width, handle.height, dataFloat);
+            }
+          }).catch(err => {
+            console.error(`Failed to update layer ${layerId} time:`, err);
+          });
+        } else {
+          // Should not happen if getSlice returns Promise, but for safety
+          const dataFloat = (result as any) instanceof Float32Array ? result : new Float32Array(result);
+          this.textureManager.updateTexture(handle.texture, handle.width, handle.height, dataFloat);
+        }
       }
     } else {
       const slice2D = layer.dataset[timeIndex];

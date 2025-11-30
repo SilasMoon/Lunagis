@@ -56,11 +56,12 @@ const createColorLookupTable = (
     const color = d3.color(colorScale(value));
 
     if (color) {
+      const rgb = color.rgb();
       const baseIdx = i * 4;
-      table[baseIdx] = color.r;
-      table[baseIdx + 1] = color.g;
-      table[baseIdx + 2] = color.b;
-      table[baseIdx + 3] = color.opacity * 255;
+      table[baseIdx] = rgb.r;
+      table[baseIdx + 1] = rgb.g;
+      table[baseIdx + 2] = rgb.b;
+      table[baseIdx + 3] = rgb.opacity * 255;
     }
   }
 
@@ -928,31 +929,23 @@ export const DataCanvas: React.FC = () => {
           // Handle lazy loading or traditional dataset
           const actualTimeIndex = getLayerTimeIndex(layer, timeIndex);
           let slice: number[][] | undefined;
+          let flatSlice: Float32Array | undefined;
 
           if ('lazyDataset' in layer && layer.lazyDataset) {
-            // Lazy loading: check if slice already in dataset, otherwise trigger load
-            slice = layer.dataset[actualTimeIndex];
+            // Lazy loading: check cache first
+            flatSlice = layer.lazyDataset.getCachedSlice(actualTimeIndex);
 
-            if (!slice) {
+            if (!flatSlice) {
               // Slice not yet loaded - trigger async load
-              layer.lazyDataset.getSlice(actualTimeIndex).then((flatSlice) => {
-                // Convert TypedArray to 2D array and store in dataset
-                const { width, height } = layer.dimensions;
-                const slice2D: number[][] = [];
-                for (let y = 0; y < height; y++) {
-                  const row: number[] = [];
-                  for (let x = 0; x < width; x++) {
-                    row.push(flatSlice[y * width + x]);
-                  }
-                  slice2D.push(row);
-                }
-                layer.dataset[actualTimeIndex] = slice2D;
-                // Invalidate cache to trigger re-render
+              layer.lazyDataset.getSlice(actualTimeIndex).then(() => {
+                // Data is now in cache, invalidate canvas cache to trigger re-render
                 offscreenCanvasCache.delete(cacheKey);
+                // Force re-render (hacky but needed if state doesn't change)
+                setIsRendering(prev => !prev);
               }).catch(err => {
                 console.error('Failed to load lazy slice:', err);
               });
-              // Skip rendering this frame - will render next frame when loaded
+              // Skip rendering this frame
               return;
             }
           } else {
@@ -985,36 +978,76 @@ export const DataCanvas: React.FC = () => {
           );
           const imageData = offscreenCtx.createImageData(width, height);
 
-          // Pre-compute color lookup table (256 colors instead of 1M+ d3.color() calls)
-          const colorLUT = createColorLookupTable(colorScale, colorDomain, 256);
+          // Use Uint32Array view for faster pixel manipulation (little-endian: ABGR)
+          const data32 = new Uint32Array(imageData.data.buffer);
+
+          // Pre-compute color lookup table (256 colors)
+          // Format as Uint32 for direct assignment: 0xAABBGGRR (little-endian)
+          const colorLUT32 = new Uint32Array(256);
+          const tempLUT = createColorLookupTable(colorScale, colorDomain, 256);
+          for (let i = 0; i < 256; i++) {
+            const r = tempLUT[i * 4];
+            const g = tempLUT[i * 4 + 1];
+            const b = tempLUT[i * 4 + 2];
+            const a = tempLUT[i * 4 + 3];
+            // Pack into 32-bit integer (ABGR for little-endian)
+            colorLUT32[i] = (a << 24) | (b << 16) | (g << 8) | r;
+          }
+
           const [minVal, maxVal] = colorDomain;
           const valueRange = maxVal - minVal;
+          const invValueRange = valueRange !== 0 ? 1 / valueRange : 0;
 
-          for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-              const value = slice[y][x];
-              const pixelIdx = (y * width + x) * 4;
+          // Optimized rendering loop
+          if (flatSlice) {
+            // Render from Float32Array (flat)
+            for (let i = 0; i < width * height; i++) {
+              const value = flatSlice[i];
 
               // Map value to lookup table index (0-255)
-              let normalized = (value - minVal) / valueRange;
-              normalized = Math.max(0, Math.min(1, normalized)); // Clamp to [0, 1]
-              const lutIdx = Math.floor(normalized * 255) * 4;
+              let normalized = (value - minVal) * invValueRange;
+              // Fast clamp
+              if (normalized < 0) normalized = 0;
+              if (normalized > 1) normalized = 1;
 
-              // Fast lookup instead of d3.color() call
-              imageData.data[pixelIdx] = colorLUT[lutIdx];
-              imageData.data[pixelIdx + 1] = colorLUT[lutIdx + 1];
-              imageData.data[pixelIdx + 2] = colorLUT[lutIdx + 2];
-              imageData.data[pixelIdx + 3] = colorLUT[lutIdx + 3];
+              const lutIdx = (normalized * 255) | 0; // Fast floor
+              let pixel = colorLUT32[lutIdx];
 
               // Apply transparency thresholds
               if (layer.transparencyLowerThreshold !== undefined && value <= layer.transparencyLowerThreshold) {
-                imageData.data[pixelIdx + 3] = 0; // Set alpha to transparent
+                pixel = 0; // Transparent
+              } else if (layer.transparencyUpperThreshold !== undefined && value >= layer.transparencyUpperThreshold) {
+                pixel = 0; // Transparent
               }
-              if (layer.transparencyUpperThreshold !== undefined && value >= layer.transparencyUpperThreshold) {
-                imageData.data[pixelIdx + 3] = 0; // Set alpha to transparent
+
+              data32[i] = pixel;
+            }
+          } else if (slice) {
+            // Render from number[][] (legacy)
+            let i = 0;
+            for (let y = 0; y < height; y++) {
+              const row = slice[y];
+              for (let x = 0; x < width; x++) {
+                const value = row[x];
+
+                let normalized = (value - minVal) * invValueRange;
+                if (normalized < 0) normalized = 0;
+                if (normalized > 1) normalized = 1;
+
+                const lutIdx = (normalized * 255) | 0;
+                let pixel = colorLUT32[lutIdx];
+
+                if (layer.transparencyLowerThreshold !== undefined && value <= layer.transparencyLowerThreshold) {
+                  pixel = 0;
+                } else if (layer.transparencyUpperThreshold !== undefined && value >= layer.transparencyUpperThreshold) {
+                  pixel = 0;
+                }
+
+                data32[i++] = pixel;
               }
             }
           }
+
           offscreenCtx.putImageData(imageData, 0, 0);
           offscreenCanvasCache.set(cacheKey, offscreenCanvas);
         }

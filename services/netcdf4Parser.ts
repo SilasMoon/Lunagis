@@ -12,9 +12,10 @@
 
 import * as h5wasm from 'h5wasm';
 import type { File as H5File, Dataset as H5Dataset } from 'h5wasm';
+import { NetCDFReader } from './LazyDataset';
 
 export interface NetCdf4ParseResult {
-  data: Float32Array | Uint8Array | Uint16Array | Int16Array;
+  reader: NetCDFReader;
   shape: [number, number, number]; // [time, height, width]
   dimensions: {
     time: number;
@@ -109,73 +110,69 @@ export async function parseNetCdf4(arrayBuffer: ArrayBuffer): Promise<NetCdf4Par
     const uint8Array = new Uint8Array(arrayBuffer);
     const filename = `uploaded_file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.nc`;
 
+    // Write file to virtual filesystem
+    h5wasm.FS.writeFile(filename, uint8Array);
+
+    // Try to open the file with h5wasm
+    let file;
     try {
-      // Write file to virtual filesystem
-      h5wasm.FS.writeFile(filename, uint8Array);
+      // h5wasm.File constructor signature: File(buffer, filename)
+      // Open from virtual filesystem
+      file = new h5wasm.File(filename, 'r');
+    } catch (openError) {
+      const errorMsg = openError instanceof Error ? openError.message : String(openError);
+      // Clean up if open fails
+      try { h5wasm.FS.unlink(filename); } catch (e) { }
 
-      // Try to open the file with h5wasm
-      let file;
-      try {
-        // h5wasm.File constructor signature: File(buffer, filename)
-        // Open from virtual filesystem
-        file = new h5wasm.File(filename, 'r');
-      } catch (openError) {
-        const errorMsg = openError instanceof Error ? openError.message : String(openError);
+      throw new Error(
+        `Failed to open NetCDF-4 file. ${errorMsg}\n\n` +
+        `This file appears to use HDF5 features (likely compression) that cannot be read in the browser. ` +
+        `\n\nWORKAROUND: Convert the file using this Python command:\n` +
+        `nccopy -d0 input.nc output.nc\n\n` +
+        `This will create an uncompressed version that can be loaded in the browser.`
+      );
+    }
 
-        // Provide helpful error message with workaround
-        throw new Error(
-          `Failed to open NetCDF-4 file. ${errorMsg}\n\n` +
-          `This file appears to use HDF5 features (likely compression) that cannot be read in the browser. ` +
-          `\n\nWORKAROUND: Convert the file using this Python command:\n` +
-          `nccopy -d0 input.nc output.nc\n\n` +
-          `This will create an uncompressed version that can be loaded in the browser.`
-        );
+    console.log('File opened successfully');
+
+    try {
+      // Extract dimensions from the file
+      const dimensions = extractDimensions(file);
+      console.log('Dimensions extracted:', dimensions);
+
+      // Find the main data variable (illumination)
+      const dataVarName = findDataVariable(file);
+      console.log('Data variable found:', dataVarName);
+
+      const dataset = file.get(dataVarName) as H5Dataset;
+      const dtype = dataset.dtype as unknown as string;
+
+      // Extract metadata
+      const metadata = extractMetadata(file, dataVarName, dimensions, dtype);
+      console.log('Metadata extracted');
+
+      // Extract coordinate arrays
+      const coordinates = extractCoordinates(file, dimensions);
+      if (coordinates) {
+        console.log('Coordinate arrays extracted');
       }
 
-      console.log('File opened successfully');
-      console.log('File keys:', file.keys());
+      // Create lazy reader
+      // Note: We do NOT close the file here, the reader takes ownership
+      const reader = new NetCDFReader(h5, file, dataset, filename);
 
-      try {
-        // Extract dimensions from the file
-        const dimensions = extractDimensions(file);
-        console.log('Dimensions extracted:', dimensions);
-
-        // Find and extract the main data variable (illumination)
-        const dataVariable = findDataVariable(file);
-        console.log('Data variable found:', dataVariable);
-
-        const { data, dtype } = extractDataVariable(file, dataVariable, dimensions);
-        console.log(`Data extracted: ${data.length} values (type: ${dtype})`);
-
-        // Extract metadata
-        const metadata = extractMetadata(file, dataVariable, dimensions, dtype);
-        console.log('Metadata extracted');
-
-        // Extract coordinate arrays
-        const coordinates = extractCoordinates(file, dimensions);
-        if (coordinates) {
-          console.log('Coordinate arrays extracted');
-        }
-
-        return {
-          data,
-          shape: [dimensions.time, dimensions.height, dimensions.width],
-          dimensions,
-          metadata,
-          coordinates,
-        };
-      } finally {
-        // Close the file handle
-        file.close();
-      }
-    } finally {
-      // Clean up virtual file from filesystem
-      try {
-        h5wasm.FS.unlink(filename);
-        console.log(`Virtual file ${filename} deleted`);
-      } catch (e) {
-        console.warn(`Failed to delete virtual file ${filename}:`, e);
-      }
+      return {
+        reader,
+        shape: [dimensions.time, dimensions.height, dimensions.width],
+        dimensions,
+        metadata,
+        coordinates,
+      };
+    } catch (e) {
+      // If setup fails, close file and cleanup
+      file.close();
+      try { h5wasm.FS.unlink(filename); } catch (e) { }
+      throw e;
     }
   } catch (error) {
     if (error instanceof Error) {
@@ -289,177 +286,6 @@ function findDataVariable(file: H5File): string {
   throw new Error(
     `Could not find data variable. Available variables: ${keys.join(', ')}`
   );
-}
-
-/**
- * Extract the data variable, preserving its original data type for memory efficiency
- */
-function extractDataVariable(
-  file: H5File,
-  variableName: string,
-  dimensions: { time: number; height: number; width: number }
-): { data: Float32Array | Uint8Array | Uint16Array | Int16Array; dtype: string } {
-  const dataset = file.get(variableName) as H5Dataset;
-
-  if (!dataset) {
-    throw new Error(`Variable "${variableName}" not found in file`);
-  }
-
-  // Validate variable dimensions
-  if (!dataset.shape || dataset.shape.length !== 3) {
-    throw new Error(
-      `Expected 3D data variable, got ${dataset.shape ? dataset.shape.length : 0}D`
-    );
-  }
-
-  console.log(`Reading variable "${variableName}" with shape:`, dataset.shape);
-  console.log('Dataset dtype:', dataset.dtype);
-
-  // Calculate expected size
-  const expectedSize = dimensions.time * dimensions.height * dimensions.width;
-  console.log(`Expected data size: ${expectedSize} values (${dimensions.time} × ${dimensions.height} × ${dimensions.width})`);
-
-  try {
-    console.log('Reading dataset value...');
-
-    // Determine bytes per value based on dtype
-    const dtype = dataset.dtype as unknown as string;
-    let bytesPerValue = 4; // Default to float32
-    if (dtype === '<B' || dtype === '|u1' || dtype === '|i1') {
-      bytesPerValue = 1; // uint8 or int8
-    } else if (dtype === '<H' || dtype === '<h' || dtype === '|u2' || dtype === '|i2') {
-      bytesPerValue = 2; // uint16 or int16
-    } else if (dtype === '<I' || dtype === '<i' || dtype === '|u4' || dtype === '|i4' || dtype === '<f4') {
-      bytesPerValue = 4; // uint32, int32, or float32
-    } else if (dtype === '<f8' || dtype === '<d') {
-      bytesPerValue = 8; // float64
-    }
-
-    // Check dataset size and warn if too large for browser
-    const dataSize = expectedSize;
-    const totalBytes = dataSize * bytesPerValue;
-    const totalMB = totalBytes / (1024 * 1024);
-    const totalGB = totalMB / 1024;
-
-    console.log(`Dataset size: ${dataSize.toLocaleString()} values (${totalMB.toFixed(2)} MB / ${totalGB.toFixed(2)} GB)`);
-
-    // Warn if dataset is very large (>1 GB)
-    if (totalBytes > 1024 * 1024 * 1024) {
-      console.warn(`⚠️  Large dataset detected: ${totalGB.toFixed(2)} GB`);
-      console.warn('This may cause browser memory issues. Consider using a smaller subset of the data.');
-    }
-
-    // For h5wasm, we need to read the dataset differently for large files
-    // The library may require chunked reading for very large datasets
-    let rawData: Float32Array | Float64Array | Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | number[];
-
-    try {
-      // Try to access the value directly
-      // h5wasm should handle buffer allocation internally
-      const value = dataset.value;
-      if (value === null) {
-        throw new Error('Dataset value is null');
-      }
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        throw new Error('Expected array data, got scalar value');
-      }
-      rawData = value as Float32Array | Float64Array | Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | number[];
-    } catch (readError) {
-      // If direct read fails, try alternative approaches
-      const errorMsg = readError instanceof Error ? readError.message : String(readError);
-
-      if (errorMsg.includes('no output buffer') || errorMsg.includes('synchronously read')) {
-        // This dataset is too large or requires chunked reading
-        throw new Error(
-          `Dataset too large to read in browser (${totalGB.toFixed(2)} GB). ` +
-          `The file needs to be downsampled or split into smaller chunks.\n\n` +
-          `Options:\n` +
-          `1. Use a smaller time range\n` +
-          `2. Reduce spatial resolution\n` +
-          `3. Process on server-side instead of client-side\n\n` +
-          `Technical details: ${errorMsg}`
-        );
-      }
-
-      throw readError;
-    }
-
-    console.log('Raw data type:', (rawData as any).constructor.name);
-    console.log('Raw data length:', rawData.length);
-
-    // Preserve original data type for memory efficiency
-    // Only convert Float64Array to Float32Array for compatibility
-    let flatData: Float32Array | Uint8Array | Uint16Array | Int16Array;
-
-    if (rawData instanceof Float32Array) {
-      flatData = rawData;
-    } else if (rawData instanceof Float64Array) {
-      console.log('Converting Float64Array to Float32Array...');
-      flatData = new Float32Array(rawData);
-    } else if (rawData instanceof Uint8Array) {
-      console.log('Keeping data as Uint8Array (1 byte per value)');
-      flatData = rawData;
-    } else if (rawData instanceof Int8Array) {
-      console.log('Converting Int8Array to Uint8Array...');
-      flatData = new Uint8Array(rawData);
-    } else if (rawData instanceof Uint16Array) {
-      console.log('Keeping data as Uint16Array (2 bytes per value)');
-      flatData = rawData;
-    } else if (rawData instanceof Int16Array) {
-      console.log('Keeping data as Int16Array (2 bytes per value)');
-      flatData = rawData;
-    } else if (rawData instanceof Uint32Array || rawData instanceof Int32Array) {
-      console.log(`Converting ${rawData.constructor.name} to Float32Array (32-bit precision)...`);
-      flatData = new Float32Array(rawData);
-    } else if (Array.isArray(rawData)) {
-      console.log('Converting array to Float32Array...');
-      // Flatten nested arrays efficiently without stack overflow or massive memory spikes
-      const flatten = (arr: any[]): number[] => {
-        const result: number[] = [];
-        const stack = [...arr];
-        while (stack.length) {
-          const next = stack.pop();
-          if (Array.isArray(next)) {
-            stack.push(...next);
-          } else {
-            result.push(Number(next));
-          }
-        }
-        return result.reverse(); // Stack traversal reverses order
-      };
-      // Note: For very large deep arrays, a generator or iterative push might be better,
-      // but for NetCDF data which is usually just 1 level of nesting (if any), this is safer than flat(Infinity).
-      // However, h5wasm usually returns TypedArrays. If we get here, it's an edge case.
-      // A safer simple flatten for data arrays:
-      const flatValues: number[] = [];
-      const stack: any[] = [rawData];
-      while (stack.length > 0) {
-        const item = stack.shift();
-        if (Array.isArray(item)) {
-          stack.unshift(...item);
-        } else {
-          flatValues.push(Number(item));
-        }
-      }
-      flatData = new Float32Array(flatValues);
-      throw new Error(
-        `Unsupported data type: ${(rawData as any).constructor.name}`
-      );
-    }
-
-    if (flatData.length !== expectedSize) {
-      throw new Error(
-        `Data size mismatch. Expected ${expectedSize} values, got ${flatData.length}.`
-      );
-    }
-
-    return { data: flatData, dtype };
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`Failed to extract data: ${error.message}`);
-    }
-    throw error;
-  }
 }
 
 /**
